@@ -1,0 +1,66 @@
+# Print Farm Manager — Documentation
+
+A locally-hosted web app for managing a 50+ printer Prusa fleet via PrusaLink. Replaces manual USB job distribution with centralized status monitoring and automated job dispatch.
+
+## Quick Start
+
+```bash
+npm install
+cd client && npm install && cd ..
+npm run dev
+```
+
+- API: `http://localhost:3000`
+- UI: `http://localhost:5173`
+
+## Documentation Index
+
+| File | What it covers |
+|---|---|
+| [docs/server.md](server.md) | Express entry point, scheduler wiring, port config, route mounting, startup sequence |
+| [docs/database.md](database.md) | SQLite schema — all 5 tables, column types, conventions |
+| [docs/poller.md](poller.md) | Printer polling loop, concurrency model, event emissions |
+| [docs/api.md](api.md) | All REST endpoints — request/response shapes, error codes |
+| [docs/web-app.md](web-app.md) | React client — pages, routing, layout, live-update pattern |
+| [docs/CHANGELOG.md](CHANGELOG.md) | Dated log of all implemented features and changes |
+
+## Project Structure
+
+```
+print-farm-manager/
+├── server/
+│   ├── index.js          # Express entry point
+│   ├── db.js             # SQLite connection + schema init
+│   ├── poller.js         # Printer polling loop (EventEmitter)
+│   ├── scheduler.js      # Job dispatch engine (EventEmitter)
+│   └── routes/
+│       ├── printers.js   # CRUD + CSV import
+│       ├── projects.js   # Project CRUD
+│       ├── parts.js      # Part CRUD + completed_qty state machine
+│       ├── gcodes.js     # G-code upload, parse-filename, delete
+│       └── jobs.js       # Job listing, filtering, cancel
+├── client/
+│   ├── src/
+│   │   ├── App.jsx       # Layout + router
+│   │   ├── main.jsx      # React root
+│   │   └── pages/
+│   │       ├── Fleet.jsx     # Live printer grid
+│   │       ├── Settings.jsx  # CSV import UI
+│   │       ├── Dashboard.jsx # Fleet summary
+│   │       ├── Projects.jsx  # Project/Part/G-code management
+│   │       └── Jobs.jsx      # Job queue table
+├── docs/                 # This folder
+└── ARCHITECTURE.md       # Full product spec and phase planning
+```
+
+## Development Phases
+
+| Phase | Status | Description |
+|---|---|---|
+| 1 | Complete | Scaffold, DB schema, printer registry, polling, live Fleet UI |
+| 2 | Complete | Job scheduling, dispatch, Part/Project/G-code management |
+| 3 | Planned | Full UI polish, error handling, notifications |
+| 4 | Planned | Hardening, retry logic, 50+ printer performance |
+| 5 | Planned | Mobile-responsive polish |
+
+See [ARCHITECTURE.md](../ARCHITECTURE.md) for full product spec.

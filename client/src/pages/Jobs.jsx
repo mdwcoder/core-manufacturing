@@ -1,0 +1,190 @@
+import { useState, useEffect, useCallback } from 'react';
+
+const JOB_STATUS = {
+  queued:    { bg: '#1f2937', text: '#9ca3af', label: 'Queued' },
+  uploading: { bg: '#1e3a5f', text: '#60a5fa', label: 'Uploading' },
+  printing:  { bg: '#166534', text: '#4ade80', label: 'Printing' },
+  finished:  { bg: '#14532d', text: '#86efac', label: 'Finished' },
+  failed:    { bg: '#7f1d1d', text: '#f87171', label: 'Failed' },
+  cancelled: { bg: '#111827', text: '#6b7280', label: 'Cancelled' },
+};
+
+const STATUS_OPTIONS = ['all', 'queued', 'uploading', 'printing', 'finished', 'failed', 'cancelled'];
+
+function formatTime(ms) {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDuration(startMs, endMs) {
+  if (!startMs) return '—';
+  const ms  = (endMs || Date.now()) - startMs;
+  const s   = Math.floor(ms / 1000);
+  const h   = Math.floor(s / 3600);
+  const m   = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+const selectSx = {
+  background: '#1e2433',
+  border: '1px solid #2d3748',
+  borderRadius: 4,
+  padding: '5px 10px',
+  color: '#e2e8f0',
+  fontSize: 13,
+  outline: 'none',
+};
+
+export default function Jobs() {
+  const [jobs, setJobs]           = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [projects, setProjects]   = useState([]);
+  const [printers, setPrinters]   = useState([]);
+
+  const [statusFilter, setStatus]   = useState('all');
+  const [projectFilter, setProject] = useState('');
+  const [printerFilter, setPrinter] = useState('');
+
+  const fetchJobs = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (statusFilter  !== 'all') params.set('status',     statusFilter);
+    if (projectFilter)           params.set('project_id', projectFilter);
+    if (printerFilter)           params.set('printer_id', printerFilter);
+
+    try {
+      const res  = await fetch(`/api/jobs?${params}`);
+      if (!res.ok) throw new Error('Failed to fetch jobs');
+      setJobs(await res.json());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, projectFilter, printerFilter]);
+
+  // Load filter option data once
+  useEffect(() => {
+    fetch('/api/projects').then(r => r.json()).then(setProjects).catch(() => {});
+    fetch('/api/printers').then(r => r.json()).then(setPrinters).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchJobs();
+    const interval = setInterval(fetchJobs, 15000);
+    return () => clearInterval(interval);
+  }, [fetchJobs]);
+
+  async function cancelJob(jobId) {
+    if (!window.confirm('Cancel this job?')) return;
+    await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+    fetchJobs();
+  }
+
+  return (
+    <div>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Job Queue</h1>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+        <select value={statusFilter} onChange={(e) => setStatus(e.target.value)} style={selectSx}>
+          {STATUS_OPTIONS.map(s => (
+            <option key={s} value={s}>{s === 'all' ? 'All statuses' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
+          ))}
+        </select>
+
+        <select value={projectFilter} onChange={(e) => setProject(e.target.value)} style={selectSx}>
+          <option value="">All projects</option>
+          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+
+        <select value={printerFilter} onChange={(e) => setPrinter(e.target.value)} style={selectSx}>
+          <option value="">All printers</option>
+          {printers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+
+        <span style={{ color: '#475569', fontSize: 13, marginLeft: 4 }}>
+          {jobs.length} job{jobs.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {loading && <p style={{ color: '#64748b' }}>Loading…</p>}
+      {!loading && jobs.length === 0 && (
+        <p style={{ color: '#64748b' }}>No jobs match the current filters.</p>
+      )}
+
+      {jobs.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #2d3748' }}>
+                <th style={{ padding: '6px 10px', fontWeight: 600 }}>ID</th>
+                <th style={{ padding: '6px 10px', fontWeight: 600 }}>Part</th>
+                <th style={{ padding: '6px 10px', fontWeight: 600 }}>Project</th>
+                <th style={{ padding: '6px 10px', fontWeight: 600 }}>Printer</th>
+                <th style={{ padding: '6px 10px', fontWeight: 600 }}>Model</th>
+                <th style={{ padding: '6px 10px', fontWeight: 600 }}>Status</th>
+                <th style={{ padding: '6px 10px', fontWeight: 600 }}>Started</th>
+                <th style={{ padding: '6px 10px', fontWeight: 600 }}>Duration</th>
+                <th style={{ padding: '6px 10px', fontWeight: 600 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map(job => {
+                const st = JOB_STATUS[job.status] || { bg: '#1f2937', text: '#9ca3af', label: job.status };
+                return (
+                  <tr
+                    key={job.id}
+                    style={{ borderBottom: '1px solid #1e2433', color: '#cbd5e1' }}
+                  >
+                    <td style={{ padding: '8px 10px', color: '#475569', fontFamily: 'monospace', fontSize: 12 }}>
+                      #{job.id}
+                    </td>
+                    <td style={{ padding: '8px 10px' }}>{job.part_name}</td>
+                    <td style={{ padding: '8px 10px', color: '#94a3b8' }}>{job.project_name}</td>
+                    <td style={{ padding: '8px 10px' }}>{job.printer_name}</td>
+                    <td style={{ padding: '8px 10px' }}>
+                      <span style={{
+                        background: '#0f172a', border: '1px solid #2d3748', borderRadius: 3,
+                        padding: '1px 6px', fontSize: 11, fontFamily: 'monospace', color: '#64748b',
+                      }}>
+                        {job.printer_model}
+                      </span>
+                    </td>
+                    <td style={{ padding: '8px 10px' }}>
+                      <span style={{ background: st.bg, color: st.text, borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                        {st.label}
+                      </span>
+                    </td>
+                    <td style={{ padding: '8px 10px', color: '#64748b', whiteSpace: 'nowrap' }}>
+                      {formatTime(job.started_at)}
+                    </td>
+                    <td style={{ padding: '8px 10px', color: '#64748b' }}>
+                      {job.started_at
+                        ? formatDuration(job.started_at, job.finished_at || null)
+                        : '—'}
+                    </td>
+                    <td style={{ padding: '8px 10px' }}>
+                      {job.status === 'queued' && (
+                        <button
+                          onClick={() => cancelJob(job.id)}
+                          style={{
+                            background: '#7f1d1d', color: '#f87171', border: 'none',
+                            borderRadius: 4, padding: '3px 10px', fontSize: 12,
+                            fontWeight: 600, cursor: 'pointer',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
