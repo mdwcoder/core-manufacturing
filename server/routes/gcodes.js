@@ -8,11 +8,18 @@ const GCODE_DIR = path.join(__dirname, '..', 'gcode');
 
 const storage = multer.diskStorage({
   destination: GCODE_DIR,
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + '_' + file.originalname);
-  },
+  filename: (_req, file, cb) => cb(null, Date.now() + '_' + file.originalname),
 });
 const upload = multer({ storage });
+
+function runUpload(req, res) {
+  return new Promise((resolve, reject) => {
+    upload.single('file')(req, res, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
 
 // Model token in filename → internal ID
 const MODEL_TOKEN_MAP = {
@@ -66,7 +73,13 @@ module.exports = (db) => {
   });
 
   // POST /api/gcodes/upload — upload G-code file and create DB record
-  router.post('/upload', upload.single('file'), (req, res) => {
+  router.post('/upload', async (req, res) => {
+    try {
+      await runUpload(req, res);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const { part_id, parts_per_plate, printer_model, est_print_secs } = req.body;

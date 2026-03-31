@@ -28,7 +28,8 @@ db.exec(`
     type        TEXT DEFAULT 'prusa',
     model       TEXT NOT NULL,
     status      TEXT DEFAULT 'UNKNOWN',
-    is_held     INTEGER DEFAULT 0,
+    is_held     INTEGER DEFAULT 1,
+    is_active   INTEGER DEFAULT 1,
     created_at  INTEGER NOT NULL
   );
 
@@ -76,5 +77,10 @@ db.exec(`
     created_at       INTEGER NOT NULL
   );
 `);
+
+// Add is_active column if it doesn't exist yet (existing installs)
+try {
+  db.exec('ALTER TABLE printers ADD COLUMN is_active INTEGER DEFAULT 1');
+} catch (_) { /* column already exists */ }
 
 module.exports = db;

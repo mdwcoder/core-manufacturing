@@ -42,6 +42,22 @@ const server = app.listen(PORT, () => {
     scheduler.sweepIdlePrinters();
     res.json({ ok: true });
   });
+
+  // Set a held printer ready — releases hold and dispatches next job to it
+  app.post('/api/printers/:id/set-ready', (req, res) => {
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+    db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
+    const updated = db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id);
+    console.log(`[server] ${printer.name} set ready by operator — dispatching...`);
+    scheduler._dispatchToPrinter(updated).then((jobId) => {
+      if (jobId) console.log(`[server] ${printer.name} dispatched — job ${jobId}`);
+      else console.log(`[server] ${printer.name} set ready but nothing to dispatch`);
+    }).catch((err) =>
+      console.error(`[scheduler] set-ready dispatch error for ${printer.name}:`, err)
+    );
+    res.json(updated);
+  });
 });
 
 module.exports = { app, server };

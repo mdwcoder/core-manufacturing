@@ -29,20 +29,72 @@ class JobScheduler extends EventEmitter {
     });
   }
 
-  // Sweep all currently idle non-held printers and dispatch immediately.
+  // Sweep all currently idle non-held active printers, dispatching in batches of 10.
+  // Each batch waits for all jobs to reach printing (or terminal) before the next batch fires.
   // Called when a project is activated or the server starts.
   sweepIdlePrinters() {
     const idlePrinters = this.db
-      .prepare("SELECT * FROM printers WHERE status = 'IDLE' AND is_held = 0")
+      .prepare("SELECT * FROM printers WHERE status = 'IDLE' AND is_held = 0 AND is_active = 1")
       .all();
 
     console.log(`[scheduler] Sweeping ${idlePrinters.length} idle printer(s)`);
 
-    for (const printer of idlePrinters) {
-      this._dispatchToPrinter(printer).catch((err) =>
-        console.error(`[scheduler] Sweep dispatch error for ${printer.name}:`, err)
-      );
+    if (idlePrinters.length === 0) return;
+
+    this._sweepInBatches(idlePrinters).catch((err) =>
+      console.error('[scheduler] Sweep error:', err)
+    );
+  }
+
+  async _sweepInBatches(printers, batchSize = 10) {
+    for (let i = 0; i < printers.length; i += batchSize) {
+      const batch = printers.slice(i, i + batchSize);
+      console.log(`[scheduler] Dispatching batch ${Math.floor(i / batchSize) + 1} — ${batch.length} printer(s)`);
+
+      // Fire all dispatches in this batch concurrently, collect job IDs
+      const jobIds = (await Promise.all(
+        batch.map(printer =>
+          this._dispatchToPrinter(printer).catch(err => {
+            console.error(`[scheduler] Sweep dispatch error for ${printer.name}:`, err);
+            return null;
+          })
+        )
+      )).filter(id => id != null);
+
+      if (jobIds.length === 0) continue;
+
+      // Wait for all jobs in this batch to leave the uploading state
+      await this._waitForBatch(jobIds);
+
+      console.log(`[scheduler] Batch ${Math.floor(i / batchSize) + 1} complete — proceeding to next`);
     }
+  }
+
+  // Poll jobs table until all given job IDs are printing or terminal (failed/cancelled).
+  // Gives up after 3 minutes.
+  _waitForBatch(jobIds, pollIntervalMs = 3000, timeoutMs = 180000) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const placeholders = jobIds.map(() => '?').join(',');
+
+      const check = () => {
+        const rows = this.db.prepare(
+          `SELECT status FROM jobs WHERE id IN (${placeholders})`
+        ).all(...jobIds);
+
+        const allSettled = rows.every(r =>
+          r.status === 'printing' || r.status === 'failed' || r.status === 'cancelled'
+        );
+
+        if (allSettled || Date.now() - start > timeoutMs) {
+          resolve();
+        } else {
+          setTimeout(check, pollIntervalMs);
+        }
+      };
+
+      check();
+    });
   }
 
   // ─── Dispatch ───────────────────────────────────────────────────────────────
@@ -70,7 +122,10 @@ class JobScheduler extends EventEmitter {
       LIMIT 1
     `).get(printer.model);
 
-    if (!candidate) return; // nothing to print for this model
+    if (!candidate) {
+      console.log(`[scheduler] No candidate found for ${printer.name} (model: ${printer.model}) — no open parts with matching G-code in an active project`);
+      return null;
+    }
 
     // Synchronously insert a job as 'uploading' — this acts as a dispatch lock
     // so concurrent printerIdle events for printers of the same model don't
@@ -94,13 +149,13 @@ class JobScheduler extends EventEmitter {
     if (activeCount > jobsRemaining) {
       // We inserted one too many — Part is already covered
       this.db.prepare('DELETE FROM jobs WHERE id = ?').run(jobId);
-      return;
+      console.log(`[scheduler] Ceiling hit for ${printer.name} — ${activeCount} active jobs already cover ${jobsRemaining} remaining for part ${candidate.part_id}`);
+      return null;
     }
 
     // Async: upload file to printer, then start the print
     try {
       await this._uploadGCode(printer, candidate);
-      await this._startPrint(printer, candidate);
 
       this.db.prepare(`
         UPDATE jobs SET status = 'printing', started_at = ? WHERE id = ?
@@ -111,30 +166,40 @@ class JobScheduler extends EventEmitter {
       this.db.prepare(`UPDATE jobs SET status = 'failed' WHERE id = ?`).run(jobId);
       console.error(`[scheduler] Dispatch failed for ${printer.name}: ${err.message}`);
     }
+
+    return jobId;
   }
 
   async _uploadGCode(printer, gcode) {
-    const form = new FormData();
-    form.append('file', fs.createReadStream(gcode.filepath), gcode.filename);
+    // Delete any existing copy on the USB drive — ignore 404 if it's not there
+    try {
+      await axios.delete(
+        `http://${printer.ip}/api/v1/files/usb/${encodeURIComponent(gcode.filename)}`,
+        { headers: { 'X-Api-Key': printer.api_key }, timeout: 10000 }
+      );
+      console.log(`[scheduler] Deleted existing ${gcode.filename} from ${printer.name}`);
+    } catch (err) {
+      if (!err.response || err.response.status !== 404) {
+        console.warn(`[scheduler] Pre-delete warning for ${printer.name}: ${err.message}`);
+      }
+    }
 
-    await axios.post(`http://${printer.ip}/api/v1/files/usb`, form, {
-      headers: {
-        'X-Api-Key': printer.api_key,
-        ...form.getHeaders(),
-      },
-      timeout: 120000, // file upload — allow up to 2 minutes
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
-    });
-  }
+    const fileStream = fs.createReadStream(gcode.filepath);
+    const stat = fs.statSync(gcode.filepath);
 
-  async _startPrint(printer, gcode) {
-    await axios.post(
-      `http://${printer.ip}/api/v1/job`,
-      { file: { path: `/usb/${gcode.filename}` } },
+    await axios.put(
+      `http://${printer.ip}/api/v1/files/usb/${encodeURIComponent(gcode.filename)}`,
+      fileStream,
       {
-        headers: { 'X-Api-Key': printer.api_key },
-        timeout: 15000,
+        headers: {
+          'X-Api-Key': printer.api_key,
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': stat.size,
+          'Print-After-Upload': '1',
+        },
+        timeout: 120000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
       }
     );
   }
@@ -176,8 +241,9 @@ class JobScheduler extends EventEmitter {
       this._closePart(part, now);
     }
 
-    // Printer is now idle — dispatch the next job
-    this._dispatchToPrinter(printer).catch(() => {});
+    // Hold the printer — operator must confirm print quality before next job dispatches
+    this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
+    console.log(`[scheduler] ${printer.name} held — awaiting operator confirmation`);
   }
 
   _closePart(part, now) {

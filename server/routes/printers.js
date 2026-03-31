@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const Papa = require('papaparse');
+const axios = require('axios');
 const router = express.Router();
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -110,6 +111,80 @@ module.exports = (db) => {
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
     db.prepare('DELETE FROM printers WHERE id = ?').run(req.params.id);
     res.json({ success: true });
+  });
+
+  // POST /api/printers/:id/decommission — remove from active duty
+  router.post('/:id/decommission', (req, res) => {
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+    db.prepare('UPDATE printers SET is_active = 0 WHERE id = ?').run(printer.id);
+    console.log(`[printers] ${printer.name} decommissioned`);
+    res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id));
+  });
+
+  // POST /api/printers/:id/recommission — return to active duty
+  router.post('/:id/recommission', (req, res) => {
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+    db.prepare('UPDATE printers SET is_active = 1 WHERE id = ?').run(printer.id);
+    console.log(`[printers] ${printer.name} recommissioned`);
+    res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id));
+  });
+
+  // POST /api/printers/:id/mark-job-failure — mark last finished job as failed, undo completed_qty
+  router.post('/:id/mark-job-failure', (req, res) => {
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+
+    const job = db.prepare(`
+      SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
+      ORDER BY finished_at DESC LIMIT 1
+    `).get(printer.id);
+    if (!job) return res.status(404).json({ error: 'No finished job found for this printer' });
+
+    const now = Date.now();
+
+    // Mark the job failed
+    db.prepare("UPDATE jobs SET status = 'failed' WHERE id = ?").run(job.id);
+
+    // Undo the completed_qty increment
+    db.prepare(`
+      UPDATE parts SET completed_qty = MAX(0, completed_qty - ?), updated_at = ? WHERE id = ?
+    `).run(job.parts_per_plate, now, job.part_id);
+
+    // Reload part — reopen if it was closed by this job
+    const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(job.part_id);
+    if (part.status === 'closed' && part.completed_qty < part.target_qty) {
+      db.prepare("UPDATE parts SET status = 'open', updated_at = ? WHERE id = ?").run(now, part.id);
+
+      // If project was marked completed, reopen it to active
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(part.project_id);
+      if (project && project.status === 'completed') {
+        db.prepare("UPDATE projects SET status = 'active', updated_at = ? WHERE id = ?").run(now, project.id);
+        console.log(`[printers] Project ${project.id} reopened — bad print undid completion`);
+      }
+    }
+
+    // Release the hold so the printer is visible as free
+    db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
+
+    console.log(`[printers] Job ${job.id} marked failed by operator — ${printer.name}`);
+    res.json({ success: true, job_id: job.id });
+  });
+
+  // GET /api/printers/:id/raw-status — proxy to PrusaLink, returns raw response for debugging
+  router.get('/:id/raw-status', async (req, res) => {
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+    try {
+      const response = await axios.get(`http://${printer.ip}/api/v1/status`, {
+        headers: { 'X-Api-Key': printer.api_key },
+        timeout: 8000,
+      });
+      res.json({ printer: { id: printer.id, name: printer.name, ip: printer.ip }, raw: response.data });
+    } catch (err) {
+      res.json({ printer: { id: printer.id, name: printer.name, ip: printer.ip }, error: err.message });
+    }
   });
 
   // POST /api/printers/import — CSV bulk import

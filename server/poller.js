@@ -25,7 +25,7 @@ class PrinterPoller extends EventEmitter {
 
   async _tick() {
     const printers = this.db
-      .prepare('SELECT * FROM printers WHERE is_held = 0')
+      .prepare('SELECT * FROM printers WHERE is_active = 1')
       .all();
 
     if (printers.length === 0) return;
@@ -60,8 +60,10 @@ class PrinterPoller extends EventEmitter {
     }
 
     if (newStatus !== previousStatus) {
+      // When a printer finishes, hold it — operator must confirm before next job
+      const holdUpdate = newStatus === 'FINISHED' ? ', is_held = 1' : '';
       this.db
-        .prepare('UPDATE printers SET status = ? WHERE id = ?')
+        .prepare(`UPDATE printers SET status = ?${holdUpdate} WHERE id = ?`)
         .run(newStatus, printer.id);
 
       console.log(`[poller] ${printer.name}: ${previousStatus} → ${newStatus}`);
