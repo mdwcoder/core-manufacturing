@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`server/poller.js` implements the printer status polling loop. It queries every registered (non-held) printer's PrusaLink API concurrently on a fixed interval, updates the database when status changes, and emits events that the Phase 2 job scheduler will hook into.
+`server/poller.js` implements the printer status polling loop. It queries every active printer's PrusaLink API concurrently on a fixed interval, updates the database when status changes, and emits events the job scheduler hooks into.
 
 ## Key File
 
@@ -17,7 +17,7 @@ setInterval (15s)
     │
     ▼
  _tick()
-    │  loads all non-held printers from DB
+    │  loads all active (is_active=1) printers from DB
     │
     ▼
  Promise.allSettled([
@@ -34,8 +34,9 @@ setInterval (15s)
     └─ any error → 'OFFLINE'
     │
     ├─ if status changed → UPDATE printers SET status = ?
+    ├─ if FINISHED transition → also set is_held = 1 in DB
     ├─ emit 'statusChange' for any transition
-    └─ emit 'printerIdle' when IDLE ← used by Phase 2 scheduler
+    └─ emit 'printerIdle' when transitioning into IDLE ← triggers scheduler dispatch
 ```
 
 `Promise.allSettled()` is used (not `Promise.all()`) so a rejection from one printer never blocks or kills the loop for others. Each printer's failure is isolated.
@@ -54,9 +55,10 @@ The poller reads `response.data.printer.state` from the PrusaLink `/api/v1/statu
 
 | PrusaLink state | Stored as | Meaning |
 |---|---|---|
-| `idle` | `IDLE` | Available for next job |
+| `idle` | `IDLE` | Available for next job — eligible for dispatch |
+| `ready` | `READY` | "Prepared" — a print is loaded waiting to start manually, NOT idle |
 | `printing` | `PRINTING` | Actively printing |
-| `finished` | `FINISHED` | Job done, needs clearing |
+| `finished` | `FINISHED` | Job done, auto-sets is_held=1, awaits operator confirmation |
 | `paused` | `PAUSED` | Operator intervention needed |
 | `error` | `ERROR` | Fault state |
 | `attention` | `ATTENTION` | Needs filament or action |
@@ -86,9 +88,15 @@ poller.on('printerIdle', ({ printer }) => { ... });
 // printer: DB row with status already updated to 'IDLE'
 ```
 
-## Held Printers
+## Active vs Held vs Decommissioned
 
-Printers with `is_held = 1` are excluded from the poll query entirely. They receive no status updates and are never considered for dispatch. A printer can be held/unheld via `PUT /api/printers/:id` with `{ "is_held": 1 }`.
+| Flag | Effect |
+|---|---|
+| `is_active = 0` | Printer is decommissioned — excluded from poll entirely, never dispatched to |
+| `is_held = 1` | Printer is polled but skipped by dispatcher — operator must call `set-ready` |
+| `is_held = 0` + `is_active = 1` | Fully available — polled and eligible for dispatch |
+
+`is_held` defaults to `1` for all printers. The poller automatically sets `is_held = 1` whenever a printer transitions to `FINISHED`, requiring operator confirmation before the next job.
 
 ## Timeout
 

@@ -79,6 +79,37 @@ Returns `404` if not found, `409` on name conflict.
 
 Returns `404` if not found.
 
+### `POST /api/printers/:id/set-ready`
+
+Releases the printer's hold (`is_held = 0`) and immediately dispatches the next eligible job to it. Called by the Fleet UI when an operator confirms a print is good.
+
+Returns the updated printer object.
+
+### `POST /api/printers/:id/decommission`
+
+Removes the printer from active duty (`is_active = 0`). It will no longer be polled or receive jobs. Returns the updated printer object.
+
+### `POST /api/printers/:id/recommission`
+
+Returns a decommissioned printer to active duty (`is_active = 1`). Returns the updated printer object.
+
+### `POST /api/printers/:id/mark-job-failure`
+
+Marks the printer's most recent `finished` job as `failed`, undoes the `completed_qty` increment on the associated Part, and reopens the Part (and Project if needed). Also releases the hold so the printer can receive a new job.
+
+Returns `{ "success": true, "job_id": N }`. Returns `404` if no finished job exists for this printer.
+
+### `GET /api/printers/:id/raw-status`
+
+Proxies a live `GET /api/v1/status` call to the printer's PrusaLink API and returns the raw response. Used for debugging printer state from the Fleet UI (click any printer card to trigger this in the browser console).
+
+```json
+{
+  "printer": { "id": 1, "name": "MK4S_35", "ip": "192.168.15.88" },
+  "raw": { "printer": { "state": "IDLE", ... }, "storage": { ... } }
+}
+```
+
 ### `POST /api/printers/import`
 
 Bulk import from CSV. `Content-Type: multipart/form-data`, field name `file`.

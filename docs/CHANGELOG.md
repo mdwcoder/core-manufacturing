@@ -2,6 +2,61 @@
 
 ---
 
+## 2026-03-30 — Post-Phase 2: Operator confirmation, batched dispatch, decommission
+
+### Operator confirmation flow
+
+Printers now require explicit human sign-off before receiving a new job after any print finishes.
+
+- `is_held` default changed to `1` — all printers start held on import; a human must explicitly set them ready before any job ever dispatches
+- Poller automatically sets `is_held = 1` whenever a printer transitions to `FINISHED`
+- Fleet UI shows "Set Ready" and "Bad Print" buttons on any held printer card, with a green banner showing count and bulk "Select All / Set Ready (N)" action
+- "Set Ready" releases the hold and immediately dispatches the next job to that printer
+- "Bad Print" marks the last finished job as `failed`, undoes `completed_qty`, reopens the Part (and Project if needed), then releases the hold
+
+### Batched dispatch
+
+`sweepIdlePrinters` now dispatches in batches of 10 rather than firing all uploads simultaneously.
+
+- Each batch of up to 10 printers is dispatched concurrently
+- The sweep waits for all jobs in the batch to reach `printing` or a terminal state (polling the jobs table every 3 seconds, timeout 3 minutes) before sending the next batch
+- `_dispatchToPrinter` returns its job ID (or `null`) so the batch sweep can track progress
+
+### PrusaLink upload fix
+
+- Changed from `POST /api/v1/files/usb` (multipart) to `PUT /api/v1/files/usb/{filename}` (raw binary stream) — the v1 API on firmware 6.x requires PUT
+- Added `Print-After-Upload: 1` request header — the printer starts the print immediately on upload completion, eliminating the need for a separate `POST /api/v1/job` call
+- Pre-upload `DELETE /api/v1/files/usb/{filename}` clears any stale copy of the file before uploading, preventing 409 conflicts
+
+### Decommission / recommission
+
+- Added `is_active` column to `printers` table (default `1`). Existing installs get the column via `ALTER TABLE` migration in `db.js`.
+- Decommissioned printers (`is_active = 0`) are skipped by the poller and excluded from dispatch
+- Fleet UI shows a "Decommission" button on every active printer card. Decommissioned cards are grayed out with a "↩ Recommission" button
+- New endpoints: `POST /api/printers/:id/decommission`, `POST /api/printers/:id/recommission`
+
+### READY state clarification
+
+- PrusaLink `READY` state = "Prepared" (a print is loaded, waiting to be started manually) — NOT the same as idle
+- `READY` is shown as a distinct "Prepared" badge in the Fleet UI (lighter blue) and is NOT eligible for dispatch
+- Only `IDLE` printers receive jobs
+
+### Printer inspection
+
+- Clicking any printer card in Fleet logs the full raw PrusaLink `/api/v1/status` response to the browser console via a server-side proxy endpoint `GET /api/printers/:id/raw-status`
+
+### Test suite
+
+- Added `jest` and `supertest` as dev dependencies
+- `server/tests/gcodes.test.js` — 6 passing tests covering parse-filename, upload success, no-file 400, invalid model 400, and duplicate 409
+- `npm test` runs the suite
+
+### Files changed
+
+`server/scheduler.js`, `server/poller.js`, `server/db.js`, `server/index.js`, `server/routes/printers.js`, `server/routes/gcodes.js`, `client/src/pages/Fleet.jsx`, `package.json`
+
+---
+
 ## 2026-03-30 — Phase 2: Job Scheduling & Production UI
 
 ### Job Scheduler (`server/scheduler.js`)
