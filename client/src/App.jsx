@@ -4,13 +4,15 @@ import Fleet from './pages/Fleet';
 import Projects from './pages/Projects';
 import Jobs from './pages/Jobs';
 import Settings from './pages/Settings';
+import Decommissioned from './pages/Decommissioned';
 
 const NAV_ITEMS = [
-  { to: '/',         label: 'Dashboard' },
-  { to: '/fleet',    label: 'Fleet' },
-  { to: '/projects', label: 'Projects' },
-  { to: '/jobs',     label: 'Jobs' },
-  { to: '/settings', label: 'Settings' },
+  { to: '/',               label: 'Dashboard' },
+  { to: '/fleet',          label: 'Fleet' },
+  { to: '/projects',       label: 'Projects' },
+  { to: '/jobs',           label: 'Jobs' },
+  { to: '/decommissioned', label: 'Decommissioned' },
+  { to: '/settings',       label: 'Settings' },
 ];
 
 const navLinkStyle = ({ isActive }) => ({
@@ -83,11 +85,12 @@ export default function App() {
         {/* Main content */}
         <main id="main">
           <Routes>
-            <Route path="/"         element={<Dashboard />} />
-            <Route path="/fleet"    element={<Fleet />} />
-            <Route path="/projects" element={<Projects />} />
-            <Route path="/jobs"     element={<Jobs />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/"               element={<Dashboard />} />
+            <Route path="/fleet"          element={<Fleet />} />
+            <Route path="/projects"       element={<Projects />} />
+            <Route path="/jobs"           element={<Jobs />} />
+            <Route path="/decommissioned" element={<Decommissioned />} />
+            <Route path="/settings"       element={<Settings />} />
           </Routes>
         </main>
       </div>

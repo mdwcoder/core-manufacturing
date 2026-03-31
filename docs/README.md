@@ -17,6 +17,7 @@ npm run dev
 
 | File | What it covers |
 |---|---|
+| [docs/installation.md](installation.md) | Windows install guide — prerequisites, setup, auto-start with PM2, updating, troubleshooting |
 | [docs/server.md](server.md) | Express entry point, scheduler wiring, port config, route mounting, startup sequence |
 | [docs/database.md](database.md) | SQLite schema — all 5 tables, column types, conventions |
 | [docs/poller.md](poller.md) | Printer polling loop, concurrency model, event emissions |
@@ -59,8 +60,8 @@ print-farm-manager/
 |---|---|---|
 | 1 | Complete | Scaffold, DB schema, printer registry, polling, live Fleet UI |
 | 2 | Complete | Job scheduling, dispatch, Part/Project/G-code management |
-| 3 | Planned | Full UI polish, error handling, notifications |
-| 4 | Planned | Hardening, retry logic, 50+ printer performance |
+| 3 | In Progress | Error handling, operator safety workflows, UI improvements — core work done; notifications outstanding |
+| 4 | In Progress | Hardening, retry logic, 50+ printer performance — batching, retries, cold-start safety done; broader stress testing outstanding |
 | 5 | Planned | Mobile-responsive polish |
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for full product spec.

@@ -60,8 +60,13 @@ class PrinterPoller extends EventEmitter {
     }
 
     if (newStatus !== previousStatus) {
-      // When a printer finishes, hold it — operator must confirm before next job
-      const holdUpdate = newStatus === 'FINISHED' ? ', is_held = 1' : '';
+      // States considered "in-progress normal" — no hold on entry.
+      // Everything else (ERROR, OFFLINE, ATTENTION, PAUSED, UNKNOWN, any unexpected state)
+      // sets is_held = 1 so a human must confirm before the next job dispatches.
+      const SAFE_STATES = new Set(['IDLE', 'PRINTING', 'FINISHED', 'READY']);
+      const missedFinished = newStatus === 'IDLE' && previousStatus === 'PRINTING';
+      const shouldHold = newStatus === 'FINISHED' || missedFinished || !SAFE_STATES.has(newStatus);
+      const holdUpdate = shouldHold ? ', is_held = 1' : '';
       this.db
         .prepare(`UPDATE printers SET status = ?${holdUpdate} WHERE id = ?`)
         .run(newStatus, printer.id);

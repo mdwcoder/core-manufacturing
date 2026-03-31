@@ -2,6 +2,84 @@
 
 ---
 
+## 2026-03-31 — Recommission auto-dispatch; Sweep for Jobs button on Fleet
+
+### Recommission triggers immediate dispatch (`server/index.js`)
+The recommission endpoint was moved from `routes/printers.js` to `index.js` so it has access to the scheduler. After returning the printer to the active fleet (`is_active = 1`, `is_held = 0`), it immediately calls `_dispatchToPrinter` — the machine gets a job without any operator nudge required. If no job is available right now it logs cleanly and waits for the next natural dispatch event.
+
+### "Sweep for Jobs" button on Fleet (`client/src/pages/Fleet.jsx`)
+A button in the Fleet page header that calls `POST /api/scheduler/dispatch` — the same sweep used when activating a project. Useful as a general manual trigger: after a server restart, after recommissioning, after any situation where machines are ready but idle. Removes the need to navigate to Projects and use Pause/Resume as a workaround.
+
+**Files changed:** `server/index.js`, `server/routes/printers.js`, `client/src/pages/Fleet.jsx`
+
+---
+
+## 2026-03-31 — Upload retries, re-hold on failure, batched bulk Set Ready
+
+### Upload retry with re-hold on failure (`server/scheduler.js`)
+`_dispatchToPrinter` now retries the file upload up to 2 additional times (3 total attempts) with a 5-second delay between each, before giving up. This self-heals transient network timeouts that are common when many printers start simultaneously.
+
+If all attempts fail: the job is marked `failed`, `is_held = 1` is set on the printer, and `null` is returned. The printer reappears in the Fleet UI with Set Ready / Bad Print buttons so the operator can inspect and retry. Previously, a failed upload left the printer in a stuck state with no action buttons and no path to re-dispatch.
+
+Also fixed: `_dispatchToPrinter` previously returned `jobId` even on failure (outside the try/catch), causing a misleading "dispatched — job N" log. It now returns `null` on failure.
+
+### Bulk Set Ready routes through batched sweep (`server/index.js`, `client/src/pages/Fleet.jsx`)
+The "Set Ready (N)" bulk action previously fired N simultaneous HTTP requests — one per printer — bypassing the batch logic entirely and causing all printers to receive files at the same time. This was the root cause of the timeout failures.
+
+New endpoint `POST /api/printers/set-ready-batch` accepts an array of printer IDs, clears `is_held` for all of them, then passes the printers directly to `scheduler._sweepInBatches()`. Files are now dispatched 10 at a time, waiting for each group to reach `printing` state before sending to the next 10.
+
+The individual "Set Ready" button on each card is unchanged — it still dispatches a single printer immediately.
+
+**Files changed:** `server/scheduler.js`, `server/index.js`, `client/src/pages/Fleet.jsx`
+
+---
+
+## 2026-03-31 — Decommissioned printers page
+
+Decommissioned printers are no longer shown in the Fleet. They have their own page accessible from the sidebar.
+
+- `GET /api/printers` now returns only `is_active = 1` printers
+- New `GET /api/printers/decommissioned` returns inactive printers ordered by decommission date
+- Two new columns on `printers`: `decommissioned_at` (epoch ms) and `decommission_note` (text). Added via ALTER TABLE migration.
+- Decommission endpoint now records `decommissioned_at = Date.now()`
+- Recommission endpoint clears `decommissioned_at` and `decommission_note`, and sets `is_held = 1` so the printer must be explicitly set ready before receiving jobs
+- New `client/src/pages/Decommissioned.jsx`: list of decommissioned printers, each showing name/model/IP, decommission timestamp, an editable investigation note field (saved via PUT), and a Recommission button with confirmation dialog
+- `Fleet.jsx` simplified — decommissioned rendering removed entirely
+
+**Files changed:** `server/db.js`, `server/routes/printers.js`, `client/src/pages/Fleet.jsx`, `client/src/pages/Decommissioned.jsx` (new), `client/src/App.jsx`
+
+---
+
+## 2026-03-31 — Safety: hold-on-error policy, bad print decommissions printer
+
+### Bad Print now decommissions the printer
+`mark-job-failure` no longer releases the hold. Instead it sets `is_active = 0`, decommissioning the printer. A failed print is treated as an investigation event — the machine must be manually recommissioned once confirmed safe.
+
+**Why:** Releasing the hold after a failure was dangerous. A failed print could indicate a mechanical issue, a bed obstruction, or a calibration problem. Automatically making the machine available for the next job risks repeating or compounding the problem.
+
+### Hold on any non-normal printer state
+The poller now sets `is_held = 1` whenever a printer enters any state outside `{IDLE, PRINTING, FINISHED, READY}`. This includes: `ERROR`, `OFFLINE`, `ATTENTION`, `PAUSED`, and any unrecognized state.
+
+**Why:** Any unexpected state could mean the printer requires physical intervention. The poller cannot know if the bed is clear, if a print is still on the plate, or if calibration was lost. Human sign-off is the only safe option.
+
+The scheduler's `_handlePrinterUnavailable` also explicitly sets `is_held = 1` as defense in depth when a printer goes `ERROR` or `OFFLINE`.
+
+**Files changed:** `server/routes/printers.js`, `server/poller.js`, `server/scheduler.js`, `client/src/pages/Fleet.jsx`
+
+---
+
+## 2026-03-31 — Bugfix: cold-start dispatch to printers that finished while server was offline
+
+**Problem:** If the server was shut down while printers were printing, and printers finished overnight, the server would dispatch a new job to those printers immediately on startup — bypassing operator confirmation.
+
+**Root cause:** The poller only set `is_held = 1` when it observed a `FINISHED` transition. If the server was offline when a print completed, the `PRINTING → FINISHED → IDLE` path was compressed into a single `PRINTING → IDLE` observed transition at server startup, which set no hold.
+
+**Fix 1 (`server/poller.js`):** `is_held = 1` is now also set when a printer transitions from `PRINTING` directly to `IDLE` — covering the cold-start case where `FINISHED` was never observed.
+
+**Fix 2 (`server/scheduler.js`):** `_dispatchToPrinter` now re-reads `is_held` from the DB at the top of every call, rather than relying on the (potentially stale) printer object passed in via the event. This is defense-in-depth — the poller fix is the primary gate.
+
+---
+
 ## 2026-03-30 — Post-Phase 2: Operator confirmation, batched dispatch, decommission
 
 ### Operator confirmation flow

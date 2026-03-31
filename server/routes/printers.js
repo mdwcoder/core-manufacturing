@@ -32,9 +32,15 @@ function resolveModel(rawModel, name) {
 }
 
 module.exports = (db) => {
-  // GET /api/printers — list all printers
+  // GET /api/printers — list active printers only
   router.get('/', (req, res) => {
-    const printers = db.prepare('SELECT * FROM printers ORDER BY name').all();
+    const printers = db.prepare('SELECT * FROM printers WHERE is_active = 1 ORDER BY name').all();
+    res.json(printers);
+  });
+
+  // GET /api/printers/decommissioned — list decommissioned printers
+  router.get('/decommissioned', (req, res) => {
+    const printers = db.prepare('SELECT * FROM printers WHERE is_active = 0 ORDER BY decommissioned_at DESC').all();
     res.json(printers);
   });
 
@@ -74,7 +80,7 @@ module.exports = (db) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
 
-    const { name, ip, api_key, group_name, type, model, is_held } = req.body;
+    const { name, ip, api_key, group_name, type, model, is_held, decommission_note } = req.body;
     let normalized = undefined;
     if (model !== undefined) {
       normalized = normalizeModel(model);
@@ -92,9 +98,10 @@ module.exports = (db) => {
             group_name = COALESCE(?, group_name),
             type = COALESCE(?, type),
             model = COALESCE(?, model),
-            is_held = COALESCE(?, is_held)
+            is_held = COALESCE(?, is_held),
+            decommission_note = COALESCE(?, decommission_note)
         WHERE id = ?
-      `).run(name, ip, api_key, group_name, type, normalized, is_held, req.params.id);
+      `).run(name, ip, api_key, group_name, type, normalized, is_held, decommission_note ?? null, req.params.id);
 
       res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id));
     } catch (err) {
@@ -117,19 +124,12 @@ module.exports = (db) => {
   router.post('/:id/decommission', (req, res) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
-    db.prepare('UPDATE printers SET is_active = 0 WHERE id = ?').run(printer.id);
+    db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(Date.now(), printer.id);
     console.log(`[printers] ${printer.name} decommissioned`);
     res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id));
   });
 
-  // POST /api/printers/:id/recommission — return to active duty
-  router.post('/:id/recommission', (req, res) => {
-    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
-    if (!printer) return res.status(404).json({ error: 'Printer not found' });
-    db.prepare('UPDATE printers SET is_active = 1 WHERE id = ?').run(printer.id);
-    console.log(`[printers] ${printer.name} recommissioned`);
-    res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id));
-  });
+  // POST /api/printers/:id/recommission — handled in server/index.js (needs scheduler access)
 
   // POST /api/printers/:id/mark-job-failure — mark last finished job as failed, undo completed_qty
   router.post('/:id/mark-job-failure', (req, res) => {
@@ -165,10 +165,11 @@ module.exports = (db) => {
       }
     }
 
-    // Release the hold so the printer is visible as free
-    db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
+    // Decommission the printer — a failed print requires investigation before it can run again.
+    // The operator must explicitly recommission it when the machine is confirmed safe.
+    db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(now, printer.id);
 
-    console.log(`[printers] Job ${job.id} marked failed by operator — ${printer.name}`);
+    console.log(`[printers] Job ${job.id} marked failed — ${printer.name} decommissioned pending investigation`);
     res.json({ success: true, job_id: job.id });
   });
 

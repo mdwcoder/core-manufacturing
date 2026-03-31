@@ -33,15 +33,19 @@ class JobScheduler extends EventEmitter {
   // Each batch waits for all jobs to reach printing (or terminal) before the next batch fires.
   // Called when a project is activated or the server starts.
   sweepIdlePrinters() {
-    const idlePrinters = this.db
-      .prepare("SELECT * FROM printers WHERE status = 'IDLE' AND is_held = 0 AND is_active = 1")
-      .all();
+    // Include FINISHED printers with is_held = 0 — this state means the operator
+    // confirmed the print was good (released the hold) but the upload failed.
+    // They need a new job just as much as an IDLE printer does.
+    const eligiblePrinters = this.db.prepare(`
+      SELECT * FROM printers
+      WHERE status IN ('IDLE', 'FINISHED') AND is_held = 0 AND is_active = 1
+    `).all();
 
-    console.log(`[scheduler] Sweeping ${idlePrinters.length} idle printer(s)`);
+    console.log(`[scheduler] Sweeping ${eligiblePrinters.length} eligible printer(s) (IDLE or operator-confirmed FINISHED)`);
 
-    if (idlePrinters.length === 0) return;
+    if (eligiblePrinters.length === 0) return;
 
-    this._sweepInBatches(idlePrinters).catch((err) =>
+    this._sweepInBatches(eligiblePrinters).catch((err) =>
       console.error('[scheduler] Sweep error:', err)
     );
   }
@@ -100,6 +104,13 @@ class JobScheduler extends EventEmitter {
   // ─── Dispatch ───────────────────────────────────────────────────────────────
 
   async _dispatchToPrinter(printer) {
+    // Re-read is_held from DB — the printer object passed in may be stale
+    const fresh = this.db.prepare('SELECT is_held FROM printers WHERE id = ?').get(printer.id);
+    if (!fresh || fresh.is_held) {
+      console.log(`[scheduler] ${printer.name} is held — skipping dispatch`);
+      return null;
+    }
+
     // Find the best open Part that has a G-code for this printer's model,
     // belonging to an active project. FIFO across projects by created_at.
     const candidate = this.db.prepare(`
@@ -153,20 +164,39 @@ class JobScheduler extends EventEmitter {
       return null;
     }
 
-    // Async: upload file to printer, then start the print
-    try {
-      await this._uploadGCode(printer, candidate);
+    // Upload with retries. A transient network timeout (common when many printers
+    // start simultaneously) will self-heal. Only after all attempts are exhausted
+    // does the printer get re-held for operator attention.
+    const MAX_RETRIES = 2;
+    let lastErr = null;
 
-      this.db.prepare(`
-        UPDATE jobs SET status = 'printing', started_at = ? WHERE id = ?
-      `).run(Date.now(), jobId);
-
-      console.log(`[scheduler] ${printer.name} ← ${candidate.filename}`);
-    } catch (err) {
-      this.db.prepare(`UPDATE jobs SET status = 'failed' WHERE id = ?`).run(jobId);
-      console.error(`[scheduler] Dispatch failed for ${printer.name}: ${err.message}`);
+    for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
+      try {
+        await this._uploadGCode(printer, candidate);
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (attempt <= MAX_RETRIES) {
+          console.warn(`[scheduler] ${printer.name} upload attempt ${attempt}/${MAX_RETRIES + 1} failed (${err.message}) — retrying in 5s`);
+          await new Promise(r => setTimeout(r, 5000));
+        }
+      }
     }
 
+    if (lastErr) {
+      this.db.prepare(`UPDATE jobs SET status = 'failed' WHERE id = ?`).run(jobId);
+      // Re-hold the printer — upload failed, operator must inspect before next dispatch.
+      this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
+      console.error(`[scheduler] ${printer.name} dispatch failed after ${MAX_RETRIES + 1} attempts: ${lastErr.message}`);
+      return null;
+    }
+
+    this.db.prepare(`
+      UPDATE jobs SET status = 'printing', started_at = ? WHERE id = ?
+    `).run(Date.now(), jobId);
+
+    console.log(`[scheduler] ${printer.name} ← ${candidate.filename}`);
     return jobId;
   }
 
@@ -284,6 +314,11 @@ class JobScheduler extends EventEmitter {
         .run(Date.now(), job.id);
       console.warn(`[scheduler] Marked job ${job.id} failed — ${printer.name} went ${printer.status}`);
     }
+
+    // Hold the printer — any error or offline state requires operator sign-off.
+    // The poller also sets this, but we do it here too for defense in depth.
+    this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
+    console.warn(`[scheduler] ${printer.name} held — entered ${printer.status}, operator confirmation required`);
   }
 }
 

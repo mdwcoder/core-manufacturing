@@ -78,9 +78,9 @@ db.exec(`
   );
 `);
 
-// Add is_active column if it doesn't exist yet (existing installs)
-try {
-  db.exec('ALTER TABLE printers ADD COLUMN is_active INTEGER DEFAULT 1');
-} catch (_) { /* column already exists */ }
+// Migrations for existing installs
+try { db.exec('ALTER TABLE printers ADD COLUMN is_active INTEGER DEFAULT 1'); } catch (_) {}
+try { db.exec('ALTER TABLE printers ADD COLUMN decommissioned_at INTEGER'); } catch (_) {}
+try { db.exec('ALTER TABLE printers ADD COLUMN decommission_note TEXT'); } catch (_) {}
 
 module.exports = db;

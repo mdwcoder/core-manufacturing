@@ -35,18 +35,20 @@ async function inspectPrinter(printer) {
   console.groupEnd();
 }
 
-function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onDecommission, onRecommission }) {
+function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onDecommission }) {
   const style = statusStyle(printer.status);
-  const needsConfirmation = printer.is_held === 1 && printer.is_active === 1;
-  const decommissioned = printer.is_active === 0;
+  // Show confirmation buttons only when there's something to inspect.
+  // A printer that is actively printing is held-in-advance — it will need sign-off
+  // when it finishes, but there is nothing to confirm right now.
+  const needsConfirmation = printer.is_held === 1 && printer.status !== 'PRINTING';
 
   return (
     <div
       onClick={() => inspectPrinter(printer)}
       title="Click to inspect raw PrusaLink status in console"
       style={{
-        background: decommissioned ? '#111827' : needsConfirmation ? '#1c2a1c' : '#1e2433',
-        border: `1px solid ${decommissioned ? '#1f2937' : needsConfirmation ? '#15803d' : style.bg}`,
+        background: needsConfirmation ? '#1c2a1c' : '#1e2433',
+        border: `1px solid ${needsConfirmation ? '#15803d' : style.bg}`,
         borderRadius: 8,
         padding: '12px 14px',
         display: 'flex',
@@ -54,25 +56,15 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
         gap: 6,
         minWidth: 0,
         cursor: 'pointer',
-        opacity: decommissioned ? 0.5 : 1,
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <span style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {printer.name}
         </span>
-        <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }}>
-          {decommissioned && (
-            <span style={{ background: '#1f2937', color: '#6b7280', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-              Decommissioned
-            </span>
-          )}
-          {!decommissioned && (
-            <span style={{ background: style.bg, color: style.text, borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-              {style.label}
-            </span>
-          )}
-        </div>
+        <span style={{ background: style.bg, color: style.text, borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+          {style.label}
+        </span>
       </div>
 
       <div style={{ fontSize: 12, color: '#94a3b8', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -99,15 +91,9 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
       )}
 
       <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 2 }}>
-        {decommissioned ? (
-          <button onClick={() => onRecommission(printer.id)} style={{ background: '#1e3a5f', color: '#60a5fa', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            ↩ Recommission
-          </button>
-        ) : (
-          <button onClick={() => onDecommission(printer.id)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}>
-            Decommission
-          </button>
-        )}
+        <button onClick={() => onDecommission(printer.id)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}>
+          Decommission
+        </button>
       </div>
     </div>
   );
@@ -143,8 +129,8 @@ export default function Fleet() {
     return () => clearInterval(interval);
   }, [fetchPrinters]);
 
-  // Printers awaiting operator confirmation
-  const awaitingConfirmation = printers.filter(p => p.is_held === 1);
+  // Printers awaiting operator confirmation — excludes those currently printing (hold is pre-set for when they finish)
+  const awaitingConfirmation = printers.filter(p => p.is_held === 1 && p.status !== 'PRINTING');
 
   function toggleSelect(printerId) {
     setSelectedForReady(prev => {
@@ -169,28 +155,53 @@ export default function Fleet() {
   }
 
   async function setReadyForSelected() {
-    await Promise.all([...selectedForReady].map(id =>
-      fetch(`/api/printers/${id}/set-ready`, { method: 'POST' })
-    ));
+    await fetch('/api/printers/set-ready-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [...selectedForReady] }),
+    });
     setSelectedForReady(new Set());
     fetchPrinters();
   }
 
   async function decommission(printerId) {
     const printer = printers.find(p => p.id === printerId);
-    if (!window.confirm(`Remove ${printer?.name} from active duty?\n\nIt will no longer receive jobs or be polled until recommissioned.`)) return;
-    await fetch(`/api/printers/${printerId}/decommission`, { method: 'POST' });
-    fetchPrinters();
-  }
 
-  async function recommission(printerId) {
-    await fetch(`/api/printers/${printerId}/recommission`, { method: 'POST' });
+    // Step 1 — if not mid-print, ask about the last print's outcome before anything else.
+    // This catches the case where a print physically failed but the system recorded it as finished.
+    if (printer?.status !== 'PRINTING') {
+      const printFailed = window.confirm(
+        `Before decommissioning ${printer?.name} — did the last print FAIL?\n\n` +
+        `OK     → Yes, it failed — undo the count and decommission\n` +
+        `Cancel → No / not applicable — proceed to decommission only`
+      );
+
+      if (printFailed) {
+        const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
+        if (res.ok) {
+          // mark-job-failure already decommissions — nothing more to do.
+          fetchPrinters();
+          return;
+        }
+        // No finished job found (e.g. pure hardware failure with no completed print).
+        // Fall through to the plain decommission confirm below.
+      }
+    }
+
+    // Step 2 — confirm the decommission itself.
+    if (!window.confirm(
+      `Decommission ${printer?.name}?\n\n` +
+      `This machine will be removed from the active fleet, will no longer receive jobs, ` +
+      `and will require a manual recommission before it can run again.`
+    )) return;
+
+    await fetch(`/api/printers/${printerId}/decommission`, { method: 'POST' });
     fetchPrinters();
   }
 
   async function badPrint(printerId) {
     const printer = printers.find(p => p.id === printerId);
-    if (!window.confirm(`Mark the last finished job on ${printer?.name} as a failure?\n\nThis will undo the completed quantity and reopen the part if it was closed.`)) return;
+    if (!window.confirm(`Mark the last finished job on ${printer?.name} as a failure?\n\nThis will undo the completed quantity, reopen the part if it was closed, and DECOMMISSION the printer pending investigation.\n\nRecommission the printer manually once you have confirmed it is safe to run.`)) return;
     await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
     setSelectedForReady(prev => { const next = new Set(prev); next.delete(printerId); return next; });
     fetchPrinters();
@@ -221,9 +232,23 @@ export default function Fleet() {
 
   const MODEL_LABELS = { mk4: 'MK4', mk4s: 'MK4S', c1: 'Core One', c1l: 'Core 1L', xl: 'XL', other: 'Other' };
 
+  async function sweep() {
+    await fetch('/api/scheduler/dispatch', { method: 'POST' });
+    fetchPrinters();
+  }
+
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Fleet</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Fleet</h1>
+        <button
+          onClick={sweep}
+          title="Tell the scheduler to find and dispatch jobs to all idle ready machines"
+          style={{ background: '#1e2433', color: '#94a3b8', border: '1px solid #2d3748', borderRadius: 6, padding: '5px 14px', fontSize: 13, cursor: 'pointer' }}
+        >
+          Sweep for Jobs
+        </button>
+      </div>
 
       {/* Confirmation banner */}
       {awaitingConfirmation.length > 0 && (
@@ -340,7 +365,6 @@ export default function Fleet() {
                 onSetReady={setReady}
                 onBadPrint={badPrint}
                 onDecommission={decommission}
-                onRecommission={recommission}
               />
             ))}
           </div>
