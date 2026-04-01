@@ -59,18 +59,23 @@ Live printer grid that polls `GET /api/printers` every 15 seconds (matching the 
 - Each printer card shows: name, status badge (color-coded), model tag, IP, group name
 - Empty state message when no printers are registered
 
-**Status color scheme:**
+**Status color scheme (aligned to Prusa UI):**
 
 | Status | Background | Text |
 |---|---|---|
-| PRINTING | dark green | bright green |
-| IDLE | dark blue | blue |
+| PRINTING | dark blue | blue |
+| IDLE | dark gray | gray |
+| READY/Prepared | dark gray | muted gray |
 | FINISHED | dark green | light green |
 | PAUSED | dark amber | yellow |
-| ATTENTION | dark orange | amber |
+| ATTENTION | dark amber | yellow |
 | ERROR | dark red | red |
 | OFFLINE | dark gray | gray |
 | UNKNOWN | dark gray | light gray |
+
+Filter chips in the Fleet header derive their text color from the same `STATUS_COLORS` constant so badges and chips are always in sync.
+
+**Confirmation button visibility:** "Set Ready" and "Bad Print" buttons (and the green card highlight) only appear when `is_held === 1` AND `status` is `FINISHED` or `IDLE`. Printers in ATTENTION, ERROR, OFFLINE, or PAUSED never show these buttons — a filament runout or error is not a completed print.
 
 ## Settings Page
 

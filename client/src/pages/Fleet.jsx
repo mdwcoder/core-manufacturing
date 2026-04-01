@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 
 const STATUS_COLORS = {
-  PRINTING:   { bg: '#166534', text: '#4ade80', label: 'Printing' },
-  IDLE:       { bg: '#1e3a5f', text: '#60a5fa', label: 'Idle' },
-  READY:      { bg: '#1a2e44', text: '#38bdf8', label: 'Prepared' },
+  PRINTING:   { bg: '#1e3a5f', text: '#60a5fa', label: 'Printing' },
+  IDLE:       { bg: '#1f2937', text: '#6b7280', label: 'Idle' },
+  READY:      { bg: '#1f2937', text: '#94a3b8', label: 'Prepared' },
   FINISHED:   { bg: '#14532d', text: '#86efac', label: 'Finished' },
-  PAUSED:     { bg: '#713f12', text: '#fcd34d', label: 'Paused' },
+  PAUSED:     { bg: '#78350f', text: '#fbbf24', label: 'Paused' },
   ATTENTION:  { bg: '#78350f', text: '#fbbf24', label: 'Attention' },
   ERROR:      { bg: '#7f1d1d', text: '#f87171', label: 'Error' },
   OFFLINE:    { bg: '#1f2937', text: '#6b7280', label: 'Offline' },
@@ -40,7 +40,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
   // Show confirmation buttons only when there's something to inspect.
   // A printer that is actively printing is held-in-advance — it will need sign-off
   // when it finishes, but there is nothing to confirm right now.
-  const needsConfirmation = printer.is_held === 1 && printer.status !== 'PRINTING';
+  const needsConfirmation = printer.is_held === 1 && (printer.status === 'FINISHED' || printer.status === 'IDLE');
 
   return (
     <div
@@ -130,7 +130,7 @@ export default function Fleet() {
   }, [fetchPrinters]);
 
   // Printers awaiting operator confirmation — excludes those currently printing (hold is pre-set for when they finish)
-  const awaitingConfirmation = printers.filter(p => p.is_held === 1 && p.status !== 'PRINTING');
+  const awaitingConfirmation = printers.filter(p => p.is_held === 1 && (p.status === 'FINISHED' || p.status === 'IDLE'));
 
   function toggleSelect(printerId) {
     setSelectedForReady(prev => {
@@ -294,13 +294,13 @@ export default function Fleet() {
       {/* Filter chips */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
         {[
-          { key: 'ALL',      label: `All (${printers.length})`,                          color: '#64748b' },
-          { key: 'PRINTING', label: `Printing (${counts.PRINTING || 0})`,                color: '#4ade80' },
-          { key: 'IDLE',     label: `Idle (${counts.IDLE || 0})`,                        color: '#60a5fa' },
-          { key: 'FINISHED', label: `Finished (${counts.FINISHED || 0})`,                color: '#86efac' },
-          { key: 'ERROR',    label: `Error (${counts.ERROR || 0})`,                      color: '#f87171' },
-          { key: 'ATTENTION',label: `Attention (${counts.ATTENTION || 0})`,              color: '#fbbf24' },
-          { key: 'OFFLINE',  label: `Offline (${counts.OFFLINE || 0})`,                  color: '#6b7280' },
+          { key: 'ALL',      label: `All (${printers.length})`,               color: '#64748b' },
+          { key: 'PRINTING', label: `Printing (${counts.PRINTING || 0})`,   color: STATUS_COLORS.PRINTING.text },
+          { key: 'IDLE',     label: `Idle (${counts.IDLE || 0})`,           color: STATUS_COLORS.IDLE.text },
+          { key: 'FINISHED', label: `Finished (${counts.FINISHED || 0})`,   color: STATUS_COLORS.FINISHED.text },
+          { key: 'ERROR',    label: `Error (${counts.ERROR || 0})`,         color: STATUS_COLORS.ERROR.text },
+          { key: 'ATTENTION',label: `Attention (${counts.ATTENTION || 0})`, color: STATUS_COLORS.ATTENTION.text },
+          { key: 'OFFLINE',  label: `Offline (${counts.OFFLINE || 0})`,     color: STATUS_COLORS.OFFLINE.text },
         ].map(({ key, label, color }) => (
           <button
             key={key}

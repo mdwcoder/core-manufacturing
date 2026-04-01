@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-03-31 — Fleet UI: status color alignment and confirmation button guard
+
+### Status colors aligned to Prusa (`client/src/pages/Fleet.jsx`)
+Updated `STATUS_COLORS` to match Prusa's own color language: PRINTING is blue (was green), IDLE is grey (was blue), FINISHED stays green, ATTENTION and ERROR unchanged (yellow and red). READY/Prepared is muted grey since PrusaLink has no distinct color for it.
+
+Filter chips in the Fleet header now derive their text color from `STATUS_COLORS` directly rather than hardcoded hex values, ensuring chips and badges always stay in sync.
+
+### Confirmation buttons hidden for non-completable states (`client/src/pages/Fleet.jsx`)
+"Set Ready" and "Bad Print" buttons previously appeared on any held printer regardless of status — including ATTENTION and ERROR. A filament-runout (ATTENTION) would show the confirmation UI even though no print completed.
+
+`needsConfirmation` now requires `status === 'FINISHED' || status === 'IDLE'` in addition to `is_held === 1`. The `awaitingConfirmation` banner count uses the same guard. Cards in ATTENTION, ERROR, OFFLINE, or PAUSED no longer show the green highlight, Include checkbox, or action buttons.
+
+**Files changed:** `client/src/pages/Fleet.jsx`
+
+---
+
 ## 2026-03-31 — Recommission auto-dispatch; Sweep for Jobs button on Fleet
 
 ### Recommission triggers immediate dispatch (`server/index.js`)
