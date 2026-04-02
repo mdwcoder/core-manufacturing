@@ -5,12 +5,15 @@ const STATUS_COLORS = {
   IDLE:       { bg: '#1f2937', text: '#6b7280', label: 'Idle' },
   READY:      { bg: '#1f2937', text: '#94a3b8', label: 'Prepared' },
   FINISHED:   { bg: '#14532d', text: '#86efac', label: 'Finished' },
+  STOPPED:    { bg: '#431407', text: '#fb923c', label: 'Stopped' },
   PAUSED:     { bg: '#78350f', text: '#fbbf24', label: 'Paused' },
   ATTENTION:  { bg: '#78350f', text: '#fbbf24', label: 'Attention' },
   ERROR:      { bg: '#7f1d1d', text: '#f87171', label: 'Error' },
   OFFLINE:    { bg: '#1f2937', text: '#6b7280', label: 'Offline' },
   UNKNOWN:    { bg: '#1f2937', text: '#9ca3af', label: 'Unknown' },
 };
+
+const KNOWN_STATUSES = new Set(Object.keys(STATUS_COLORS));
 
 function statusStyle(status) {
   return STATUS_COLORS[status] || STATUS_COLORS.UNKNOWN;
@@ -33,6 +36,46 @@ async function inspectPrinter(printer) {
     console.error('Fetch failed:', err);
   }
   console.groupEnd();
+}
+
+const POLL_INTERVAL_MS = 15000;
+
+function PollTimer({ lastPolled }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (lastPolled === null) return;
+    setElapsed(0);
+    const id = setInterval(() => setElapsed(Date.now() - lastPolled), 100);
+    return () => clearInterval(id);
+  }, [lastPolled]);
+
+  const size = 20;
+  const strokeWidth = 2.5;
+  const r = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * r;
+  const progress = Math.min(elapsed / POLL_INTERVAL_MS, 1);
+  const offset = circumference * (1 - progress);
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}
+      title={`Last polled ${Math.round(elapsed / 1000)}s ago`}
+    >
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#2d3748" strokeWidth={strokeWidth} />
+      <circle
+        cx={size / 2} cy={size / 2} r={r}
+        fill="none"
+        stroke="#3b82f6"
+        strokeWidth={strokeWidth}
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }
 
 function formatTimeRemaining(secs) {
@@ -116,6 +159,12 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
         </div>
       )}
 
+      {printer.status === 'STOPPED' && (
+        <div style={{ fontSize: 11, color: '#fb923c', marginTop: 4 }}>
+          Clear on printer screen to continue
+        </div>
+      )}
+
       {needsConfirmation && (
         <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>
@@ -149,6 +198,7 @@ export default function Fleet() {
   const [filter, setFilter]                   = useState('ALL');
   const [search, setSearch]                   = useState('');
   const [selectedForReady, setSelectedForReady] = useState(new Set());
+  const [lastPolled, setLastPolled]           = useState(null);
 
   const fetchPrinters = useCallback(async () => {
     try {
@@ -156,6 +206,7 @@ export default function Fleet() {
       if (!res.ok) throw new Error('Failed to fetch printers');
       const data = await res.json();
       setPrinters(data);
+      setLastPolled(Date.now());
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -253,7 +304,10 @@ export default function Fleet() {
     return acc;
   }, {});
 
+  const hasUnknown = printers.some(p => !KNOWN_STATUSES.has(p.status));
+
   const filtered = printers.filter((p) => {
+    if (filter === 'UNKNOWN') return !KNOWN_STATUSES.has(p.status);
     if (filter !== 'ALL' && p.status !== filter) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) &&
         !p.ip.includes(search) && !(p.group_name || '').toLowerCase().includes(search.toLowerCase())) {
@@ -281,7 +335,10 @@ export default function Fleet() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Fleet</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Fleet</h1>
+          <PollTimer lastPolled={lastPolled} />
+        </div>
         <button
           onClick={sweep}
           title="Tell the scheduler to find and dispatch jobs to all idle ready machines"
@@ -339,9 +396,11 @@ export default function Fleet() {
           { key: 'PRINTING', label: `Printing (${counts.PRINTING || 0})`,   color: STATUS_COLORS.PRINTING.text },
           { key: 'IDLE',     label: `Idle (${counts.IDLE || 0})`,           color: STATUS_COLORS.IDLE.text },
           { key: 'FINISHED', label: `Finished (${counts.FINISHED || 0})`,   color: STATUS_COLORS.FINISHED.text },
+          { key: 'STOPPED',  label: `Stopped (${counts.STOPPED || 0})`,     color: STATUS_COLORS.STOPPED.text },
           { key: 'ERROR',    label: `Error (${counts.ERROR || 0})`,         color: STATUS_COLORS.ERROR.text },
           { key: 'ATTENTION',label: `Attention (${counts.ATTENTION || 0})`, color: STATUS_COLORS.ATTENTION.text },
           { key: 'OFFLINE',  label: `Offline (${counts.OFFLINE || 0})`,     color: STATUS_COLORS.OFFLINE.text },
+          ...(hasUnknown ? [{ key: 'UNKNOWN', label: `Unknown (${printers.filter(p => !KNOWN_STATUSES.has(p.status)).length})`, color: STATUS_COLORS.UNKNOWN.text }] : []),
         ].map(({ key, label, color }) => (
           <button
             key={key}

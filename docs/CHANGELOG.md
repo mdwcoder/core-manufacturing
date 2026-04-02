@@ -2,6 +2,30 @@
 
 ---
 
+## 2026-04-02 — Fleet UI: poll timer indicator
+
+### Poll timer (`client/src/pages/Fleet.jsx`)
+Added a small SVG circular progress indicator next to the "Fleet" heading. The arc fills over 15 seconds (matching the poller interval) and resets when fresh data lands — so it reflects actual data freshness, not a fixed countdown. Implemented as a `PollTimer` component driven by `lastPolled` state (set to `Date.now()` on each successful `fetchPrinters` response) and a 100ms `setInterval` for smooth animation. Hovering shows "Last polled Xs ago". Arc holds at full briefly while the request is in-flight, then snaps back to empty on response — natural feel with no perceived jank.
+
+**Files changed:** `client/src/pages/Fleet.jsx`
+
+---
+
+## 2026-04-02 — Fleet UI: STOPPED status display and unknown status catch-all
+
+### STOPPED status (`client/src/pages/Fleet.jsx`)
+Added `STOPPED` to `STATUS_COLORS` (orange, `#fb923c`) so printers in a manually-stopped state show a distinct badge instead of falling back to "Unknown". A "Clear on printer screen to continue" note renders on the card while the printer is in STOPPED state — no action buttons are shown since the operator must physically interact with the machine. Once cleared, the printer transitions to IDLE with `is_held = 1` (set by the existing poller `SAFE_STATES` logic) and the normal Set Ready / Bad Print confirmation flow takes over. Poller required no changes.
+
+### STOPPED filter chip (`client/src/pages/Fleet.jsx`)
+Added a dedicated Stopped filter chip in the Fleet filter bar.
+
+### Dynamic unknown status catch-all (`client/src/pages/Fleet.jsx`)
+Added `KNOWN_STATUSES` (a `Set` of all keys in `STATUS_COLORS`). An "Unknown" filter chip renders only when at least one printer has a status not in that set, allowing operators to isolate printers reporting states not yet recognized by the app. The chip count and filter logic both use `!KNOWN_STATUSES.has(p.status)` so any future Prusa firmware state is caught automatically.
+
+**Files changed:** `client/src/pages/Fleet.jsx`
+
+---
+
 ## 2026-04-01 — Inline rename for projects and parts
 
 ### Project rename (`client/src/pages/Projects.jsx`)
