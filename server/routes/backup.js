@@ -36,8 +36,9 @@ module.exports = (db) => {
     // Embed gcode files as base64, keyed by their on-disk basename
     const gcodeFiles = {};
     for (const g of gcodes) {
-      if (g.filepath && fs.existsSync(g.filepath)) {
-        gcodeFiles[path.basename(g.filepath)] = fs.readFileSync(g.filepath).toString('base64');
+      const fullPath = path.join(GCODE_DIR, g.filepath);
+      if (g.filepath && fs.existsSync(fullPath)) {
+        gcodeFiles[g.filepath] = fs.readFileSync(fullPath).toString('base64');
       }
     }
 
@@ -132,8 +133,8 @@ module.exports = (db) => {
         for (const p of (backup.projects || [])) stmts.project.run(p);
         for (const p of (backup.parts    || [])) stmts.part.run(p);
         for (const g of (backup.gcodes   || [])) {
-          // Rewrite filepath to this machine's gcode directory
-          stmts.gcode.run({ ...g, filepath: path.join(GCODE_DIR, path.basename(g.filepath)) });
+          // filepath stores just the filename — no path rewriting needed
+          stmts.gcode.run({ ...g, filepath: path.basename(g.filepath) });
         }
         for (const j of (backup.jobs || [])) stmts.job.run(j);
 

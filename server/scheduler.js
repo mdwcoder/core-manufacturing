@@ -2,6 +2,10 @@ const EventEmitter = require('events');
 const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
+const path = require('path');
+const notifications = require('./notifications');
+
+const GCODE_DIR = path.join(__dirname, 'gcode');
 
 class JobScheduler extends EventEmitter {
   constructor(db, poller) {
@@ -177,6 +181,8 @@ class JobScheduler extends EventEmitter {
         break;
       } catch (err) {
         lastErr = err;
+        // Missing file won't be fixed by retrying — fail immediately
+        if (err.code === 'GCODE_MISSING') break;
         if (attempt <= MAX_RETRIES) {
           console.warn(`[scheduler] ${printer.name} upload attempt ${attempt}/${MAX_RETRIES + 1} failed (${err.message}) — retrying in 5s`);
           await new Promise(r => setTimeout(r, 5000));
@@ -188,7 +194,14 @@ class JobScheduler extends EventEmitter {
       this.db.prepare(`UPDATE jobs SET status = 'failed' WHERE id = ?`).run(jobId);
       // Re-hold the printer — upload failed, operator must inspect before next dispatch.
       this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
-      console.error(`[scheduler] ${printer.name} dispatch failed after ${MAX_RETRIES + 1} attempts: ${lastErr.message}`);
+      if (lastErr.code === 'GCODE_MISSING') {
+        const part = this.db.prepare('SELECT parts.name, projects.name AS project_name FROM parts JOIN projects ON projects.id = parts.project_id WHERE parts.id = ?').get(candidate.part_id);
+        notifications.add(
+          `G-code file missing for "${candidate.filename}" — re-upload the file for part "${part?.name}" in project "${part?.project_name}". Printer ${printer.name} has been held.`
+        );
+      } else {
+        console.error(`[scheduler] ${printer.name} dispatch failed after ${MAX_RETRIES + 1} attempts: ${lastErr.message}`);
+      }
       return null;
     }
 
@@ -214,8 +227,15 @@ class JobScheduler extends EventEmitter {
       }
     }
 
-    const fileStream = fs.createReadStream(gcode.filepath);
-    const stat = fs.statSync(gcode.filepath);
+    const gcodeFullPath = path.join(GCODE_DIR, gcode.filepath);
+    if (!fs.existsSync(gcodeFullPath)) {
+      throw Object.assign(
+        new Error(`G-code file not found on disk: ${gcode.filepath}`),
+        { code: 'GCODE_MISSING' }
+      );
+    }
+    const fileStream = fs.createReadStream(gcodeFullPath);
+    const stat = fs.statSync(gcodeFullPath);
 
     await axios.put(
       `http://${printer.ip}/api/v1/files/usb/${encodeURIComponent(gcode.filename)}`,

@@ -4,6 +4,7 @@ const path    = require('path');
 const db             = require('./db');
 const PrinterPoller  = require('./poller');
 const JobScheduler   = require('./scheduler');
+const notifications  = require('./notifications');
 
 const printersRouter = require('./routes/printers')(db);
 const projectsRouter = require('./routes/projects')(db);
@@ -30,6 +31,14 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
+// Server notifications — surfaced in the Settings UI
+app.get('/api/notifications', (_req, res) => res.json(notifications.list()));
+app.delete('/api/notifications/:id', (req, res) => {
+  const ok = notifications.dismiss(parseInt(req.params.id, 10));
+  if (!ok) return res.status(404).json({ error: 'Notification not found' });
+  res.json({ ok: true });
+});
+
 // Serve built React client (production mode)
 const clientDist = path.join(__dirname, '../client/dist');
 app.use(express.static(clientDist));
@@ -48,12 +57,13 @@ const server = app.listen(PORT, () => {
   scheduler.start();
   poller.start();
 
-  // Sweep on startup — picks up any printers already IDLE with is_held = 0
-  // (e.g. machines that were set ready before a server restart).
-  // Safe to call immediately: the sweep queries DB state, and the cold-start hold
-  // logic only fires on the first poller tick for printers that finished while the
-  // server was offline — those have is_held = 1 and are excluded from the sweep.
-  scheduler.sweepIdlePrinters();
+  // Wait for the first poll to complete before sweeping — ensures DB status reflects
+  // live printer state rather than whatever was last persisted before shutdown.
+  // This prevents dispatching to a printer that started printing while the server was down.
+  poller.once('pollComplete', () => {
+    console.log('[server] Initial poll complete — sweeping for idle printers');
+    scheduler.sweepIdlePrinters();
+  });
 
   // Dispatch trigger — called by the UI when a project is activated
   app.post('/api/scheduler/dispatch', (req, res) => {

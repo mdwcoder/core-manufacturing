@@ -39,6 +39,8 @@ class PrinterPoller extends EventEmitter {
         console.error(`[poller] Unexpected error polling ${printers[i].name}:`, result.reason);
       }
     });
+
+    this.emit('pollComplete');
   }
 
   async _pollPrinter(printer) {

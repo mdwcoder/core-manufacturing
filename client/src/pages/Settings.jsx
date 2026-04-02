@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 const MODEL_OPTIONS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl'];
 
@@ -8,6 +8,25 @@ export default function Settings() {
   const [error, setError] = useState(null);
   const [flaggedModels, setFlaggedModels] = useState({});
   const fileRef = useRef(null);
+
+  const [alerts, setAlerts] = useState([]);
+
+  useEffect(() => {
+    function fetchAlerts() {
+      fetch('/api/notifications')
+        .then(r => r.json())
+        .then(setAlerts)
+        .catch(() => {});
+    }
+    fetchAlerts();
+    const interval = setInterval(fetchAlerts, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  async function dismissAlert(id) {
+    await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
+    setAlerts(prev => prev.filter(a => a.id !== id));
+  }
 
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState(null);
@@ -112,6 +131,51 @@ export default function Settings() {
   return (
     <div>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 20 }}>Settings</h1>
+
+      {/* Server Alerts */}
+      {alerts.length > 0 && (
+        <section style={{ background: '#1e2433', borderRadius: 10, padding: 20, marginBottom: 24, maxWidth: 640, border: '1px solid #7f1d1d' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: '#fca5a5' }}>
+            Server Alerts ({alerts.length})
+          </h2>
+          {alerts.map(alert => (
+            <div key={alert.id} style={{
+              display: 'flex',
+              gap: 12,
+              alignItems: 'flex-start',
+              background: '#1a1f2e',
+              border: '1px solid #7f1d1d',
+              borderRadius: 6,
+              padding: '10px 12px',
+              marginBottom: 8,
+              fontSize: 13,
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#fca5a5', marginBottom: 4 }}>{alert.message}</div>
+                <div style={{ color: '#475569', fontSize: 12 }}>
+                  {new Date(alert.timestamp).toLocaleString()}
+                </div>
+              </div>
+              <button
+                onClick={() => dismissAlert(alert.id)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  fontSize: 16,
+                  lineHeight: 1,
+                  padding: '0 4px',
+                  flexShrink: 0,
+                }}
+                title="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* CSV Import */}
       <section style={{ background: '#1e2433', borderRadius: 10, padding: 20, marginBottom: 24, maxWidth: 640 }}>

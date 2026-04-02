@@ -113,7 +113,7 @@ module.exports = (db) => {
       part_id,
       printer_model,
       req.file.originalname,
-      req.file.path,
+      req.file.filename,
       parseInt(parts_per_plate, 10),
       est_print_secs ? parseInt(est_print_secs, 10) : null,
       Date.now()
@@ -127,8 +127,9 @@ module.exports = (db) => {
     const gcode = db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id);
     if (!gcode) return res.status(404).json({ error: 'G-code not found' });
 
-    if (fs.existsSync(gcode.filepath)) {
-      fs.unlinkSync(gcode.filepath);
+    const fullPath = path.join(GCODE_DIR, gcode.filepath);
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
     }
     db.prepare('DELETE FROM gcodes WHERE id = ?').run(req.params.id);
     res.json({ success: true });
