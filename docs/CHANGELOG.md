@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-04-02 — Network access + Farm Backup/Restore
+
+### Production static serving (`server/index.js`, `package.json`)
+Express now serves the built React client from `client/dist/` on port 3000, with a SPA catch-all for client-side routes. This means the app can run headlessly on a dedicated machine (e.g. the Windows print farm laptop) and be accessed from any browser on the LAN at `http://[server-ip]:3000` — no Vite dev server required.
+
+New scripts:
+- `npm run build` — builds the React client into `client/dist/`
+- `npm start` — starts Express only (production mode)
+
+### Farm Backup/Restore (`server/routes/backup.js`, `client/src/pages/Settings.jsx`)
+Added full farm export/import as a backup and migration tool.
+
+- `GET /api/backup` — exports all 5 DB tables plus gcode file contents (base64) as a downloadable JSON bundle.
+- `POST /api/backup/restore` — accepts the JSON bundle, clears all DB data, reinserts with original IDs (preserving FK relationships), writes gcode files to the local `server/gcode/` directory with corrected `filepath` values for the current machine. Auto-increment sequences are synced after restore.
+
+UI: "Farm Backup" section in Settings — **Export Farm** button (triggers download) and **Restore Farm** file picker. Restore requires a confirmation prompt and shows a summary of restored counts on success.
+
+**Files changed:** `server/index.js`, `server/routes/backup.js` (new), `package.json`, `client/src/pages/Settings.jsx`
+
+---
+
 ## 2026-04-02 — Fleet UI: poll timer indicator
 
 ### Poll timer (`client/src/pages/Fleet.jsx`)

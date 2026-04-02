@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 
 const MODEL_OPTIONS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl'];
 
@@ -8,6 +8,41 @@ export default function Settings() {
   const [error, setError] = useState(null);
   const [flaggedModels, setFlaggedModels] = useState({});
   const fileRef = useRef(null);
+
+  const [restoring, setRestoring] = useState(false);
+  const [restoreResult, setRestoreResult] = useState(null);
+  const [restoreError, setRestoreError] = useState(null);
+  const restoreFileRef = useRef(null);
+
+  const handleExport = useCallback(() => {
+    window.location.href = '/api/backup';
+  }, []);
+
+  async function handleRestore(e) {
+    e.preventDefault();
+    const file = restoreFileRef.current?.files[0];
+    if (!file) return;
+    if (!window.confirm('This will replace ALL current farm data with the backup. Continue?')) return;
+
+    setRestoring(true);
+    setRestoreResult(null);
+    setRestoreError(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch('/api/backup/restore', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Restore failed');
+      setRestoreResult(data);
+    } catch (err) {
+      setRestoreError(err.message);
+    } finally {
+      setRestoring(false);
+      if (restoreFileRef.current) restoreFileRef.current.value = '';
+    }
+  }
 
   async function handleImport(e) {
     e.preventDefault();
@@ -187,6 +222,91 @@ export default function Settings() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+      </section>
+
+      {/* Farm Backup / Restore */}
+      <section style={{ background: '#1e2433', borderRadius: 10, padding: 20, marginBottom: 24, maxWidth: 640 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Farm Backup</h2>
+        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+          Export a full snapshot of your printers, projects, parts, G-code files, and job history.
+          Use the same file to restore on another machine or recover from data loss.
+        </p>
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {/* Export */}
+          <button
+            onClick={handleExport}
+            style={{
+              background: '#0f3460',
+              color: '#93c5fd',
+              border: '1px solid #1e40af',
+              borderRadius: 6,
+              padding: '8px 18px',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Export Farm
+          </button>
+
+          {/* Restore */}
+          <form onSubmit={handleRestore} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              ref={restoreFileRef}
+              type="file"
+              accept=".json"
+              required
+              style={{
+                background: '#0f172a',
+                border: '1px solid #334155',
+                borderRadius: 6,
+                padding: '6px 10px',
+                color: '#e2e8f0',
+                fontSize: 13,
+                flex: '1 1 200px',
+              }}
+            />
+            <button
+              type="submit"
+              disabled={restoring}
+              style={{
+                background: restoring ? '#7f1d1d' : '#991b1b',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                padding: '8px 18px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: restoring ? 'not-allowed' : 'pointer',
+                opacity: restoring ? 0.7 : 1,
+              }}
+            >
+              {restoring ? 'Restoring…' : 'Restore Farm'}
+            </button>
+          </form>
+        </div>
+
+        {restoreError && (
+          <div style={{ marginTop: 14, background: '#7f1d1d', borderRadius: 6, padding: '10px 14px', color: '#fca5a5', fontSize: 13 }}>
+            {restoreError}
+          </div>
+        )}
+
+        {restoreResult && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ color: '#4ade80', fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
+              Farm restored successfully
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <Chip color="#4ade80" label={`${restoreResult.printers} printers`} />
+              <Chip color="#4ade80" label={`${restoreResult.projects} projects`} />
+              <Chip color="#4ade80" label={`${restoreResult.parts} parts`} />
+              <Chip color="#4ade80" label={`${restoreResult.gcodes} G-codes`} />
+              <Chip color="#4ade80" label={`${restoreResult.jobs} jobs`} />
+            </div>
           </div>
         )}
       </section>

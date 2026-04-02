@@ -8,10 +8,10 @@ This guide covers installing Print Farm Manager on a dedicated machine that sits
 
 ### Node.js
 
-Print Farm Manager requires **Node.js 18 LTS or later**.
+Print Farm Manager requires **Node.js 22 LTS**. Use the 22 LTS release specifically — Node 24+ has known issues compiling the native SQLite dependency on Windows.
 
 **Windows**
-1. Go to [https://nodejs.org](https://nodejs.org) and download the **LTS** installer (`.msi`).
+1. Go to [https://nodejs.org](https://nodejs.org) and download the **22 LTS** installer (`.msi`).
 2. Run the installer with default options. Ensure **"Add to PATH"** is checked (it is by default).
 3. Open a new Command Prompt and verify:
    ```
@@ -24,7 +24,7 @@ Print Farm Manager requires **Node.js 18 LTS or later**.
 The recommended approach is [Homebrew](https://brew.sh). If you do not have Homebrew installed, the one-line installer is at [https://brew.sh](https://brew.sh).
 
 ```
-brew install node
+brew install node@22
 ```
 
 Alternatively, download the macOS `.pkg` installer from [https://nodejs.org](https://nodejs.org).
@@ -102,16 +102,35 @@ cd print-farm-manager
 
 ## Installation
 
-Run the following from inside the `print-farm-manager` folder. This installs all server and client dependencies:
+Run the following from inside the `print-farm-manager` folder:
 
 ```
 npm install
+```
+
+Then install client dependencies. On Windows, use the `--legacy-peer-deps` flag to avoid peer dependency conflicts:
+
+**Windows:**
+```
 cd client
-npm install
+npm install --legacy-peer-deps
 cd ..
 ```
 
-This only needs to be done once, and again after an update if dependencies have changed — see [Updating](#updating).
+**macOS:**
+```
+cd client && npm install && cd ..
+```
+
+### Build the client
+
+Before running in production, build the React client into static files:
+
+```
+npm run build
+```
+
+This only needs to be re-run after an update — see [Updating](#updating).
 
 ---
 
@@ -119,9 +138,9 @@ This only needs to be done once, and again after an update if dependencies have 
 
 The machine running Print Farm Manager must be on the **same local network** as your printers. All communication happens over HTTP directly to each printer's IP address — no internet connection is required.
 
-### Finding the machine's IP address
+Print Farm Manager runs as a single server on **port 3000** that serves both the API and the web UI. Any browser on the same network can access it.
 
-You will need this to access the UI from other devices (phones, tablets, other computers) on your network.
+### Finding the machine's IP address
 
 **Windows:**
 ```
@@ -135,9 +154,9 @@ ipconfig getifaddr en0
 ```
 Use `en1` if you are on Wi-Fi and `en0` returns nothing, or check **System Settings → Network**.
 
-### Firewall configuration
+Once the server is running, open **`http://[machine-ip]:3000`** from any browser on the network.
 
-The server listens on **port 3000** (API) and **port 5173** (web UI).
+### Firewall configuration
 
 **Windows**
 Windows Firewall may block connections from other devices on the network. To allow them:
@@ -145,7 +164,7 @@ Windows Firewall may block connections from other devices on the network. To all
 1. Open **Windows Defender Firewall with Advanced Security** (search in the Start menu).
 2. Click **Inbound Rules → New Rule**.
 3. Select **Port**, click Next.
-4. Select **TCP**, enter `3000, 5173`, click Next.
+4. Select **TCP**, enter `3000`, click Next.
 5. Select **Allow the connection**, click Next through the remaining steps and name the rule `Print Farm Manager`.
 
 **macOS**
@@ -158,10 +177,10 @@ macOS does not block outbound connections and generally allows LAN traffic by de
 From the `print-farm-manager` folder:
 
 ```
-npm run dev
+npm start
 ```
 
-This starts both the API server and the web UI simultaneously. You should see:
+You should see:
 
 ```
 [server] Express running on http://localhost:3000
@@ -169,16 +188,18 @@ This starts both the API server and the web UI simultaneously. You should see:
 [scheduler] Starting job scheduler
 ```
 
-- On the **local machine**: open a browser to **http://localhost:5173**
-- From **any other device on the network**: use the machine's IP address — e.g. **http://192.168.1.50:5173**
+- On the **local machine**: open a browser to **http://localhost:3000**
+- From **any other device on the network**: use the machine's IP address — e.g. **http://192.168.1.50:3000**
 
 To stop the server, press `Ctrl + C` in the terminal.
+
+> **Development mode:** If you are actively developing the app, `npm run dev` starts both the Express server and the Vite dev server with hot reload. This is not needed for normal farm operation.
 
 ---
 
 ## Keeping It Running (Auto-start on Boot)
 
-Running `npm run dev` manually is fine for testing, but a farm machine should start the server automatically on boot and restart it if it crashes. **PM2** is a Node.js process manager that handles this on both platforms.
+Running `npm start` manually is fine for testing, but a farm machine should start the server automatically on boot and restart it if it crashes. **PM2** is a Node.js process manager that handles this on both platforms.
 
 ### Install PM2
 
@@ -197,7 +218,7 @@ npm install --global pm2
 
 From the `print-farm-manager` folder (same on both platforms):
 ```
-pm2 start npm --name "print-farm-manager" -- run dev
+pm2 start npm --name "print-farm-manager" -- start
 ```
 
 Verify it is running:
@@ -247,7 +268,21 @@ All persistent data lives inside the `print-farm-manager` folder:
 | `server/data/farm.db` | SQLite database — all printers, projects, parts, jobs |
 | `server/gcode/` | Uploaded G-code files |
 
-**Back these up regularly.** If you reinstall or move the software, copy both locations to preserve your printer registry, project history, and G-code library. Neither folder is tracked by Git — they are created automatically on first run.
+Neither folder is tracked by Git — they are created automatically on first run.
+
+### Backup
+
+Use the **Farm Backup** tool in the app's Settings page to export a full snapshot of your farm (printers, projects, parts, G-code files, and job history) as a single `.json` file. You can restore from this file on any machine running Print Farm Manager.
+
+For an additional low-level backup, copy `server/data/farm.db` and `server/gcode/` to a safe location. Restoring is as simple as copying them back.
+
+### Moving to a new machine
+
+1. On the old machine, go to **Settings → Farm Backup → Export Farm** and save the `.json` file.
+2. Install Print Farm Manager on the new machine following this guide.
+3. Go to **Settings → Farm Backup**, select the `.json` file, and click **Restore Farm**.
+
+Alternatively, copy the entire `print-farm-manager` folder to the new machine — the database and G-code files are included. After copying, delete `node_modules` and `client/node_modules` and run `npm install` fresh (native dependencies must be compiled for the new machine's OS and Node version).
 
 ---
 
@@ -258,7 +293,8 @@ All persistent data lives inside the `print-farm-manager` folder:
 ```
 git pull
 npm install
-cd client && npm install && cd ..
+cd client && npm install --legacy-peer-deps && cd ..
+npm run build
 pm2 restart print-farm-manager
 ```
 
@@ -267,14 +303,19 @@ pm2 restart print-farm-manager
 1. Download the new ZIP from GitHub.
 2. Extract it to a **new** folder — do not overwrite the existing one.
 3. Copy `server/data/` and `server/gcode/` from the old folder into the new one.
-4. Run `npm install` and `cd client && npm install && cd ..` in the new folder.
+4. Run the install and build steps in the new folder:
+   ```
+   npm install
+   cd client && npm install --legacy-peer-deps && cd ..
+   npm run build
+   ```
 5. Update PM2 to point at the new folder:
 
 **Windows:**
 ```
 pm2 delete print-farm-manager
 cd C:\PrintFarm\print-farm-manager-NEW
-pm2 start npm --name "print-farm-manager" -- run dev
+pm2 start npm --name "print-farm-manager" -- start
 pm2 save
 ```
 
@@ -282,7 +323,7 @@ pm2 save
 ```
 pm2 delete print-farm-manager
 cd ~/PrintFarm/print-farm-manager-NEW
-pm2 start npm --name "print-farm-manager" -- run dev
+pm2 start npm --name "print-farm-manager" -- start
 pm2 save
 ```
 
@@ -307,16 +348,32 @@ xcode-select --install
 
 Then retry `npm install`.
 
+**`better_sqlite3.node is not a valid Win32 application`**
+The native SQLite binary was compiled for a different operating system (e.g. the `node_modules` folder was copied from a Mac). Delete it and reinstall on the Windows machine:
+```
+rmdir /s /q node_modules
+rmdir /s /q client\node_modules
+npm install
+cd client && npm install --legacy-peer-deps && cd ..
+npm run build
+```
+
+**`npm install` in `client/` reports dependency conflicts on Windows**
+Run with the `--legacy-peer-deps` flag:
+```
+npm install --legacy-peer-deps
+```
+
 **UI loads but shows no printers / API errors**
 - Confirm the server is running: `pm2 list`
 - Check server logs: `pm2 logs print-farm-manager`
-- Confirm ports 3000 and 5173 are not blocked (Windows: check Firewall rules; macOS: check if Application Firewall is on)
+- Confirm port 3000 is not blocked (Windows: check Firewall rules; macOS: check if Application Firewall is on)
 
 **Printers show as OFFLINE**
 - Confirm the farm machine and the printers are on the same network subnet.
 - Open `http://<printer-ip>/api/v1/status` in a browser on the farm machine. If it loads, the server can reach the printer. If not, it is a network or switch issue.
 
-**Port 3000 or 5173 already in use**
+**Port 3000 already in use**
 
 *Windows:*
 ```
@@ -332,5 +389,5 @@ kill -9 <PID>
 
 **Server starts but UI does not load on another device**
 - Use the machine's LAN IP address — `localhost` only resolves on the machine itself.
-- Windows: confirm the Firewall inbound rule covers ports 3000 and 5173.
+- Windows: confirm the Firewall inbound rule covers port 3000.
 - Check that both devices are on the same network VLAN. Some managed switches isolate VLANs from each other.

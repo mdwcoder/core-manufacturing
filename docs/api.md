@@ -1,6 +1,8 @@
 # API Reference
 
-All endpoints are served by the Express server at `http://localhost:3000`. The Vite dev server at port 5173 proxies all `/api/*` requests to port 3000.
+In **production** (after `npm run build && npm start`) the Express server at port 3000 serves both the API and the React client. Access from any browser on the LAN via `http://[server-ip]:3000`.
+
+In **development** (`npm run dev`) the Vite dev server at port 5173 proxies all `/api/*` requests to port 3000.
 
 All request bodies are JSON (`Content-Type: application/json`) unless noted otherwise. All responses are JSON. Timestamps are Unix epoch milliseconds.
 
@@ -308,4 +310,31 @@ All error responses use this shape:
 | `400` | Missing required field or invalid value |
 | `404` | Resource not found |
 | `409` | Conflict (e.g. duplicate printer name) |
+
+---
+
+## Backup
+
+### `GET /api/backup`
+
+Downloads a full farm snapshot as `farm-backup-YYYY-MM-DD.json`. Includes all 5 tables and gcode file contents (base64 encoded). No request body.
+
+**Response:** `Content-Disposition: attachment` JSON file.
+
+### `POST /api/backup/restore`
+
+Replaces all farm data from a previously exported backup file. Clears the DB and rewrites all tables; gcode files are written to `server/gcode/` and `filepath` values are rewritten to match the current machine.
+
+**Request:** `multipart/form-data` with field `file` — the `.json` backup file. Max 500 MB.
+
+```json
+{
+  "ok": true,
+  "printers": 52,
+  "projects": 3,
+  "parts": 12,
+  "gcodes": 18,
+  "jobs": 340
+}
+```
 | `500` | Unhandled server error |

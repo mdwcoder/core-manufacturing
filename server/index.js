@@ -1,4 +1,5 @@
 const express = require('express');
+const path    = require('path');
 
 const db             = require('./db');
 const PrinterPoller  = require('./poller');
@@ -9,6 +10,7 @@ const projectsRouter = require('./routes/projects')(db);
 const partsRouter    = require('./routes/parts')(db);
 const gcodesRouter   = require('./routes/gcodes')(db);
 const jobsRouter     = require('./routes/jobs')(db);
+const backupRouter   = require('./routes/backup')(db);
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -21,10 +23,19 @@ app.use('/api/projects', projectsRouter);
 app.use('/api/parts',    partsRouter);
 app.use('/api/gcodes',   gcodesRouter);
 app.use('/api/jobs',     jobsRouter);
+app.use('/api/backup',   backupRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
+});
+
+// Serve built React client (production mode)
+const clientDist = path.join(__dirname, '../client/dist');
+app.use(express.static(clientDist));
+// SPA catch-all — non-API routes serve index.html
+app.get(/^(?!\/api).*/, (_req, res) => {
+  res.sendFile(path.join(clientDist, 'index.html'));
 });
 
 // Start server
