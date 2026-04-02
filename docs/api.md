@@ -224,6 +224,8 @@ Optional query param `?part_id=N` to filter by part.
 
 Returns all G-code records. Each record includes `part_id`, `printer_model`, `filename`, `filepath`, `parts_per_plate`, `est_print_secs`, `created_at`.
 
+`filepath` stores only the filename (not an absolute path) — the server resolves the full path at runtime using its own `server/gcode/` directory. This makes the DB portable across machines.
+
 ### `POST /api/gcodes/parse-filename`
 
 Parses a G-code filename and returns structured fields without saving anything. Used to pre-fill the upload form.
@@ -297,6 +299,30 @@ Called by the Projects UI when a project is activated or resumed.
 
 ---
 
+## Notifications
+
+In-memory store of server-side alerts that require operator attention. Lost on server restart (errors will recur naturally on the next dispatch attempt if unresolved).
+
+### `GET /api/notifications`
+
+Returns all current notifications, newest first.
+
+```json
+[
+  {
+    "id": 1,
+    "message": "G-code file missing for \"4x Left Bracket_MK4S_5h11m.bgcode\" — re-upload the file for part \"Left Bracket\" in project \"Batch 7\". Printer MK4S_03 has been held.",
+    "timestamp": 1774903214349
+  }
+]
+```
+
+### `DELETE /api/notifications/:id`
+
+Dismisses a notification. Returns `{ "ok": true }`. Returns `404` if not found.
+
+---
+
 ## Error Responses
 
 All error responses use this shape:
@@ -323,7 +349,7 @@ Downloads a full farm snapshot as `farm-backup-YYYY-MM-DD.json`. Includes all 5 
 
 ### `POST /api/backup/restore`
 
-Replaces all farm data from a previously exported backup file. Clears the DB and rewrites all tables; gcode files are written to `server/gcode/` and `filepath` values are rewritten to match the current machine.
+Replaces all farm data from a previously exported backup file. Clears the DB and rewrites all tables; gcode files are written to `server/gcode/`. Since `filepath` stores only the filename, no path rewriting is needed — the restored DB works correctly on any machine.
 
 **Request:** `multipart/form-data` with field `file` — the `.json` backup file. Max 500 MB.
 

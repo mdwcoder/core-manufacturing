@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-04-02 — Portable gcode paths, server alerts, startup sweep safety
+
+### Portable gcode filepath (`server/routes/gcodes.js`, `server/scheduler.js`, `server/routes/backup.js`)
+`filepath` in the `gcodes` table now stores only the filename (e.g. `1714903214387_4x Left Bracket.bgcode`), not an absolute path. The server resolves the full path at runtime using its own `server/gcode/` directory. Previously, absolute paths were stored — if the DB was copied to a machine with a different username or folder structure, the scheduler would fail to find the file and crash the server process.
+
+The backup/restore flow already rewrote paths on restore, but that rewrite is now a no-op (basename only). Existing installations with absolute paths in the DB should run a one-time SQL fix before upgrading.
+
+### Server alerts (`server/notifications.js`, `server/index.js`, `client/src/pages/Settings.jsx`)
+Added an in-memory notification store that the scheduler writes to when it encounters a recoverable error. Currently used for missing G-code files: instead of crashing, the scheduler marks the job failed, re-holds the printer, and pushes an alert with the filename, part name, and project name.
+
+- `GET /api/notifications` — list all alerts, newest first
+- `DELETE /api/notifications/:id` — dismiss an alert
+- Settings page shows a "Server Alerts" section (red border, polls every 15s) when alerts are present. Each alert is dismissible with ×.
+- Missing-file errors skip retries (retrying won't fix a missing file).
+- Notifications are lost on server restart; unresolved issues will surface again naturally on the next dispatch attempt.
+
+### Startup sweep deferred until first poll (`server/poller.js`, `server/index.js`)
+The startup `sweepIdlePrinters()` call is now deferred until after the first poller tick completes (`pollComplete` event). Previously, the sweep ran immediately on startup using stale DB state — if a printer started printing while the server was down, the DB still showed it as IDLE and the scheduler would attempt a second dispatch. The sweep now works from live printer state.
+
+### Windows update script (`update.bat`)
+Added `update.bat` to the project root. Double-click to pull latest code, install dependencies, rebuild the client, and restart PM2 — with error checking at each step.
+
+**Files changed:** `server/routes/gcodes.js`, `server/scheduler.js`, `server/routes/backup.js`, `server/notifications.js` (new), `server/index.js`, `server/poller.js`, `client/src/pages/Settings.jsx`, `update.bat` (new)
+
+---
+
 ## 2026-04-02 — Network access + Farm Backup/Restore
 
 ### Production static serving (`server/index.js`, `package.json`)
