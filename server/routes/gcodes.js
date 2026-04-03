@@ -127,7 +127,18 @@ module.exports = (db) => {
     const gcode = db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id);
     if (!gcode) return res.status(404).json({ error: 'G-code not found' });
 
-    const fullPath = path.join(GCODE_DIR, gcode.filepath);
+    const activeJob = db.prepare(
+      "SELECT id FROM jobs WHERE gcode_id = ? AND status IN ('queued', 'uploading', 'printing') LIMIT 1"
+    ).get(req.params.id);
+    if (activeJob) {
+      return res.status(409).json({ error: 'Cannot delete — this G-code has an active job in progress.' });
+    }
+
+    // Detach historical jobs so the FK doesn't block deletion
+    db.prepare("UPDATE jobs SET gcode_id = NULL WHERE gcode_id = ?").run(req.params.id);
+
+    const gcodeFilename = gcode.filepath.split(/[\\/]/).pop();
+    const fullPath = path.join(GCODE_DIR, gcodeFilename);
     if (fs.existsSync(fullPath)) {
       fs.unlinkSync(fullPath);
     }

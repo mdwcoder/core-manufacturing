@@ -7,6 +7,8 @@ const os      = require('os');
 const Database = require('better-sqlite3');
 let db;
 
+const GCODE_DIR = path.join(__dirname, '..', 'gcode');
+
 beforeAll(() => {
   db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
@@ -38,11 +40,36 @@ beforeAll(() => {
       est_print_secs INTEGER,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE printers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      ip TEXT NOT NULL,
+      api_key TEXT NOT NULL,
+      model TEXT NOT NULL,
+      status TEXT DEFAULT 'UNKNOWN',
+      is_held INTEGER DEFAULT 1,
+      is_active INTEGER DEFAULT 1,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      part_id INTEGER NOT NULL REFERENCES parts(id),
+      printer_id INTEGER NOT NULL REFERENCES printers(id),
+      gcode_id INTEGER REFERENCES gcodes(id),
+      parts_per_plate INTEGER NOT NULL,
+      status TEXT DEFAULT 'queued',
+      started_at INTEGER,
+      finished_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
   `);
+
+  if (!fs.existsSync(GCODE_DIR)) fs.mkdirSync(GCODE_DIR, { recursive: true });
 
   const now = Date.now();
   db.prepare('INSERT INTO projects (name, created_at, updated_at) VALUES (?, ?, ?)').run('Test Project', now, now);
   db.prepare('INSERT INTO parts (project_id, name, target_qty, created_at, updated_at) VALUES (1, ?, 10, ?, ?)').run('Test Part', now, now);
+  db.prepare('INSERT INTO printers (name, ip, api_key, model, created_at) VALUES (?, ?, ?, ?, ?)').run('Test Printer', '192.168.1.1', 'key', 'mk4s', now);
 });
 
 // ── Build a minimal express app wired to the in-memory DB ────────────────────
@@ -168,5 +195,97 @@ describe('POST /api/gcodes/upload', () => {
     expect(first.status).toBe(201);
     expect(second.status).toBe(409);
     expect(second.body.error).toMatch(/already has a G-code/i);
+  });
+});
+
+// ── Helper: insert a gcode row directly and write its file to disk ────────────
+function insertGcode(filename, filepath) {
+  const now = Date.now();
+  const row = db.prepare(`
+    INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, created_at)
+    VALUES (1, 'mk4s', ?, ?, 1, ?)
+  `).run(filename, filepath, now);
+  return row.lastInsertRowid;
+}
+
+describe('DELETE /api/gcodes/:id', () => {
+  test('returns 404 for unknown id', async () => {
+    const res = await request(app).delete('/api/gcodes/99999');
+    expect(res.status).toBe(404);
+  });
+
+  test('deletes DB record and removes file from disk', async () => {
+    const filename = `del_test_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode');
+    const id = insertGcode(filename, filename);
+
+    const res = await request(app).delete(`/api/gcodes/${id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeUndefined();
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  test('succeeds even when file is already missing from disk', async () => {
+    const id = insertGcode('ghost.bgcode', 'ghost.bgcode');
+    // No file written — simulates a file that was manually removed
+
+    const res = await request(app).delete(`/api/gcodes/${id}`);
+
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeUndefined();
+  });
+
+  test('resolves file correctly when filepath is an old absolute path', async () => {
+    const filename = `abs_path_test_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode');
+    // Simulate an old DB row with a Unix absolute path (pre-portable-path migration)
+    const oldAbsPath = `/Users/olduser/dev/print-farm-manager/server/gcode/${filename}`;
+    const id = insertGcode(filename, oldAbsPath);
+
+    const res = await request(app).delete(`/api/gcodes/${id}`);
+
+    expect(res.status).toBe(200);
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  test('returns 409 when an active job references the gcode', async () => {
+    const filename = `active_job_${Date.now()}.bgcode`;
+    const id = insertGcode(filename, filename);
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO jobs (part_id, printer_id, gcode_id, parts_per_plate, status, created_at)
+      VALUES (1, 1, ?, 1, 'printing', ?)
+    `).run(id, now);
+
+    const res = await request(app).delete(`/api/gcodes/${id}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/active job/i);
+    // Record should still exist
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeDefined();
+  });
+
+  test('nulls out gcode_id on terminal jobs and deletes successfully', async () => {
+    const filename = `terminal_job_${Date.now()}.bgcode`;
+    const id = insertGcode(filename, filename);
+    const now = Date.now();
+    const jobRow = db.prepare(`
+      INSERT INTO jobs (part_id, printer_id, gcode_id, parts_per_plate, status, created_at)
+      VALUES (1, 1, ?, 1, 'finished', ?)
+    `).run(id, now);
+    const jobId = jobRow.lastInsertRowid;
+
+    const res = await request(app).delete(`/api/gcodes/${id}`);
+
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeUndefined();
+    // Job history preserved, gcode_id cleared
+    const job = db.prepare('SELECT gcode_id FROM jobs WHERE id = ?').get(jobId);
+    expect(job).toBeDefined();
+    expect(job.gcode_id).toBeNull();
   });
 });

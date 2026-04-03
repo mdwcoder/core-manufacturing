@@ -87,4 +87,27 @@ try { db.exec('ALTER TABLE printers ADD COLUMN job_name TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE printers ADD COLUMN job_progress REAL'); } catch (_) {}
 try { db.exec('ALTER TABLE printers ADD COLUMN job_time_remaining INTEGER'); } catch (_) {}
 
+// Make jobs.gcode_id nullable so gcodes can be deleted after jobs have run
+const gcodeIdCol = db.prepare("PRAGMA table_info(jobs)").all().find(c => c.name === 'gcode_id');
+if (gcodeIdCol && gcodeIdCol.notnull === 1) {
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+    CREATE TABLE jobs_migrated (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      part_id          INTEGER NOT NULL REFERENCES parts(id),
+      printer_id       INTEGER NOT NULL REFERENCES printers(id),
+      gcode_id         INTEGER REFERENCES gcodes(id),
+      parts_per_plate  INTEGER NOT NULL,
+      status           TEXT DEFAULT 'queued',
+      started_at       INTEGER,
+      finished_at      INTEGER,
+      created_at       INTEGER NOT NULL
+    );
+    INSERT INTO jobs_migrated SELECT * FROM jobs;
+    DROP TABLE jobs;
+    ALTER TABLE jobs_migrated RENAME TO jobs;
+    PRAGMA foreign_keys = ON;
+  `);
+}
+
 module.exports = db;

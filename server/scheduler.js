@@ -227,7 +227,10 @@ class JobScheduler extends EventEmitter {
       }
     }
 
-    const gcodeFullPath = path.join(GCODE_DIR, gcode.filepath);
+    // Split on both / and \ to handle paths stored from either OS (e.g. old Mac paths
+    // restored to a Windows machine, or old Windows paths restored to a Mac).
+    const gcodeFilename = gcode.filepath.split(/[\\/]/).pop();
+    const gcodeFullPath = path.join(GCODE_DIR, gcodeFilename);
     if (!fs.existsSync(gcodeFullPath)) {
       throw Object.assign(
         new Error(`G-code file not found on disk: ${gcode.filepath}`),

@@ -30,6 +30,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
   const [model, setModel]           = useState('');
   const [error, setError]           = useState(null);
   const [uploading, setUploading]   = useState(false);
+  const fileInputRef                = useRef(null);
 
   async function handleFileChange(e) {
     const f = e.target.files[0];
@@ -71,6 +72,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
         setError(data.error || 'Upload failed.');
       } else {
         setFile(null); setPPP(''); setModel('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
         onUploaded();
       }
     } catch (err) {
@@ -82,7 +84,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       <label style={{ cursor: 'pointer' }}>
-        <input type="file" accept=".bgcode,.gcode" onChange={handleFileChange} style={{ display: 'none' }} />
+        <input ref={fileInputRef} type="file" accept=".bgcode,.gcode" onChange={handleFileChange} style={{ display: 'none' }} />
         <span style={{
           ...inputSx,
           display: 'inline-block',

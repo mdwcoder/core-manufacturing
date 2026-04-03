@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-04-02 — Bugfixes: cross-platform filepath, gcode delete FK, file input re-select
+
+### Cross-platform gcode path resolution (`server/scheduler.js`, `server/routes/gcodes.js`)
+Both the scheduler and the delete route previously used `path.basename(filepath)` to strip the directory from stored paths. `path.basename` only recognises the current OS's separator — on Windows it silently fails to strip a Mac absolute path (e.g. `/Users/...`), and vice versa. Changed to `filepath.split(/[\\/]/).pop()` which handles both forward and backward slashes regardless of platform. Fixes "file cannot be found" errors on the Windows farm machine when the DB contained paths stored on a Mac dev machine.
+
+### Gcode delete: FK constraint + active job guard (`server/routes/gcodes.js`, `server/db.js`)
+`DELETE /api/gcodes/:id` was failing with `SQLiteError: FOREIGN KEY constraint failed` when any job (even a finished one) referenced the gcode. Two changes:
+- `jobs.gcode_id` migrated from `NOT NULL` to nullable via a one-time schema migration in `db.js` (uses `PRAGMA table_info` to detect whether migration has already run).
+- Delete route now checks for active jobs (`queued`/`uploading`/`printing`) first and returns `409` if any exist. For terminal jobs (`finished`/`failed`/`cancelled`) it nulls out `gcode_id` before deleting, preserving job history.
+
+### File input re-select after upload (`client/src/pages/Projects.jsx`)
+After uploading a G-code file, the React state reset (`setFile(null)`) but the underlying `<input type="file">` DOM element retained its value. If the user deleted the gcode and tried to re-upload the same file, the browser saw no change and silently skipped the `onChange` event. Fixed by adding a `ref` to the input and resetting `fileInputRef.current.value = ''` on successful upload.
+
+### Tests (`server/tests/gcodes.test.js`, `server/tests/scheduler-file.test.js`)
+- 5 new DELETE route tests: 404, success + file removed, missing file graceful, old absolute filepath resolved correctly, active job 409, terminal job FK nulling.
+- 6 new scheduler file-handling tests: GCODE_MISSING thrown correctly, bare filename, old Unix absolute path, old Windows absolute path (key test for the cross-platform fix), missing basename.
+
+**Files changed:** `server/scheduler.js`, `server/routes/gcodes.js`, `server/db.js`, `client/src/pages/Projects.jsx`, `server/tests/gcodes.test.js`, `server/tests/scheduler-file.test.js` (new)
+
+---
+
 ## 2026-04-02 — Portable gcode paths, server alerts, startup sweep safety
 
 ### Portable gcode filepath (`server/routes/gcodes.js`, `server/scheduler.js`, `server/routes/backup.js`)

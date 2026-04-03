@@ -263,6 +263,10 @@ Returns `201` with created G-code record. Returns `409` if a G-code for this `(p
 
 Deletes the DB record and removes the file from disk. Returns `{ "success": true }`.
 
+Returns `409` if the gcode is referenced by an active job (`queued`, `uploading`, or `printing`). Wait for the job to finish or cancel it before deleting.
+
+Historical jobs (`finished`, `failed`, `cancelled`) are retained with their `gcode_id` nulled out so job history is preserved.
+
 ---
 
 ## Jobs
