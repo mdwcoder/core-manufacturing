@@ -4,9 +4,9 @@
 
 The React single-page application served by Vite. In development, Vite runs on port 5173 and proxies all `/api/*` requests to the Express server on port 3000. The app provides:
 
+- **Dashboard** — TV-optimized command center: fleet utilization, stat cards, printer grid, active project progress, recent activity
 - **Fleet page** — live grid of all printers with PrusaLink status, filterable and searchable
 - **Settings page** — CSV import UI for the printer registry, with flagged-row resolution
-- **Dashboard** — fleet summary stats
 - **Projects page** — project/part/G-code management and production tracking
 - **Jobs page** — live job queue with filters and cancel action
 
@@ -18,7 +18,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 | `client/src/App.jsx` | Layout shell, sidebar/topbar nav, `<Routes>` |
 | `client/src/pages/Fleet.jsx` | Live printer grid |
 | `client/src/pages/Settings.jsx` | CSV import, flagged-row resolution |
-| `client/src/pages/Dashboard.jsx` | Fleet summary stats |
+| `client/src/pages/Dashboard.jsx` | TV command center dashboard |
 | `client/src/pages/Projects.jsx` | Project/Part/G-code management |
 | `client/src/pages/Jobs.jsx` | Job queue table with filters |
 | `client/index.html` | HTML shell with dark background baseline CSS |
@@ -45,6 +45,37 @@ The React single-page application served by Vite. In development, Vite runs on p
 **Responsive breakpoint at 600px:** the sidebar is hidden and replaced by a horizontal top nav bar. All page content is still fully accessible on mobile.
 
 Navigation uses `react-router-dom` `<NavLink>` — active links are highlighted in blue (`#1e40af`).
+
+## Dashboard Page
+
+`client/src/pages/Dashboard.jsx`
+
+TV-optimized command center intended to be shown full-screen on a large monitor or TV in the print farm. Polls `GET /api/dashboard` every 15 seconds (matching the Fleet page). A live clock ticks every second client-side.
+
+**⛶ TV Mode button:** calls `element.requestFullscreen()` on the dashboard container — the sidebar disappears and the dashboard fills the screen. Use the browser's Escape key or fullscreen API to exit.
+
+**Sections:**
+
+| Section | Description |
+|---|---|
+| Header | Branding, fleet utilization % (printing / total), live HH:MM:SS clock and date |
+| Hero stat cards | Printing, Idle, Awaiting sign-off, Parts Today (rolling 24h) — large tabular numerals |
+| Fleet grid | All active printers as color-coded 54×44px cells, grouped by model row with per-row status summary badges and a color legend |
+| Active Projects | All active projects with per-part progress bars (turns green at ≥75%), completion counts, and DONE badges on closed parts |
+| Recent Activity | Last 12 finished/failed jobs — ✓/✗ icon, part name, qty, printer name, relative time |
+
+**Fleet cell colors:**
+
+| Color | Status |
+|---|---|
+| Blue | PRINTING |
+| Green | FINISHED / awaiting operator sign-off |
+| Dark gray | IDLE |
+| Orange | STOPPED |
+| Red | ERROR |
+| Near-black | OFFLINE |
+
+---
 
 ## Fleet Page
 
@@ -78,6 +109,8 @@ Live printer grid that polls `GET /api/printers` every 15 seconds (matching the 
 Filter chips in the Fleet header derive their text color from the same `STATUS_COLORS` constant so badges and chips are always in sync.
 
 **Confirmation button visibility:** "Set Ready" and "Bad Print" buttons (and the green card highlight) only appear when `is_held === 1` AND `status` is `FINISHED` or `IDLE`. Printers in ATTENTION, ERROR, OFFLINE, or PAUSED never show these buttons — a filament runout or error is not a completed print.
+
+**Partial plate confirmation:** when a job's `last_parts_per_plate` is known, a `Good: [N] / M` number input appears between the Include checkbox and the Set Ready button. It pre-fills with the full plate count. If the operator reduces it (e.g. 24 of 25 parts came out good), clicking Set Ready applies the delta to `completed_qty` and the Include checkbox is hidden — the printer cannot be batch-confirmed and must be set ready individually. Bad Print remains for full/catastrophic failures that also decommission the printer.
 
 ## Settings Page
 

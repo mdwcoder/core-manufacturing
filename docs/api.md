@@ -91,6 +91,13 @@ Returns `404` if not found.
 
 Releases the printer's hold (`is_held = 0`) and immediately dispatches the next eligible job to it. Called by the Fleet UI when an operator confirms a print is good.
 
+Accepts an optional body:
+```json
+{ "confirmed_qty": 24 }
+```
+
+If `confirmed_qty` is provided and differs from the `parts_per_plate` of the printer's most recent finished job, the delta is applied to the part's `completed_qty` (e.g. operator confirms 24 of 25 good → `completed_qty` decremented by 1). If the auto-credit had closed the part, it is reopened. Omitting the body leaves `completed_qty` unchanged.
+
 Returns the updated printer object.
 
 ### `POST /api/printers/:id/decommission`
@@ -324,6 +331,58 @@ Returns all current notifications, newest first.
 ### `DELETE /api/notifications/:id`
 
 Dismisses a notification. Returns `{ "ok": true }`. Returns `404` if not found.
+
+---
+
+## Dashboard
+
+### `GET /api/dashboard`
+
+Single endpoint that returns all data required by the TV dashboard in one call. Polled every 15 seconds by the Dashboard page.
+
+```json
+{
+  "stats": {
+    "printing": 38,
+    "idle": 8,
+    "awaiting": 6,
+    "parts_today": 847
+  },
+  "printers": [ ... ],
+  "active_projects": [
+    {
+      "id": 1,
+      "name": "Spring Product Line",
+      "status": "active",
+      "parts": [
+        { "id": 3, "name": "Left Bracket", "completed_qty": 671, "target_qty": 1000, "status": "open", ... }
+      ]
+    }
+  ],
+  "recent_activity": [
+    {
+      "id": 512,
+      "status": "finished",
+      "parts_per_plate": 25,
+      "finished_at": 1774903214349,
+      "part_name": "Left Bracket",
+      "printer_name": "MK4_07"
+    }
+  ]
+}
+```
+
+**`stats` fields:**
+- `printing` — printers currently in `PRINTING` status
+- `idle` — printers in `IDLE` status with no hold
+- `awaiting` — printers held (`is_held = 1`) in `FINISHED` or `IDLE` state, waiting for operator sign-off
+- `parts_today` — sum of `parts_per_plate` on `finished` jobs in the rolling 24-hour window (`finished_at >= now - 86400000`)
+
+`printers` is the same shape as `GET /api/printers` (includes `last_parts_per_plate`).
+
+`active_projects` includes only `status = 'active'` projects, each with a nested `parts` array ordered by `sort_order`.
+
+`recent_activity` is the 12 most recent `finished` or `failed` jobs, each with `part_name` and `printer_name` joined in.
 
 ---
 

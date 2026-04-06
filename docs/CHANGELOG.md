@@ -2,6 +2,54 @@
 
 ---
 
+## 2026-04-06 — TV Command Center Dashboard
+
+### New Dashboard page (`client/src/pages/Dashboard.jsx`, `server/routes/dashboard.js`)
+Replaced the stub Dashboard with a full TV-optimized command center display. Designed to be shown on a large monitor or TV so operators can read fleet status at a glance from across the room.
+
+**New `GET /api/dashboard` endpoint** returns all required data in one call: fleet stats, full printer list, active projects with parts, and recent activity (last 12 jobs). Single-endpoint design keeps the client simple and avoids N+1 fetches.
+
+**Dashboard sections:**
+- **Header:** "PRINT FARM / Command Center" branding with a blue accent bar, fleet utilization % in the center, live HH:MM:SS clock (ticks every second client-side), and a ⛶ TV Mode button that triggers browser fullscreen — the sidebar disappears and the dashboard fills the screen
+- **4 hero stat cards:** Printing (blue), Idle (gray), Awaiting sign-off (green), Parts Today rolling 24h (purple) — all in large tabular-numeral figures
+- **Fleet grid:** every active printer as a 54×44px color-coded cell, grouped by model row (MK4, MK4S, Core One, Core 1L, XL). Each row shows a per-row status summary badge strip (e.g. "9 PRINT · 2 AWAIT"). Color legend at the bottom. Held/awaiting printers render green regardless of underlying status
+- **Active Projects:** all active projects with per-part progress bars that turn green at ≥75% completion, completion counts (`671 / 1000`), and DONE badges on closed parts. Shows up to 5 parts per project with overflow count
+- **Recent Activity:** last 12 finished/failed jobs with green ✓ / red ✗, part name, qty, printer name in blue monospace, and relative timestamp ("5m ago")
+
+**Parts Today** uses a rolling 24-hour window (not calendar-day), computed as `SUM(parts_per_plate)` on `finished` jobs with `finished_at >= now - 86400000`.
+
+Poll rate matches the Fleet page (15 seconds).
+
+**Files changed:** `server/routes/dashboard.js` (new), `server/index.js`, `client/src/pages/Dashboard.jsx`
+
+---
+
+## 2026-04-06 — Confirmed good-qty input on FINISHED printer cards
+
+### Partial plate failure tracking (`client/src/pages/Fleet.jsx`, `server/index.js`, `server/routes/printers.js`)
+When a print finishes, operators sometimes find that one of several parts on a bed failed while the rest are good (e.g. 24 of 25). Previously the only options were "full credit" (Set Ready) or "full failure" (Bad Print + decommission). Now there is a middle path.
+
+**UI change:** a small `Good: [24] / 25` number input appears on FINISHED printer cards, pre-filled with `parts_per_plate` from the last finished job. The operator adjusts it before clicking ✓ Set Ready.
+
+**Server change:** `POST /api/printers/:id/set-ready` now accepts an optional `confirmed_qty` body field. If provided and different from the job's `parts_per_plate`, the delta is applied to `completed_qty` (e.g. −1 for 24/25). If the auto-credit had closed the part, it is reopened.
+
+**Batch safety:** the batch "Set Ready (N)" action always credits full `parts_per_plate`. If an operator reduces the confirmed qty below the plate count, the Include checkbox is hidden and the printer is auto-removed from the batch selection — it must be confirmed individually.
+
+`GET /api/printers` now includes a `last_parts_per_plate` field (correlated subquery on the most recent finished job) so the Fleet UI can pre-fill the input without an extra fetch.
+
+**Files changed:** `server/routes/printers.js`, `server/index.js`, `client/src/pages/Fleet.jsx`
+
+---
+
+## 2026-04-06 — Bugfix: parts reorder route shadowed by /:id handler
+
+### `PUT /api/parts/reorder` always returned 404 (`server/routes/parts.js`)
+Express matches routes in registration order. `PUT /:id` was registered before `PUT /reorder`, so the string `"reorder"` was matched as an ID, the part lookup returned 404, and the reorder never saved. Fixed by moving the `/reorder` route above `/:id`.
+
+**Files changed:** `server/routes/parts.js`
+
+---
+
 ## 2026-04-02 — Bugfixes: cross-platform filepath, gcode delete FK, file input re-select
 
 ### Cross-platform gcode path resolution (`server/scheduler.js`, `server/routes/gcodes.js`)
