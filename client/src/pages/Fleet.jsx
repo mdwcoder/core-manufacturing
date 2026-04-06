@@ -89,6 +89,17 @@ function formatTimeRemaining(secs) {
 
 function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onDecommission }) {
   const style = statusStyle(printer.status);
+
+  // Confirmed-qty input — pre-filled from the last finished job's parts_per_plate.
+  // Only shown when is_held and we know how many parts were on the plate.
+  const [confirmedQty, setConfirmedQty] = useState(
+    printer.last_parts_per_plate != null ? String(printer.last_parts_per_plate) : ''
+  );
+  useEffect(() => {
+    if (printer.last_parts_per_plate != null) {
+      setConfirmedQty(String(printer.last_parts_per_plate));
+    }
+  }, [printer.last_parts_per_plate]);
   // Show confirmation buttons only when there's something to inspect.
   // A printer that is actively printing is held-in-advance — it will need sign-off
   // when it finishes, but there is nothing to confirm right now.
@@ -171,7 +182,28 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
             <input type="checkbox" checked={selected} onChange={() => onToggleSelect(printer.id)} style={{ cursor: 'pointer', accentColor: '#22c55e' }} />
             Include
           </label>
-          <button onClick={() => onSetReady(printer.id)} style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+          {printer.last_parts_per_plate != null && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 11, color: '#64748b' }}>Good:</span>
+              <input
+                type="number"
+                min={0}
+                max={printer.last_parts_per_plate}
+                value={confirmedQty}
+                onChange={e => setConfirmedQty(e.target.value)}
+                style={{
+                  width: 46, background: '#0f172a', border: '1px solid #2d3748',
+                  borderRadius: 3, padding: '2px 5px', color: '#e2e8f0', fontSize: 12,
+                  textAlign: 'center',
+                }}
+              />
+              <span style={{ fontSize: 11, color: '#475569' }}>/ {printer.last_parts_per_plate}</span>
+            </div>
+          )}
+          <button
+            onClick={() => onSetReady(printer.id, printer.last_parts_per_plate != null ? parseInt(confirmedQty, 10) : null)}
+            style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+          >
             ✓ Set Ready
           </button>
           <button onClick={() => onBadPrint(printer.id)} style={{ background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
@@ -240,8 +272,12 @@ export default function Fleet() {
     setSelectedForReady(new Set());
   }
 
-  async function setReady(printerId) {
-    await fetch(`/api/printers/${printerId}/set-ready`, { method: 'POST' });
+  async function setReady(printerId, confirmedQty) {
+    await fetch(`/api/printers/${printerId}/set-ready`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(confirmedQty != null ? { confirmed_qty: confirmedQty } : {}),
+    });
     setSelectedForReady(prev => { const next = new Set(prev); next.delete(printerId); return next; });
     fetchPrinters();
   }

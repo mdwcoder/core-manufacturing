@@ -108,10 +108,43 @@ const server = app.listen(PORT, () => {
     res.json(updated);
   });
 
-  // Set a held printer ready — releases hold and dispatches next job to it
+  // Set a held printer ready — releases hold and dispatches next job to it.
+  // Accepts optional confirmed_qty in the body. If provided and different from the
+  // parts_per_plate that was already credited when the job finished, the delta is
+  // applied to completed_qty (e.g. operator confirms 24 good out of 25 → subtract 1).
   app.post('/api/printers/:id/set-ready', (req, res) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
+
+    const { confirmed_qty } = req.body || {};
+    if (confirmed_qty != null) {
+      const confirmedQty = parseInt(confirmed_qty, 10);
+      if (!isNaN(confirmedQty)) {
+        const job = db.prepare(`
+          SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
+          ORDER BY finished_at DESC LIMIT 1
+        `).get(printer.id);
+
+        if (job && confirmedQty !== job.parts_per_plate) {
+          const delta = confirmedQty - job.parts_per_plate; // negative = fewer good parts
+          const now = Date.now();
+          db.prepare(`
+            UPDATE parts SET completed_qty = MAX(0, completed_qty + ?), updated_at = ? WHERE id = ?
+          `).run(delta, now, job.part_id);
+
+          // Sync part open/closed status with the adjusted qty
+          const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(job.part_id);
+          if (part.completed_qty < part.target_qty && part.status === 'closed') {
+            db.prepare(`UPDATE parts SET status = 'open', updated_at = ? WHERE id = ?`).run(now, part.id);
+            console.log(`[server] Part "${part.name}" reopened — confirmed qty reduced`);
+          } else if (part.completed_qty >= part.target_qty && part.status === 'open') {
+            db.prepare(`UPDATE parts SET status = 'closed', updated_at = ? WHERE id = ?`).run(now, part.id);
+          }
+          console.log(`[server] ${printer.name} confirmed ${confirmedQty}/${job.parts_per_plate} good (delta ${delta > 0 ? '+' : ''}${delta})`);
+        }
+      }
+    }
+
     db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
     const updated = db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id);
     console.log(`[server] ${printer.name} set ready by operator — dispatching...`);

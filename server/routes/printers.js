@@ -33,8 +33,18 @@ function resolveModel(rawModel, name) {
 
 module.exports = (db) => {
   // GET /api/printers — list active printers only
+  // Includes last_parts_per_plate from the most recent finished job, used by the
+  // Fleet UI to pre-fill the confirmed-qty input on held printers.
   router.get('/', (req, res) => {
-    const printers = db.prepare('SELECT * FROM printers WHERE is_active = 1 ORDER BY name').all();
+    const printers = db.prepare(`
+      SELECT p.*,
+        (SELECT j.parts_per_plate FROM jobs j
+         WHERE j.printer_id = p.id AND j.status = 'finished'
+         ORDER BY j.finished_at DESC LIMIT 1) AS last_parts_per_plate
+      FROM printers p
+      WHERE p.is_active = 1
+      ORDER BY p.name
+    `).all();
     res.json(printers);
   });
 
