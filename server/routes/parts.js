@@ -29,6 +29,22 @@ module.exports = (db) => {
     res.status(201).json(db.prepare('SELECT * FROM parts WHERE id = ?').get(result.lastInsertRowid));
   });
 
+  // PUT /api/parts/reorder — set sort_order for a list of part IDs
+  // Body: { ids: [3, 1, 2] } — ordered array; index becomes sort_order
+  // Must be defined before /:id so Express doesn't match 'reorder' as an id.
+  router.put('/reorder', (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids must be a non-empty array' });
+    }
+    const update = db.prepare('UPDATE parts SET sort_order = ?, updated_at = ? WHERE id = ?');
+    const now = Date.now();
+    db.transaction(() => {
+      ids.forEach((id, index) => update.run(index, now, id));
+    })();
+    res.json({ success: true });
+  });
+
   router.put('/:id', (req, res) => {
     const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(req.params.id);
     if (!part) return res.status(404).json({ error: 'Part not found' });
@@ -62,21 +78,6 @@ module.exports = (db) => {
     );
 
     res.json(db.prepare('SELECT * FROM parts WHERE id = ?').get(req.params.id));
-  });
-
-  // PUT /api/parts/reorder — set sort_order for a list of part IDs
-  // Body: { ids: [3, 1, 2] } — ordered array; index becomes sort_order
-  router.put('/reorder', (req, res) => {
-    const { ids } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: 'ids must be a non-empty array' });
-    }
-    const update = db.prepare('UPDATE parts SET sort_order = ?, updated_at = ? WHERE id = ?');
-    const now = Date.now();
-    db.transaction(() => {
-      ids.forEach((id, index) => update.run(index, now, id));
-    })();
-    res.json({ success: true });
   });
 
   router.delete('/:id', (req, res) => {
