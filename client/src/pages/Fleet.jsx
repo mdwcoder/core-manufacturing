@@ -100,6 +100,16 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
       setConfirmedQty(String(printer.last_parts_per_plate));
     }
   }, [printer.last_parts_per_plate]);
+
+  // Partial failure — operator has reduced the good-qty below the full plate count.
+  // Batch set-ready credits full parts_per_plate, so this printer must be confirmed
+  // individually. Auto-remove from the batch selection if it was already checked.
+  const isPartial = printer.last_parts_per_plate != null
+    && !isNaN(parseInt(confirmedQty, 10))
+    && parseInt(confirmedQty, 10) < printer.last_parts_per_plate;
+  useEffect(() => {
+    if (isPartial && selected) onToggleSelect(printer.id);
+  }, [isPartial]); // eslint-disable-line react-hooks/exhaustive-deps
   // Show confirmation buttons only when there's something to inspect.
   // A printer that is actively printing is held-in-advance — it will need sign-off
   // when it finishes, but there is nothing to confirm right now.
@@ -178,10 +188,12 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
 
       {needsConfirmation && (
         <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, flexWrap: 'wrap' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>
-            <input type="checkbox" checked={selected} onChange={() => onToggleSelect(printer.id)} style={{ cursor: 'pointer', accentColor: '#22c55e' }} />
-            Include
-          </label>
+          {!isPartial && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>
+              <input type="checkbox" checked={selected} onChange={() => onToggleSelect(printer.id)} style={{ cursor: 'pointer', accentColor: '#22c55e' }} />
+              Include
+            </label>
+          )}
           {printer.last_parts_per_plate != null && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ fontSize: 11, color: '#64748b' }}>Good:</span>
