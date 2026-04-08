@@ -41,9 +41,7 @@ rem at the same time, they will also be stopped. Restart them manually if needed
 taskkill /F /IM node.exe 2>nul
 timeout /t 2 /nobreak >nul
 
-echo Starting server...
-start "" /MIN node server\index.js
-
 echo.
-echo Done! Print Farm Manager is up to date and running.
-pause
+echo Done! Starting server (close this window to stop the server)...
+echo.
+node server\index.js
