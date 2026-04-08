@@ -18,6 +18,7 @@
 10. [Recommended Next Steps](#10-recommended-next-steps)
 11. [Claude Code Briefing — Phase 1](#11-claude-code-briefing--phase-1)
 12. [Claude Code Briefing — Phase 2](#12-claude-code-briefing--phase-2)
+13. [Phase 6 — Multi-Brand Printer Support](#13-phase-6--multi-brand-printer-support)
 
 ---
 
@@ -279,6 +280,7 @@ Operator can intervene at any time:
 | 3 | Full UI | Dashboard, fleet grid, project manager, job queue UI, error/attention handling, notifications |
 | 4 | Hardening | Error recovery, retry logic, logging, performance testing at 50+ concurrent printers |
 | 5 | Mobile Web | Responsive UI polish, mobile dashboard for status checking from phone |
+| 6 | Multi-Brand Support | Printer driver abstraction layer; Elegoo Centauri Carbon as first non-Prusa brand (see Section 13) |
 
 ---
 
@@ -803,3 +805,170 @@ Phase 2 is complete when **all 8** of the following pass:
 | 6 | When a printer transitions to `FINISHED`, `completed_qty` is incremented correctly, and the printer immediately receives its next job if the Part is still open. |
 | 7 | When `completed_qty >= target_qty`, the Part closes, queued jobs for it are cancelled, and the scheduler moves on to the next open Part. |
 | 8 | Manually editing `completed_qty` triggers the correct confirmation dialogs and correctly opens or closes the Part. |
+
+---
+
+## 13. Phase 6 — Multi-Brand Printer Support
+
+> **Status: Planned — do not implement until explicitly instructed.**
+> This section documents the design intent and the specific changes needed. Read it before starting Phase 6, then build only what is scoped here.
+
+### 13.1 Background
+
+The system was built on PrusaLink (Prusa's REST API), but the `type` column on the `printers` table has always anticipated future brands. Phase 6 introduces the driver abstraction layer to make that column meaningful.
+
+The first non-Prusa target is the **Elegoo Centauri Carbon**, an FDM printer that uses a proprietary WebSocket-based protocol (SDCP v3) rather than a REST API. Supporting it requires decoupling the polling and dispatch logic from PrusaLink specifics.
+
+### 13.2 Protocol Comparison
+
+| Capability | PrusaLink (Prusa) | SDCP (Elegoo Centauri Carbon) |
+|---|---|---|
+| Status | `GET /api/v1/status` every 15s | WebSocket request/response over port 3030 |
+| File upload | `PUT /api/v1/files/usb/{filename}` | `POST http://{ip}/uploadFile/upload` (multipart) |
+| Print trigger | `Print-After-Upload: 1` header (implicit) | WebSocket command after upload |
+| Authentication | `X-Api-Key` request header | None — LAN network access only |
+| File format | `.bgcode` or `.gcode` | `.gcode` only |
+| Printer discovery | Manual IP entry | UDP broadcast to port 3000 (optional) |
+| 409 conflict | File transfer already in progress | Not applicable |
+
+Community documentation for SDCP: [cassini](https://github.com/vvuk/cassini), [elegoo-homeassistant](https://github.com/danielcherubini/elegoo-homeassistant), [RemmyLee/carbon](https://github.com/RemmyLee/carbon), [OpenCentauri API docs](https://docs.opencentauri.cc/software/api/).
+
+### 13.3 Canonical Status Model
+
+Rather than exposing brand-specific state names to the poller and scheduler, introduce a normalized internal state set. Each driver maps its own states to these:
+
+| Canonical State | PrusaLink source | SDCP source |
+|---|---|---|
+| `IDLE` | `IDLE` | Not printing, no error, cause code 0 |
+| `PRINTING` | `PRINTING` | Active print job in progress |
+| `FINISHED` | `FINISHED` | Print completed, awaiting operator |
+| `PAUSED` | `PAUSED` | Paused by user or system |
+| `ERROR` | `ERROR`, `ATTENTION` | Temperature, jam, homing, or other fault |
+| `OFFLINE` | Timeout / connection refused | Timeout / WebSocket unreachable |
+
+The poller, scheduler, and UI all continue using these canonical states. They do not need to know which brand they are talking to.
+
+### 13.4 New: Driver Abstraction Layer
+
+Create `server/drivers/` with three files:
+
+#### `server/drivers/index.js` — Driver registry
+
+```js
+const drivers = {
+  prusa:            require('./prusa'),
+  'elegoo-centauri': require('./elegoo-centauri'),
+};
+
+module.exports = {
+  getDriver(type) {
+    return drivers[type] ?? drivers.prusa;
+  },
+};
+```
+
+#### `server/drivers/prusa.js` — Extract existing PrusaLink logic
+
+Move all PrusaLink-specific HTTP calls out of `poller.js` and `scheduler.js` into this module. Expose:
+
+```js
+// Returns normalized { status, jobName, progress, timeRemaining }
+async function getStatus(printer) { ... }
+
+// Uploads gcode file and triggers print. Resolves when print is confirmed started.
+// Handles pre-upload DELETE and 409 retry already in scheduler.js — move that logic here.
+async function uploadAndPrint(printer, filePath, filename) { ... }
+
+// Cancels the current job.
+async function cancelJob(printer) { ... }
+
+module.exports = { getStatus, uploadAndPrint, cancelJob };
+```
+
+`getStatus` replaces the direct `axios.get(http://${printer.ip}/api/v1/status ...)` calls in `poller.js` and `routes/printers.js`. `uploadAndPrint` replaces `_uploadGCode()` in `scheduler.js`.
+
+#### `server/drivers/elegoo-centauri.js` — New Elegoo implementation
+
+Implement the same three functions using SDCP over WebSocket. Key implementation notes:
+
+- Maintain a **persistent WebSocket connection per printer** — open on first use, reconnect on drop. Store connections keyed by printer ID in a module-level Map so the poller and scheduler share the same socket.
+- `getStatus` sends an SDCP status request message and returns the normalized response. If the socket is closed/errored, return `{ status: 'OFFLINE' }`.
+- `uploadAndPrint` does two steps: (1) HTTP POST multipart to `http://{printer.ip}/uploadFile/upload`, then (2) send an SDCP print-start command over WebSocket with the uploaded filename.
+- `api_key` is unused for Elegoo — the driver should not require it.
+- SDCP message format: `{ Id: "<uuid>", Data: { Cmd: <int>, RequestID: "<uuid>", MainboardID: "<str>" }, Topic: "..." }`. Refer to the community documentation linked in Section 13.2 for specific command codes.
+
+### 13.5 Changes to Existing Files
+
+#### `server/poller.js`
+
+- Import `getDriver` from `server/drivers/index.js`
+- Replace `axios.get(http://${printer.ip}/api/v1/status ...)` with `driver.getStatus(printer)` where `driver = getDriver(printer.type)`
+- The status normalization, hold logic, and event emission remain unchanged — they operate on canonical states
+
+#### `server/scheduler.js`
+
+- Import `getDriver` from `server/drivers/index.js`
+- Replace `_uploadGCode(printer, gcode)` with `driver.uploadAndPrint(printer, gcode.filepath, gcode.filename)` where `driver = getDriver(printer.type)`
+- The ceiling check, job record management, and FINISHED handling remain unchanged
+
+#### `server/routes/printers.js`
+
+- Add `'elegoo-centauri'` to `VALID_MODELS` (the brand-level type, not the printer model list)
+- Add Elegoo Centauri Carbon as a valid `model` value: `'centauri-carbon'`
+- Add name inference rule: names starting with `CC_` → `centauri-carbon`
+- Make `api_key` optional in the add-printer and CSV import validation — Elegoo printers do not use one
+
+#### `server/routes/gcodes.js`
+
+- The Prusa Slicer filename regex (`^(\d+)x\s+.+bgcode$`) will not match Elegoo Slicer output. When parsing fails, the system already returns `parse_failed: true` and prompts the operator for manual input — this path already works correctly for Elegoo files.
+- No code change required here for Phase 6. Operators enter `parts_per_plate` and model manually for Elegoo G-codes.
+
+#### `client/src/pages/Fleet.jsx`
+
+- Add `'centauri-carbon'` to `MODEL_ORDER` and `MODEL_LABELS` (label: `'Centauri Carbon'`)
+
+#### `client/src/pages/Dashboard.jsx`
+
+- Same `MODEL_ORDER` / `MODEL_LABELS` additions as Fleet.jsx
+
+#### `client/src/pages/Settings.jsx`
+
+- Add `'centauri-carbon'` to `MODEL_OPTIONS`
+- When the selected printer `type` is `'elegoo-centauri'`, hide the API key field (not required)
+
+### 13.6 Database Changes
+
+No schema migration required. The existing columns are sufficient:
+
+| Column | Elegoo usage |
+|---|---|
+| `type` | Store `'elegoo-centauri'` — was already reserved for this |
+| `api_key` | Store empty string `''` — not used by the driver |
+| `model` | Store `'centauri-carbon'` |
+| `job_name`, `job_progress`, `job_time_remaining` | Populated from SDCP status response — same fields, different source |
+
+### 13.7 New npm Dependency
+
+The Elegoo driver will need `ws` (the `websocket` npm package) for Node.js WebSocket client support. Axios is HTTP-only.
+
+```bash
+npm install ws
+```
+
+### 13.8 What NOT to Build in Phase 6
+
+- UDP auto-discovery of Elegoo printers — manual IP entry is sufficient and consistent with Prusa workflow
+- Any Klipper/Moonraker compatibility layer — SDCP is the target protocol
+- Support for Elegoo resin printers (Saturn, Mars series) — different protocol entirely
+- Firmware flashing or configuration via the app
+
+### 13.9 Phase 6 Acceptance Criteria
+
+| # | Acceptance Criterion |
+|---|---|
+| 1 | An Elegoo Centauri Carbon can be added via the Settings page (no API key required) |
+| 2 | The poller polls the Centauri Carbon via WebSocket and its canonical status appears correctly in the Fleet grid |
+| 3 | Transitioning to `OFFLINE` when the printer is unreachable does not affect polling of Prusa printers |
+| 4 | A `.gcode` file can be uploaded, associated with a Part at model `centauri-carbon`, and dispatched to the printer via `uploadAndPrint` |
+| 5 | A Prusa printer and an Elegoo printer running simultaneously both report correct status and progress |
+| 6 | All existing Prusa functionality is unaffected (run the full test suite) |

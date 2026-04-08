@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-04-08 — Phase 6 multi-brand planning (no code changes)
+
+Documented the design for adding non-Prusa printer support (Phase 6). No code was written.
+
+### What was decided
+
+- Phase 6 introduces a **printer driver abstraction layer** (`server/drivers/`) so the poller and scheduler are decoupled from PrusaLink specifics.
+- The **Elegoo Centauri Carbon** is the first non-Prusa target. It uses SDCP (a WebSocket-based protocol) rather than REST, which is the primary reason for the abstraction.
+- A **canonical state set** (`IDLE`, `PRINTING`, `FINISHED`, `PAUSED`, `ERROR`, `OFFLINE`) is introduced so all business logic above the driver layer remains brand-agnostic.
+- No DB schema changes are needed — the existing `type`, `api_key`, `model`, `job_name`, `job_progress`, `job_time_remaining` columns are all reusable.
+- `api_key` will be optional for Elegoo printers (SDCP has no authentication).
+- G-code filename parsing already handles parse failures gracefully, so no changes needed there for Elegoo.
+
+### New documentation
+
+- `docs/multi-brand.md` — Phase 6 design reference (driver architecture, file change list, Elegoo SDCP notes, external links)
+- `ARCHITECTURE.md` Section 13 — full Phase 6 spec including acceptance criteria
+- Phase 6 added to phase tables in `ARCHITECTURE.md` Section 8 and `docs/README.md`
+
+**Files changed:** `ARCHITECTURE.md`, `docs/README.md`, `docs/CHANGELOG.md`, `docs/multi-brand.md` (new)
+
+---
+
 ## 2026-04-07 — Project priority ordering (9 new tests, 69 total)
 
 ### Scheduler respects project priority (`server/scheduler.js`)

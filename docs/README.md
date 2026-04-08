@@ -24,6 +24,7 @@ npm run dev
 | [docs/api.md](api.md) | All REST endpoints — request/response shapes, error codes |
 | [docs/web-app.md](web-app.md) | React client — pages, routing, layout, live-update pattern |
 | [docs/CHANGELOG.md](CHANGELOG.md) | Dated log of all implemented features and changes |
+| [docs/multi-brand.md](multi-brand.md) | Phase 6 design — driver abstraction for non-Prusa brands (Elegoo Centauri Carbon) |
 
 ## Project Structure
 
@@ -65,5 +66,6 @@ print-farm-manager/
 | 3 | Complete | Error handling, operator safety workflows, UI improvements |
 | 4 | Complete | Hardening, retry logic, 409 conflict handling, configurable batch size, post-failure recovery |
 | 5 | Planned | Mobile-responsive polish |
+| 6 | Planned | Multi-brand driver abstraction; Elegoo Centauri Carbon support |
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for full product spec.
