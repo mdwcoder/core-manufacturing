@@ -1,6 +1,6 @@
 # Multi-Brand Printer Support
 
-> **Planned for Phase 6.** No code has been written yet. This document captures the design decisions made during planning so they don't need to be re-derived.
+> **Phase 6A complete (2026-04-08).** The Prusa driver abstraction layer is implemented and running in production. Elegoo Centauri Carbon support (Phase 6B) is next.
 
 ## Overview
 
@@ -62,24 +62,24 @@ The driver registry (`server/drivers/index.js`) maps `printer.type → driver mo
 
 ## Files to Create
 
-| File | Purpose |
-|---|---|
-| `server/drivers/index.js` | Driver registry — maps type string to module |
-| `server/drivers/prusa.js` | Extracts existing PrusaLink logic from poller.js / scheduler.js |
-| `server/drivers/elegoo-centauri.js` | New SDCP WebSocket implementation |
+| File | Purpose | Status |
+|---|---|---|
+| `server/drivers/index.js` | Driver registry — maps type string to module | **Done** |
+| `server/drivers/prusa.js` | Extracts existing PrusaLink logic from poller.js / scheduler.js | **Done** |
+| `server/drivers/elegoo-centauri.js` | New SDCP WebSocket implementation | Pending (Phase 6B) |
 
 ---
 
 ## Files to Modify
 
-| File | What changes |
-|---|---|
-| `server/poller.js` | Replace direct axios PrusaLink calls with `driver.getStatus(printer)` |
-| `server/scheduler.js` | Replace `_uploadGCode()` with `driver.uploadAndPrint(...)` |
-| `server/routes/printers.js` | Add `elegoo-centauri` type, `centauri-carbon` model, make `api_key` optional |
-| `client/src/pages/Fleet.jsx` | Add `centauri-carbon` to model list and labels |
-| `client/src/pages/Dashboard.jsx` | Same model list additions |
-| `client/src/pages/Settings.jsx` | Add model option; hide API key field for Elegoo brand |
+| File | What changes | Status |
+|---|---|---|
+| `server/poller.js` | Replace direct axios PrusaLink calls with `driver.getStatus(printer)` | **Done** |
+| `server/scheduler.js` | Replace `_uploadGCode()` with `driver.uploadAndPrint(...)` | **Done** |
+| `server/routes/printers.js` | Add `elegoo-centauri` type, `centauri-carbon` model, make `api_key` optional | Pending (Phase 6B) |
+| `client/src/pages/Fleet.jsx` | Add `centauri-carbon` to model list and labels | Pending (Phase 6B) |
+| `client/src/pages/Dashboard.jsx` | Same model list additions | Pending (Phase 6B) |
+| `client/src/pages/Settings.jsx` | Add model option; hide API key field for Elegoo brand | Pending (Phase 6B) |
 
 No DB schema changes are needed. The existing columns (`type`, `api_key`, `model`, `job_name`, `job_progress`, `job_time_remaining`) are all reusable.
 

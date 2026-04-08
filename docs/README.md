@@ -66,6 +66,7 @@ print-farm-manager/
 | 3 | Complete | Error handling, operator safety workflows, UI improvements |
 | 4 | Complete | Hardening, retry logic, 409 conflict handling, configurable batch size, post-failure recovery |
 | 5 | Deferred | Mobile-responsive polish — Fleet UI already works on iPhone; no immediate need |
-| 6 | Planned | Multi-brand driver abstraction; Elegoo Centauri Carbon support |
+| 6A | Complete | Driver abstraction layer — Prusa extracted into `server/drivers/prusa.js`; registry wired |
+| 6B | Planned | Elegoo Centauri Carbon SDCP driver; UI and route changes for non-Prusa brands |
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for full product spec.
