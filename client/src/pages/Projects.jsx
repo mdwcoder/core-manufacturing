@@ -566,6 +566,17 @@ export default function Projects() {
     });
   }
 
+  async function deletePart(partId, partName) {
+    if (!window.confirm(`Delete part "${partName}"? This will also delete its G-code files and cannot be undone.`)) return;
+    const res = await fetch(`/api/parts/${partId}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const d = await res.json();
+      alert(d.error || 'Delete failed.');
+      return;
+    }
+    await fetchDetail(selectedId);
+  }
+
   async function addPart() {
     if (!newPartName.trim() || !newPartQty) return;
     setAddingPart(true);
@@ -856,6 +867,16 @@ export default function Projects() {
               >
                 {panelOpen ? '▲ Details' : '▼ Details'}
               </button>
+
+              {/* Delete part */}
+              <button
+                onClick={() => deletePart(part.id, part.name)}
+                title="Delete part"
+                style={{
+                  background: 'none', border: 'none', color: '#ef4444',
+                  cursor: 'pointer', padding: '0 2px', fontSize: 18, lineHeight: 1, flexShrink: 0,
+                }}
+              >×</button>
             </div>
 
             {panelOpen && (

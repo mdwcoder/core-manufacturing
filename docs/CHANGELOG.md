@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-04-08 — Delete part, sweep dispatch serialization
+
+### Delete part (`server/routes/parts.js`, `client/src/pages/Projects.jsx`)
+`DELETE /api/parts/:id` now performs a safe cascade:
+- Returns 409 if any job for the part is `uploading` or `printing` — deletion blocked while dispatch is active.
+- Deletes all non-active jobs for the part. (`jobs.part_id` is NOT NULL so nulling it out is not possible; job history has no meaning without the part context anyway.)
+- Deletes all G-code records belonging to the part, including their physical files on disk (same logic as `DELETE /api/gcodes/:id`).
+- Deletes the part itself; all steps run in a single transaction.
+
+A `×` delete button is added to each part row in the project detail view. Clicking it prompts for confirmation, shows an alert on 409 (active job), and refreshes the part list on success.
+
+### Sweep dispatch serialization (`server/scheduler.js`, `server/index.js`)
+Fixed a race condition where printers set ready during an in-progress batch sweep would start uploading concurrently instead of waiting their turn.
+
+- `JobScheduler` gains `_isSweeping` (bool) and `_pendingPrinters` (array) instance state.
+- `_sweepInBatches` now acts as a serialized queue: if called while a sweep is running, the incoming printers are pushed onto `_pendingPrinters`. After each full pass through `toDispatch`, any accumulated pending printers are drained and swept next — so they form additional batches at the tail, not concurrent uploads.
+- New public method `scheduleForPrinter(printer)`: if a sweep is running, defers the printer to `_pendingPrinters`; otherwise dispatches immediately via `_dispatchToPrinter`. This is the correct entry point for single-printer dispatch.
+- `POST /api/printers/:id/set-ready` and `POST /api/printers/:id/recommission` now call `scheduler.scheduleForPrinter()` instead of `scheduler._dispatchToPrinter()` directly.
+
+**Files changed:** `server/routes/parts.js`, `client/src/pages/Projects.jsx`, `server/scheduler.js`, `server/index.js`
+
+---
+
 ## 2026-04-08 — Phase 6 multi-brand planning (no code changes)
 
 Documented the design for adding non-Prusa printer support (Phase 6). No code was written.

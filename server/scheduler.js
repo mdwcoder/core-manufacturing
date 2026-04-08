@@ -12,6 +12,8 @@ class JobScheduler extends EventEmitter {
     super();
     this.db = db;
     this.poller = poller;
+    this._isSweeping = false;
+    this._pendingPrinters = [];
   }
 
   start() {
@@ -55,29 +57,67 @@ class JobScheduler extends EventEmitter {
   }
 
   async _sweepInBatches(printers) {
-    const setting = this.db.prepare("SELECT value FROM settings WHERE key = 'dispatch_batch_size'").get();
-    const batchSize = setting ? Math.max(1, parseInt(setting.value, 10) || 10) : 10;
-    for (let i = 0; i < printers.length; i += batchSize) {
-      const batch = printers.slice(i, i + batchSize);
-      console.log(`[scheduler] Dispatching batch ${Math.floor(i / batchSize) + 1} — ${batch.length} printer(s)`);
-
-      // Fire all dispatches in this batch concurrently, collect job IDs
-      const jobIds = (await Promise.all(
-        batch.map(printer =>
-          this._dispatchToPrinter(printer).catch(err => {
-            console.error(`[scheduler] Sweep dispatch error for ${printer.name}:`, err);
-            return null;
-          })
-        )
-      )).filter(id => id != null);
-
-      if (jobIds.length === 0) continue;
-
-      // Wait for all jobs in this batch to leave the uploading state
-      await this._waitForBatch(jobIds);
-
-      console.log(`[scheduler] Batch ${Math.floor(i / batchSize) + 1} complete — proceeding to next`);
+    // If a sweep is already running, defer these printers to the end of it.
+    // This prevents concurrent sweeps when set-ready-batch is called mid-sweep,
+    // and ensures newly-ready printers don't jump the queue.
+    if (this._isSweeping) {
+      this._pendingPrinters.push(...printers);
+      console.log(`[scheduler] Sweep in progress — ${printers.length} printer(s) deferred to end of current sweep`);
+      return;
     }
+
+    this._isSweeping = true;
+    try {
+      let toDispatch = [...printers];
+      while (toDispatch.length > 0) {
+        const setting = this.db.prepare("SELECT value FROM settings WHERE key = 'dispatch_batch_size'").get();
+        const batchSize = setting ? Math.max(1, parseInt(setting.value, 10) || 10) : 10;
+
+        for (let i = 0; i < toDispatch.length; i += batchSize) {
+          const batch = toDispatch.slice(i, i + batchSize);
+          console.log(`[scheduler] Dispatching batch ${Math.floor(i / batchSize) + 1} — ${batch.length} printer(s)`);
+
+          // Fire all dispatches in this batch concurrently, collect job IDs
+          const jobIds = (await Promise.all(
+            batch.map(printer =>
+              this._dispatchToPrinter(printer).catch(err => {
+                console.error(`[scheduler] Sweep dispatch error for ${printer.name}:`, err);
+                return null;
+              })
+            )
+          )).filter(id => id != null);
+
+          if (jobIds.length > 0) {
+            await this._waitForBatch(jobIds);
+          }
+
+          console.log(`[scheduler] Batch ${Math.floor(i / batchSize) + 1} complete — proceeding to next`);
+        }
+
+        // Pick up any printers that were deferred while we were sweeping
+        toDispatch = this._pendingPrinters.splice(0);
+        if (toDispatch.length > 0) {
+          console.log(`[scheduler] Processing ${toDispatch.length} deferred printer(s)`);
+        }
+      }
+    } finally {
+      this._isSweeping = false;
+    }
+  }
+
+  // Dispatch a single printer, respecting any in-progress sweep.
+  // Use this instead of _dispatchToPrinter directly for set-ready and recommission paths,
+  // so that a printer set ready mid-sweep is added to the end of the current batch sequence
+  // rather than firing concurrently with it.
+  scheduleForPrinter(printer) {
+    if (this._isSweeping) {
+      this._pendingPrinters.push(printer);
+      console.log(`[scheduler] ${printer.name} set ready during sweep — deferred to end of sweep`);
+      return;
+    }
+    this._dispatchToPrinter(printer).catch(err =>
+      console.error(`[scheduler] Unhandled error dispatching to ${printer.name}:`, err)
+    );
   }
 
   // Poll jobs table until all given job IDs are printing or terminal (failed/cancelled).

@@ -106,10 +106,7 @@ const server = app.listen(PORT, () => {
     `).run(printer.id);
     const updated = db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id);
     console.log(`[server] ${printer.name} recommissioned — dispatching...`);
-    scheduler._dispatchToPrinter(updated).then(jobId => {
-      if (jobId) console.log(`[server] ${printer.name} recommissioned and dispatched — job ${jobId}`);
-      else console.log(`[server] ${printer.name} recommissioned — nothing to dispatch right now`);
-    }).catch(err => console.error(`[scheduler] recommission dispatch error for ${printer.name}:`, err));
+    scheduler.scheduleForPrinter(updated);
     res.json(updated);
   });
 
@@ -153,12 +150,7 @@ const server = app.listen(PORT, () => {
     db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
     const updated = db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id);
     console.log(`[server] ${printer.name} set ready by operator — dispatching...`);
-    scheduler._dispatchToPrinter(updated).then((jobId) => {
-      if (jobId) console.log(`[server] ${printer.name} dispatched — job ${jobId}`);
-      else console.log(`[server] ${printer.name} set ready but nothing to dispatch`);
-    }).catch((err) =>
-      console.error(`[scheduler] set-ready dispatch error for ${printer.name}:`, err)
-    );
+    scheduler.scheduleForPrinter(updated);
     res.json(updated);
   });
 });

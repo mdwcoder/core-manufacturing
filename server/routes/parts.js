@@ -1,5 +1,9 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const router = express.Router();
+
+const GCODE_DIR = path.join(__dirname, '..', 'gcode');
 
 module.exports = (db) => {
   router.get('/', (req, res) => {
@@ -87,7 +91,32 @@ module.exports = (db) => {
   router.delete('/:id', (req, res) => {
     const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(req.params.id);
     if (!part) return res.status(404).json({ error: 'Part not found' });
-    db.prepare('DELETE FROM parts WHERE id = ?').run(req.params.id);
+
+    // Block if any job for this part is actively uploading or printing
+    const activeJob = db.prepare(
+      "SELECT id FROM jobs WHERE part_id = ? AND status IN ('uploading', 'printing') LIMIT 1"
+    ).get(req.params.id);
+    if (activeJob) {
+      return res.status(409).json({ error: 'Cannot delete — this part has an active job in progress.' });
+    }
+
+    db.transaction(() => {
+      // Delete all jobs for this part — job history has no meaning without the part context.
+      // (Active uploading/printing jobs are already blocked above.)
+      db.prepare('DELETE FROM jobs WHERE part_id = ?').run(req.params.id);
+
+      // Delete each gcode: remove physical file, then DB record
+      const gcodes = db.prepare('SELECT * FROM gcodes WHERE part_id = ?').all(req.params.id);
+      for (const gcode of gcodes) {
+        const gcodeFilename = gcode.filepath.split(/[\\/]/).pop();
+        const fullPath = path.join(GCODE_DIR, gcodeFilename);
+        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+        db.prepare('DELETE FROM gcodes WHERE id = ?').run(gcode.id);
+      }
+
+      db.prepare('DELETE FROM parts WHERE id = ?').run(req.params.id);
+    })();
+
     res.json({ success: true });
   });
 
