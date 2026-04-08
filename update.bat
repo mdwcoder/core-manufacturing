@@ -20,7 +20,7 @@ echo Done.
 echo.
 
 echo [2/4] Installing server dependencies...
-npm install
+call npm install
 if not exist node_modules (
     echo.
     echo ERROR: server npm install failed — node_modules not created.
@@ -32,7 +32,7 @@ echo.
 
 echo [3/4] Building client...
 cd client
-npm install --legacy-peer-deps
+call npm install --legacy-peer-deps
 if not exist node_modules (
     echo.
     echo ERROR: client npm install failed — node_modules not created.
@@ -40,7 +40,7 @@ if not exist node_modules (
     pause
     exit /b 1
 )
-npm run build
+call npm run build
 if %errorlevel% neq 0 (
     echo.
     echo ERROR: client build failed. See output above.
