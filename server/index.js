@@ -1,3 +1,14 @@
+// Catch unhandled errors before anything else so they're always logged,
+// even if Node exits before stdout is flushed (common on Windows).
+process.on('uncaughtException', (err) => {
+  process.stderr.write(`[FATAL] uncaughtException: ${err.stack || err}\n`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  process.stderr.write(`[FATAL] unhandledRejection: ${reason?.stack || reason}\n`);
+  process.exit(1);
+});
+
 const express = require('express');
 const path    = require('path');
 

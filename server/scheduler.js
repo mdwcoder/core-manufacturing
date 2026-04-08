@@ -209,9 +209,20 @@ class JobScheduler extends EventEmitter {
       return null;
     }
 
+    // Resolve driver. If the printer type is unrecognised, fail the job cleanly
+    // rather than leaving it stuck as 'uploading' which would stall _waitForBatch.
+    let driver;
+    try {
+      driver = getDriver(printer.type);
+    } catch (err) {
+      this.db.prepare(`UPDATE jobs SET status = 'failed' WHERE id = ?`).run(jobId);
+      this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
+      console.error(`[scheduler] ${printer.name} has unknown type "${printer.type}" — holding printer: ${err.message}`);
+      return null;
+    }
+
     // Resolve the G-code path on disk before invoking the driver.
     // A missing file won't be fixed by retrying, so we bail immediately.
-    const driver = getDriver(printer.type);
     const gcodeFilename = candidate.filepath.split(/[\\/]/).pop();
     const gcodeFullPath = path.join(GCODE_DIR, gcodeFilename);
     if (!fs.existsSync(gcodeFullPath)) {

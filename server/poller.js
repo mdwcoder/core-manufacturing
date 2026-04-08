@@ -50,7 +50,13 @@ class PrinterPoller extends EventEmitter {
     let jobProgress = null;
     let jobTimeRemaining = null;
 
-    const driver = getDriver(printer.type);
+    let driver;
+    try {
+      driver = getDriver(printer.type);
+    } catch (err) {
+      console.error(`[poller] ${printer.name} has unknown type "${printer.type}" — skipping poll: ${err.message}`);
+      return;
+    }
     const result = await driver.getStatus(printer);
     newStatus = result.status;
     jobProgress = result.progress;
