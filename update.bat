@@ -1,47 +1,66 @@
 @echo off
-echo Updating Print Farm Manager...
+rem Always run from the directory this bat file lives in (the repo root),
+rem regardless of where it was launched from.
+cd /d %~dp0
 
+echo ============================================================
+echo  Print Farm Manager — Update
+echo ============================================================
+echo.
+
+echo [1/4] Pulling latest code from GitHub...
 git pull
 if %errorlevel% neq 0 (
-    echo ERROR: git pull failed. Check your internet connection or resolve any conflicts.
+    echo.
+    echo ERROR: git pull failed. Check your internet connection or resolve conflicts.
     pause
     exit /b 1
 )
+echo Done.
+echo.
 
+echo [2/4] Installing server dependencies...
 npm install
-if %errorlevel% neq 0 (
-    echo ERROR: npm install failed.
+rem npm exits non-zero on peer-dep warnings even when install succeeds.
+rem Only treat it as a real failure if node_modules is missing afterwards.
+if not exist node_modules (
+    echo.
+    echo ERROR: server npm install failed — node_modules not created.
     pause
     exit /b 1
 )
+echo Done.
+echo.
 
+echo [3/4] Building client...
 cd client
 npm install --legacy-peer-deps
-if %errorlevel% neq 0 (
-    echo ERROR: client npm install failed.
+if not exist node_modules (
+    echo.
+    echo ERROR: client npm install failed — node_modules not created.
     cd ..
     pause
     exit /b 1
 )
-
 npm run build
 if %errorlevel% neq 0 (
-    echo ERROR: build failed.
+    echo.
+    echo ERROR: client build failed. See output above.
     cd ..
     pause
     exit /b 1
 )
 cd ..
+echo Done.
+echo.
 
-echo Stopping server...
-rem NOTE: taskkill /IM node.exe stops ALL Node.js processes on this machine,
-rem not just the print farm server. This is fine on a dedicated farm machine,
-rem but if you are running other Node-based tools (e.g. other servers, CLI tools)
-rem at the same time, they will also be stopped. Restart them manually if needed.
+echo [4/4] Restarting server...
 taskkill /F /IM node.exe 2>nul
 timeout /t 2 /nobreak >nul
-
 echo.
-echo Done! Starting server (close this window to stop the server)...
+echo ============================================================
+echo  Update complete! Server starting below.
+echo  Close this window to stop the server.
+echo ============================================================
 echo.
 node server\index.js
