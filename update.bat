@@ -21,8 +21,6 @@ echo.
 
 echo [2/4] Installing server dependencies...
 npm install
-rem npm exits non-zero on peer-dep warnings even when install succeeds.
-rem Only treat it as a real failure if node_modules is missing afterwards.
 if not exist node_modules (
     echo.
     echo ERROR: server npm install failed — node_modules not created.
@@ -55,7 +53,10 @@ echo Done.
 echo.
 
 echo [4/4] Restarting server...
-taskkill /F /IM node.exe 2>nul
+rem Kill only the process on port 3000 — avoids accidentally killing this bat's own process tree.
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr /R ":3000 "') do (
+    taskkill /F /PID %%a 2>nul
+)
 timeout /t 2 /nobreak >nul
 echo.
 echo ============================================================
