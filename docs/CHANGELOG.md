@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-04-08 — Dashboard shows all parts; update.bat reliability fixes
+
+### Dashboard active projects — show all parts (`client/src/pages/Dashboard.jsx`)
+Removed the 5-part cap and "+N more parts…" truncation from the Active Projects panel. All parts for each active project are now always visible.
+
+### update.bat reliability (`update.bat`)
+Fixed several issues that caused the update script to silently exit after the `git pull` step on Windows:
+- Added `cd /d %~dp0` so the script always runs from the repo root regardless of where it was launched (double-click, shortcut, etc.)
+- Replaced `npm install` with `call npm install` (and same for all other npm commands). `npm` on Windows is `npm.cmd` — calling a `.cmd` from a `.bat` without the `call` keyword causes the parent script to exit cleanly when the child finishes, silently skipping all remaining steps.
+- Changed server kill from `taskkill /IM node.exe` (kills all Node processes, including the bat's own npm tree) to a targeted kill by port: finds the PID listening on port 3000 via `netstat` and kills only that process.
+- Server now runs in the foreground of the same window (`node server\index.js`) so logs are visible and closing the window stops the server.
+
+**Files changed:** `client/src/pages/Dashboard.jsx`, `update.bat`
+
+---
+
 ## 2026-04-08 — Delete part, sweep dispatch serialization
 
 ### Delete part (`server/routes/parts.js`, `client/src/pages/Projects.jsx`)

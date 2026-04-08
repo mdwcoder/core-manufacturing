@@ -221,6 +221,21 @@ Returns `400` if `ids` is missing or empty.
 
 ### `DELETE /api/parts/:id`
 
+Safe cascade delete. Runs entirely in a single transaction.
+
+Returns `409` if any job for this part is currently `uploading` or `printing` — deletion is blocked while dispatch is active. Wait for the job to finish or cancel it first.
+
+On success:
+- All jobs for the part are deleted (history has no meaning without the part).
+- All G-code records for the part are deleted and their physical files removed from `server/gcode/`.
+- The part itself is deleted.
+
+```json
+{ "success": true }
+```
+
+Returns `404` if not found.
+
 ---
 
 ## G-codes

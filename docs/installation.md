@@ -288,12 +288,24 @@ Alternatively, copy the entire `print-farm-manager` folder to the new machine �
 
 ## Updating
 
-### Git install
+### Windows — using update.bat
+
+Double-click `update.bat` in the repo root (or run it from a Command Prompt). It will:
+1. `git pull` the latest code
+2. `npm install` server dependencies
+3. Build the React client (`client/npm install` + `npm run build`)
+4. Kill the process on port 3000 and start the server in the foreground
+
+The server runs in the bat's window — closing the window stops the server.
+
+> **Note:** `update.bat` uses `call npm ...` for all npm commands. If you are writing your own Windows batch scripts that invoke npm, you must use `call npm` — without `call`, the batch script exits silently when npm finishes because `npm.cmd` is a `.cmd` file.
+
+### macOS / Linux — manual steps
 
 ```
 git pull
 npm install
-cd client && npm install --legacy-peer-deps && cd ..
+cd client && npm install && cd ..
 npm run build
 pm2 restart print-farm-manager
 ```

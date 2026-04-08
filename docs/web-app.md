@@ -61,7 +61,7 @@ TV-optimized command center intended to be shown full-screen on a large monitor 
 | Header | Branding, fleet utilization % (printing / total), live HH:MM:SS clock and date |
 | Hero stat cards | Printing, Idle, Awaiting sign-off, Parts Today (rolling 24h) — large tabular numerals |
 | Fleet grid | All active printers as color-coded 54×44px cells, grouped by model row with per-row status summary badges and a color legend |
-| Active Projects | All active projects with per-part progress bars (turns green at ≥75%), completion counts, and DONE badges on closed parts |
+| Active Projects | All active projects with **all parts** listed — per-part progress bars (turns green at ≥75%), completion counts, and DONE badges on closed parts. No truncation. |
 | Recent Activity | Last 12 finished/failed jobs — ✓/✗ icon, part name, qty, printer name, relative time |
 
 **Fleet cell colors:**
@@ -146,7 +146,7 @@ Primary operator screen for setting up and launching print runs.
   - `active` → "Pause" → `PUT /api/projects/:id { status: 'paused' }`
   - `paused` → "Resume" → same as Activate
   - `completed` → no button
-- **Parts list:** each row is read-only — name (with ▲/▼ priority buttons), progress bar (`completed_qty / target_qty`), status badge, G-code model chips (read-only). All editing is behind the Details button.
+- **Parts list:** each row shows name (with ▲/▼ priority buttons), progress bar (`completed_qty / target_qty`), status badge, G-code model chips. A red `×` delete button appears at the far right — clicking it confirms then calls `DELETE /api/parts/:id`, which cascades to all jobs and G-code files for that part. Deletion is blocked (with an alert) if the part has an active uploading or printing job. All other editing is behind the Details button.
 - **▲/▼ ordering buttons:** move a part up or down in dispatch priority. Updates `sort_order` via `PUT /api/parts/reorder`. Optimistic — local state reorders immediately.
 - **Details panel** (per part, toggle with "Details" button): four sections:
   - *Part Name* — current name displayed with a ✎ pencil button. Click to edit inline; Enter or blur saves, Escape cancels → `PUT /api/parts/:id { name }`
