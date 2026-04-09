@@ -186,7 +186,9 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
 
   // ── FTPS upload ──────────────────────────────────────────────────────────
   // Connects to the printer's built-in FTP server on port 990 (implicit TLS).
-  // Files land in the root of the SD card, which is the FTP default directory.
+  // FTP root = SD card root (/sdcard/).
+  // .gcode files must live in the gcodes/ subdirectory — Bambu rejects /sdcard/<file>
+  // with error 0500-4002 if the file is not under gcodes/.
   console.log(`[bambu] Uploading ${onPrinterFilename} to ${printer.name} via FTPS…`);
 
   const ftpClient = new ftp.Client();
@@ -204,6 +206,8 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
       },
     });
 
+    // ensureDir creates the directory if absent and navigates into it.
+    await ftpClient.ensureDir('gcodes');
     await ftpClient.uploadFrom(gcodeFullPath, onPrinterFilename);
     console.log(`[bambu] Upload complete on ${printer.name}`);
   } finally {
@@ -217,16 +221,16 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
     throw new Error(`Bambu printer ${printer.name} MQTT not connected — cannot trigger print`);
   }
 
-  // Bambu requires a full SD card path — FTP root maps to /sdcard/ on the printer.
+  // .gcode files must be referenced as /sdcard/gcodes/<filename>.
   conn.client.publish(`device/${printer.serial_number}/request`, JSON.stringify({
     print: {
       sequence_id: '0',
       command:     'gcode_file',
-      param:       `/sdcard/${onPrinterFilename}`,
+      param:       `/sdcard/gcodes/${onPrinterFilename}`,
     },
   }));
 
-  console.log(`[bambu] Print triggered on ${printer.name}: ${onPrinterFilename}`);
+  console.log(`[bambu] Print triggered on ${printer.name}: gcodes/${onPrinterFilename}`);
 }
 
 // ─── Cancel ──────────────────────────────────────────────────────────────────
