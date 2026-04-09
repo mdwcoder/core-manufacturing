@@ -156,6 +156,17 @@ class JobScheduler extends EventEmitter {
       return null;
     }
 
+    // Guard against double-dispatch: if this printer already has an active job
+    // (uploading or printing) from a concurrent dispatch path, skip it.
+    // This can happen when set-ready and the initial sweep fire simultaneously.
+    const activeJob = this.db.prepare(
+      "SELECT id FROM jobs WHERE printer_id = ? AND status IN ('uploading', 'printing') LIMIT 1"
+    ).get(printer.id);
+    if (activeJob) {
+      console.log(`[scheduler] ${printer.name} already has an active job — skipping duplicate dispatch`);
+      return null;
+    }
+
     // Find the best open Part that has a G-code for this printer's model,
     // belonging to an active project. FIFO across projects by created_at.
     const candidate = this.db.prepare(`
