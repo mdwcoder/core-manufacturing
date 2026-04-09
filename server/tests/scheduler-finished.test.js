@@ -3,7 +3,7 @@
 // Covers:
 //   - Normal path: 'printing' job found → mark finished, increment qty, hold printer
 //   - MQTT recovery: no 'printing' job but recent 'failed' job → recover + credit
-//   - 24h window: 'failed' job older than 24h is NOT recovered
+//   - Session gating: a 'failed' job from a previous session is NOT recovered
 //   - No job at all: warn and return cleanly
 //   - Part closure: completed_qty reaching target closes the part
 //   - Project completion: all parts closed → project marked completed
@@ -114,13 +114,21 @@ function seedGcode(db, partId) {
   ).run(partId, now).lastInsertRowid;
 }
 
-function seedJob(db, printerId, partId, gcodeId, status = 'printing', { partsPerPlate = 4, startedAt } = {}) {
+function seedJob(db, printerId, partId, gcodeId, status = 'printing', { partsPerPlate = 4, startedAt, finishedAt } = {}) {
   const now = Date.now();
+  // Mirror production: _handlePrinterUnavailable sets finished_at when marking
+  // a job failed, and _handleFinished sets it on successful finish. Tests that
+  // don't care about the precise value get "now" so the session gate is satisfied.
+  const defaultFinishedAt = (status === 'finished' || status === 'failed') ? now : null;
   return db.prepare(
-    `INSERT INTO jobs (printer_id, part_id, gcode_id, parts_per_plate, status, started_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(printerId, partId, gcodeId, partsPerPlate, status, startedAt ?? now - 3600_000, now - 3600_000)
-    .lastInsertRowid;
+    `INSERT INTO jobs (printer_id, part_id, gcode_id, parts_per_plate, status, started_at, finished_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    printerId, partId, gcodeId, partsPerPlate, status,
+    startedAt ?? now - 3600_000,
+    finishedAt ?? defaultFinishedAt,
+    now - 3600_000,
+  ).lastInsertRowid;
 }
 
 function makePrinter(db, printerId) {
@@ -328,10 +336,18 @@ describe('_handleFinished — MQTT recovery (failed job, no printing job)', () =
   });
 });
 
-// ── 24h window: stale failed jobs are ignored ─────────────────────────────────
+// ── Session gating: stale failed jobs from prior runs are ignored ────────────
+//
+// Reproduces the bug: a Bambu printer in FINISHED + held state before a server
+// restart reports OFFLINE on the first poll (MQTT not connected yet) and then
+// FINISHED on the second poll. That OFFLINE → FINISHED transition used to fire
+// _handleFinished's fallback and credit any stale 'failed' job sitting in the
+// DB from an earlier session — a phantom completion.
+//
+// The fix gates the fallback on finished_at > scheduler.startedAt.
 
-describe('_handleFinished — 24h recovery window', () => {
-  test('does not recover a failed job older than 24 hours', () => {
+describe('_handleFinished — session gating (stale failed jobs must NOT credit)', () => {
+  test('does not recover a failed job finished before the session started', () => {
     const db        = makeDb();
     const scheduler = makeScheduler(db);
     const projectId = seedProject(db);
@@ -339,18 +355,23 @@ describe('_handleFinished — 24h recovery window', () => {
     const gcodeId   = seedGcode(db, partId);
     const printerId = seedPrinter(db);
 
-    // started_at more than 24 h ago
-    const oldStart = Date.now() - 25 * 60 * 60 * 1000;
-    seedJob(db, printerId, partId, gcodeId, 'failed', { startedAt: oldStart });
+    // Session started "now"; the failed job was marked failed 1 minute earlier
+    // (i.e. in a previous server run).
+    const sessionStart = Date.now();
+    scheduler.startedAt = sessionStart;
+
+    seedJob(db, printerId, partId, gcodeId, 'failed', {
+      finishedAt: sessionStart - 60_000,
+    });
 
     scheduler._handleFinished(makePrinter(db, printerId));
 
-    // No printing job and stale failed job → count should not change
+    // Stale failed job must NOT be credited — repro of the Bambu-restart bug.
     const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
     expect(part.completed_qty).toBe(0);
   });
 
-  test('does recover a failed job within 24 hours', () => {
+  test('does not mark a stale failed job as finished', () => {
     const db        = makeDb();
     const scheduler = makeScheduler(db);
     const projectId = seedProject(db);
@@ -358,9 +379,36 @@ describe('_handleFinished — 24h recovery window', () => {
     const gcodeId   = seedGcode(db, partId);
     const printerId = seedPrinter(db);
 
-    // started_at just under 24 h ago — should still qualify
-    const recentStart = Date.now() - 23 * 60 * 60 * 1000;
-    seedJob(db, printerId, partId, gcodeId, 'failed', { startedAt: recentStart });
+    const sessionStart = Date.now();
+    scheduler.startedAt = sessionStart;
+
+    const jobId = seedJob(db, printerId, partId, gcodeId, 'failed', {
+      finishedAt: sessionStart - 60_000,
+    });
+
+    scheduler._handleFinished(makePrinter(db, printerId));
+
+    const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(jobId);
+    expect(job.status).toBe('failed'); // untouched
+  });
+
+  test('does recover a failed job finished after the session started', () => {
+    const db        = makeDb();
+    const scheduler = makeScheduler(db);
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId, { completedQty: 0 });
+    const gcodeId   = seedGcode(db, partId);
+    const printerId = seedPrinter(db);
+
+    // Session started 1 second ago; the job was marked failed just now
+    // (legitimate transient-MQTT-disconnect recovery scenario).
+    const sessionStart = Date.now() - 1000;
+    scheduler.startedAt = sessionStart;
+
+    seedJob(db, printerId, partId, gcodeId, 'failed', {
+      partsPerPlate: 4,
+      finishedAt: Date.now(),
+    });
 
     scheduler._handleFinished(makePrinter(db, printerId));
 

@@ -16,7 +16,7 @@ const Database = require('better-sqlite3');
 
 // ── Minimal express app that replicates the set-ready route ──────────────────
 
-function makeApp(db, scheduler = { scheduleForPrinter: jest.fn() }) {
+function makeApp(db, scheduler = { scheduleForPrinter: jest.fn(), startedAt: 0 }) {
   const app = express();
   app.use(express.json());
 
@@ -56,9 +56,9 @@ function makeApp(db, scheduler = { scheduleForPrinter: jest.fn() }) {
       `).get(printer.id);
 
       const activeJob = printingJob || db.prepare(`
-        SELECT * FROM jobs WHERE printer_id = ? AND status = 'failed' AND started_at > ?
-        ORDER BY started_at DESC LIMIT 1
-      `).get(printer.id, Date.now() - 24 * 60 * 60 * 1000);
+        SELECT * FROM jobs WHERE printer_id = ? AND status = 'failed' AND finished_at > ?
+        ORDER BY finished_at DESC LIMIT 1
+      `).get(printer.id, scheduler.startedAt);
 
       if (activeJob) {
         const creditQty = (confirmed_qty != null && !isNaN(parseInt(confirmed_qty, 10)))
@@ -170,14 +170,21 @@ function seedGcode(db, partId) {
   ).run(partId, now).lastInsertRowid;
 }
 
-function seedJob(db, printerId, partId, gcodeId, jobStatus = 'finished', { partsPerPlate = 4, startedAt } = {}) {
+function seedJob(db, printerId, partId, gcodeId, jobStatus = 'finished', { partsPerPlate = 4, startedAt, finishedAt } = {}) {
   const now = Date.now();
-  const finishedAt = jobStatus === 'finished' ? now : null;
+  // Mirror production: _handlePrinterUnavailable stamps finished_at when it
+  // marks a job failed. Recovery tests depend on this so the session-gating
+  // check (finished_at > scheduler.startedAt) sees a non-null value.
+  const defaultFinishedAt = (jobStatus === 'finished' || jobStatus === 'failed') ? now : null;
   return db.prepare(
     `INSERT INTO jobs (printer_id, part_id, gcode_id, parts_per_plate, status, started_at, finished_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(printerId, partId, gcodeId, partsPerPlate, jobStatus, startedAt ?? now - 3600_000, finishedAt, now - 3600_000)
-    .lastInsertRowid;
+  ).run(
+    printerId, partId, gcodeId, partsPerPlate, jobStatus,
+    startedAt ?? now - 3600_000,
+    finishedAt ?? defaultFinishedAt,
+    now - 3600_000,
+  ).lastInsertRowid;
 }
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
@@ -415,17 +422,22 @@ describe('set-ready — MQTT recovery (failed job, no printing or finished job)'
     expect(project.status).toBe('completed');
   });
 
-  test('does not credit a failed job older than 24 hours', async () => {
+  test('does not credit a failed job finished before the session started', async () => {
+    // Repro of the Bambu-restart phantom-credit bug at the set-ready entry point:
+    // a stale failed job from a prior server run must not be credited.
     const db        = makeDb();
     const printerId = seedPrinter(db, { name: `P_mqtto_${Date.now()}` });
     const projectId = seedProject(db);
     const partId    = seedPart(db, projectId, { completedQty: 0 });
     const gcodeId   = seedGcode(db, partId);
 
-    const oldStart = Date.now() - 25 * 60 * 60 * 1000;
-    seedJob(db, printerId, partId, gcodeId, 'failed', { startedAt: oldStart });
+    const sessionStart = Date.now();
+    seedJob(db, printerId, partId, gcodeId, 'failed', {
+      finishedAt: sessionStart - 60_000, // marked failed 1 min before the session
+    });
 
-    await request(makeApp(db))
+    const scheduler = { scheduleForPrinter: jest.fn(), startedAt: sessionStart };
+    await request(makeApp(db, scheduler))
       .post(`/api/printers/${printerId}/set-ready`)
       .send({});
 

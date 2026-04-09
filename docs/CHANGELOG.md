@@ -2,6 +2,59 @@
 
 ---
 
+## 2026-04-09 — Fix phantom completion on server restart with held Bambu printer
+
+Fixes a critical part-count bug: every time the server was restarted with a Bambu printer sitting in the `FINISHED` + held state (awaiting operator confirmation), the printer's completed print was re-credited to its Part, inflating the production count.
+
+### Root cause
+
+`scheduler._handleFinished` has a fallback (added in f86fe5b) that credits a recently-failed job when a Bambu printer transitions into `FINISHED` without an active `printing` job — this handles the legitimate case where a transient MQTT disconnect marks the job `failed` but the printer keeps printing and finishes.
+
+The original query was `status = 'failed' AND started_at > now - 24h`, which matched **any** old failed job. On server restart:
+
+1. Bambu printer was `FINISHED` + `is_held = 1` before shutdown; last job already credited normally.
+2. First poll tick: Bambu MQTT not yet connected → driver returns `OFFLINE`. DB stamps `status = 'OFFLINE'`.
+3. Second poll tick (~15 s later): MQTT reconnected, Bambu still reports `gcode_state = 'FINISH'` → `newStatus = 'FINISHED'`. `OFFLINE → FINISHED` transition fires `_handleFinished`.
+4. No active printing job exists. The 24 h fallback matches any stale failed job sitting in the DB from prior runs and credits its `parts_per_plate` to the Part. Phantom completion.
+
+The same unsafe query also existed in the `POST /api/printers/:id/set-ready` MQTT-recovery fallback.
+
+### Fix
+
+Gate the fallback on the current server process lifetime instead of a 24 h window. `JobScheduler` now stamps `this.startedAt = Date.now()` in `start()`, and both fallbacks filter with `finished_at > scheduler.startedAt`. Only jobs that `_handlePrinterUnavailable` failed **during this process run** can be recovered, so nothing from a prior session can be credited on reconnect.
+
+This preserves the legitimate transient-MQTT-disconnect recovery path (the job is failed and then recovered inside the same process) while closing the restart re-credit path.
+
+### Changes
+
+**`server/scheduler.js`**
+- Constructor: `this.startedAt = 0`
+- `start()`: stamps `this.startedAt = Date.now()` before logging
+- `_handleFinished` fallback query: `WHERE status = 'failed' AND finished_at > ?` bound to `this.startedAt`, ordered by `finished_at DESC`
+- Updated inline comment explaining the gate and the bug it prevents
+
+**`server/index.js`**
+- `POST /api/printers/:id/set-ready` MQTT-recovery fallback: same gate, using `scheduler.startedAt`
+
+**`server/tests/scheduler-finished.test.js`**
+- `seedJob` now stamps `finished_at` on `'failed'` rows (mirrors `_handlePrinterUnavailable`)
+- Replaced the "24 h window" describe block with a "session gating" block including:
+  - `does not recover a failed job finished before the session started` (bug repro)
+  - `does not mark a stale failed job as finished`
+  - `does recover a failed job finished after the session started` (legit path)
+
+**`server/tests/set-ready.test.js`**
+- `makeApp` default scheduler now includes `startedAt: 0`
+- Route handler copy updated to use `finished_at > scheduler.startedAt`
+- `seedJob` stamps `finished_at` on `'failed'` rows
+- Replaced the "older than 24 hours" test with `does not credit a failed job finished before the session started` (bug repro at the set-ready entry point)
+
+### Verification
+
+All 233 tests across 17 suites pass, including the three new bug-repro tests that would fail before this fix.
+
+---
+
 ## 2026-04-09 — Dashboard refresh-countdown timer
 
 Adds the circular refresh-countdown ring to the Dashboard header so operators watching the TV command center can see how long until the next data poll. Previously only the Fleet page exposed this indicator.

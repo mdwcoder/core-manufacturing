@@ -179,14 +179,19 @@ const server = app.listen(PORT, () => {
         ORDER BY started_at DESC LIMIT 1
       `).get(printer.id);
 
-      // Also check for a recently-failed job — handles Bambu MQTT reconnect during a
-      // print, where _handlePrinterUnavailable marked the job 'failed' but the printer
-      // kept printing and finished. _handleFinished should have recovered it already,
-      // but cover the race where the operator hits Set Ready before the next poll cycle.
+      // Also check for a job marked failed during this session — handles Bambu MQTT
+      // reconnect during a print, where _handlePrinterUnavailable marked the job
+      // 'failed' but the printer kept printing and finished. _handleFinished should
+      // have recovered it already, but cover the race where the operator hits Set
+      // Ready before the next poll cycle.
+      //
+      // Gated on finished_at > scheduler.startedAt — the job must have been marked
+      // failed in the current server process. A stale failed job from a previous
+      // session must not be credited just because the operator clicked Set Ready.
       const activeJob = printingJob || db.prepare(`
-        SELECT * FROM jobs WHERE printer_id = ? AND status = 'failed' AND started_at > ?
-        ORDER BY started_at DESC LIMIT 1
-      `).get(printer.id, Date.now() - 24 * 60 * 60 * 1000);
+        SELECT * FROM jobs WHERE printer_id = ? AND status = 'failed' AND finished_at > ?
+        ORDER BY finished_at DESC LIMIT 1
+      `).get(printer.id, scheduler.startedAt);
 
       if (activeJob) {
         const creditQty = (confirmed_qty != null && !isNaN(parseInt(confirmed_qty, 10)))

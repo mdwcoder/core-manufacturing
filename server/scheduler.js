@@ -14,9 +14,15 @@ class JobScheduler extends EventEmitter {
     this.poller = poller;
     this._isSweeping = false;
     this._pendingPrinters = [];
+    // Stamped in start(). Used to gate the failed-job recovery fallback so
+    // that only jobs failed during the current process lifetime are eligible.
+    // Prevents stale failed jobs from a previous session being credited when a
+    // Bambu printer transitions OFFLINE → FINISHED on reconnect.
+    this.startedAt = 0;
   }
 
   start() {
+    this.startedAt = Date.now();
     console.log('[scheduler] Starting job scheduler');
 
     this.poller.on('printerIdle', ({ printer }) => {
@@ -308,12 +314,18 @@ class JobScheduler extends EventEmitter {
 
   _handleFinished(printer) {
     // Find the job currently marked printing for this printer.
-    // Fallback: also check for a recently-failed job. Bambu printers use a persistent
-    // MQTT connection — if the connection briefly drops during a print, the 'reconnect'
-    // event fires, getStatus() returns OFFLINE, and _handlePrinterUnavailable marks the
-    // job 'failed'. But the printer keeps printing. When it finishes, there is no
-    // 'printing' job to find. Recovering the most recent failed job (within 24 h)
-    // correctly credits the completed print.
+    // Fallback: also check for a job marked failed *during this session*. Bambu
+    // printers use a persistent MQTT connection — if it briefly drops during a print,
+    // the 'reconnect' event fires, getStatus() returns OFFLINE, and
+    // _handlePrinterUnavailable marks the job 'failed'. But the printer keeps
+    // printing. When it finishes, there is no 'printing' job to find, so we
+    // recover the recently-failed one.
+    //
+    // Critical: the fallback is gated on finished_at > this.startedAt — the job
+    // must have been marked failed DURING the current server process. Without this
+    // gate, a stale FINISHED state reported by a Bambu printer on startup (first
+    // poll = OFFLINE while MQTT connects, second poll = FINISHED) can match ANY
+    // old failed job and falsely credit the part.
     let job = this.db.prepare(`
       SELECT * FROM jobs
       WHERE printer_id = ? AND status = 'printing'
@@ -324,13 +336,13 @@ class JobScheduler extends EventEmitter {
     if (!job) {
       job = this.db.prepare(`
         SELECT * FROM jobs
-        WHERE printer_id = ? AND status = 'failed' AND started_at > ?
-        ORDER BY started_at DESC
+        WHERE printer_id = ? AND status = 'failed' AND finished_at > ?
+        ORDER BY finished_at DESC
         LIMIT 1
-      `).get(printer.id, Date.now() - 24 * 60 * 60 * 1000);
+      `).get(printer.id, this.startedAt);
 
       if (job) {
-        console.log(`[scheduler] FINISHED on ${printer.name} — recovering job ${job.id} (was marked failed, likely transient MQTT disconnect during print)`);
+        console.log(`[scheduler] FINISHED on ${printer.name} — recovering job ${job.id} (marked failed during this session, likely transient MQTT disconnect during print)`);
       }
     }
 
