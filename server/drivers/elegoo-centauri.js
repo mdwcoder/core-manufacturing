@@ -99,6 +99,13 @@ async function getStatus(printer) {
     const printInfo = raw?.Status?.PrintInfo ?? raw?.PrintInfo ?? raw;
     const status = mapStatus(printInfo);
 
+    // Log raw status code whenever it maps to something unexpected so we can
+    // refine the mapping based on real Centauri Carbon firmware behaviour.
+    const rawCode = printInfo?.Status ?? printInfo?.CurrentStatus;
+    if (status === 'ERROR' || status === 'UNKNOWN') {
+      console.log(`[elegoo] ${printer.name} raw status code: ${rawCode} → ${status} (full PrintInfo: ${JSON.stringify(printInfo)})`);
+    }
+
     const progress = (status === 'PRINTING' || status === 'PAUSED')
       ? (printInfo?.CurrentTicks != null && printInfo?.TotalTicks > 0
           ? Math.round((printInfo.CurrentTicks / printInfo.TotalTicks) * 100)
