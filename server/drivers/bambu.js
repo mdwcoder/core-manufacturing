@@ -184,11 +184,12 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
 
   const onPrinterFilename = path.basename(gcodeFullPath);
 
+  const ext = path.extname(onPrinterFilename).toLowerCase();
+  const is3mf = ext === '.3mf';
+
   // ── FTPS upload ──────────────────────────────────────────────────────────
-  // Connects to the printer's built-in FTP server on port 990 (implicit TLS).
   // FTP root = SD card root (/sdcard/).
-  // .gcode files must live in the gcodes/ subdirectory — Bambu rejects /sdcard/<file>
-  // with error 0500-4002 if the file is not under gcodes/.
+  // .3mf files go in the SD card root; .gcode/.bgcode go in gcodes/ subdir.
   console.log(`[bambu] Uploading ${onPrinterFilename} to ${printer.name} via FTPS…`);
 
   const ftpClient = new ftp.Client();
@@ -206,8 +207,10 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
       },
     });
 
-    // ensureDir creates the directory if absent and navigates into it.
-    await ftpClient.ensureDir('gcodes');
+    if (!is3mf) {
+      // ensureDir creates the directory if absent and navigates into it.
+      await ftpClient.ensureDir('gcodes');
+    }
     await ftpClient.uploadFrom(gcodeFullPath, onPrinterFilename);
     console.log(`[bambu] Upload complete on ${printer.name}`);
   } finally {
@@ -221,16 +224,44 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
     throw new Error(`Bambu printer ${printer.name} MQTT not connected — cannot trigger print`);
   }
 
-  // .gcode files must be referenced as /sdcard/gcodes/<filename>.
-  conn.client.publish(`device/${printer.serial_number}/request`, JSON.stringify({
-    print: {
+  let printPayload;
+
+  if (is3mf) {
+    // .3mf files use project_file command. The printer reads AMS/spool
+    // settings embedded in the file rather than forcing external spool.
+    // url uses ftp:// to tell the printer to load from its own SD card.
+    // param is the standard internal gcode path inside a Bambu Studio 3mf.
+    const subtaskName = path.basename(onPrinterFilename, '.3mf');
+    printPayload = {
+      sequence_id:     '0',
+      command:         'project_file',
+      param:           'Metadata/plate_1.gcode',
+      subtask_name:    subtaskName,
+      url:             `ftp:///sdcard/${onPrinterFilename}`,
+      bed_type:        'auto',
+      timelapse:       false,
+      bed_leveling:    true,
+      flow_cali:       false,
+      vibration_cali:  true,
+      layer_inspect:   false,
+      use_ams:         true,
+      profile_id:      '0',
+      project_id:      '0',
+      subtask_id:      '0',
+      task_id:         '0',
+    };
+    console.log(`[bambu] Print triggered on ${printer.name}: ${onPrinterFilename} (project_file)`);
+  } else {
+    // .gcode/.bgcode — gcode_file command, file lives in gcodes/ subdir.
+    printPayload = {
       sequence_id: '0',
       command:     'gcode_file',
       param:       `/sdcard/gcodes/${onPrinterFilename}`,
-    },
-  }));
+    };
+    console.log(`[bambu] Print triggered on ${printer.name}: gcodes/${onPrinterFilename}`);
+  }
 
-  console.log(`[bambu] Print triggered on ${printer.name}: gcodes/${onPrinterFilename}`);
+  conn.client.publish(`device/${printer.serial_number}/request`, JSON.stringify({ print: printPayload }));
 }
 
 // ─── Cancel ──────────────────────────────────────────────────────────────────

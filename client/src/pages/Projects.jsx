@@ -180,7 +180,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       <label style={{ cursor: 'pointer' }}>
-        <input ref={fileInputRef} type="file" accept=".bgcode,.gcode" onChange={handleFileChange} style={{ display: 'none' }} />
+        <input ref={fileInputRef} type="file" accept=".bgcode,.gcode,.3mf" onChange={handleFileChange} style={{ display: 'none' }} />
         <span style={{
           ...inputSx,
           display: 'inline-block',
@@ -191,7 +191,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
           cursor: 'pointer',
           color: file ? '#e2e8f0' : '#475569',
         }}>
-          {file ? file.name : 'Choose .bgcode / .gcode…'}
+          {file ? file.name : 'Choose .gcode / .bgcode / .3mf…'}
         </span>
       </label>
       <input
