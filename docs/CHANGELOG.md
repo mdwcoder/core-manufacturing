@@ -2,6 +2,31 @@
 
 ---
 
+## 2026-04-09 — Dashboard refresh-countdown timer
+
+Adds the circular refresh-countdown ring to the Dashboard header so operators watching the TV command center can see how long until the next data poll. Previously only the Fleet page exposed this indicator.
+
+### Changes
+
+**`client/src/components/PollTimer.jsx`** (new)
+- Extracted the inline `PollTimer` from `Fleet.jsx` into a shared component
+- Props: `lastPolled`, `intervalMs` (default 15000), `size` (default 20), `stroke`, `track`
+- Stroke width scales with size (`max(2, size/8)`) so it looks right at both 20px (Fleet) and 28px (Dashboard)
+
+**`client/src/pages/Dashboard.jsx`**
+- Tracks `lastPolled` in state; stamped on each successful `/api/dashboard` fetch
+- Renders `<PollTimer size={28} />` in the header between the clock and the TV-mode button
+- `POLL_INTERVAL_MS` (15000) lifted to a constant so the fetch loop and the timer share one source
+
+**`client/src/pages/Fleet.jsx`**
+- Removed the local `PollTimer` definition; now imports the shared component
+- Explicitly passes `intervalMs={15000}` to preserve existing behavior
+
+**`docs/web-app.md`**
+- Added the new `components/PollTimer.jsx` entry to the Key Files table
+
+---
+
 ## 2026-04-09 — Bambu .3mf support + AMS slot selection
 
 Adds full Bambu Lab print dispatch via `.3mf` files and live AMS slot selection in the upload form.

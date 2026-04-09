@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import PollTimer from '../components/PollTimer';
 
 const STATUS_COLORS = {
   PRINTING:   { bg: '#1e3a5f', text: '#60a5fa', label: 'Printing' },
@@ -36,46 +37,6 @@ async function inspectPrinter(printer) {
     console.error('Fetch failed:', err);
   }
   console.groupEnd();
-}
-
-const POLL_INTERVAL_MS = 15000;
-
-function PollTimer({ lastPolled }) {
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    if (lastPolled === null) return;
-    setElapsed(0);
-    const id = setInterval(() => setElapsed(Date.now() - lastPolled), 100);
-    return () => clearInterval(id);
-  }, [lastPolled]);
-
-  const size = 20;
-  const strokeWidth = 2.5;
-  const r = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * r;
-  const progress = Math.min(elapsed / POLL_INTERVAL_MS, 1);
-  const offset = circumference * (1 - progress);
-
-  return (
-    <svg
-      width={size}
-      height={size}
-      style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}
-      title={`Last polled ${Math.round(elapsed / 1000)}s ago`}
-    >
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#2d3748" strokeWidth={strokeWidth} />
-      <circle
-        cx={size / 2} cy={size / 2} r={r}
-        fill="none"
-        stroke="#3b82f6"
-        strokeWidth={strokeWidth}
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        strokeLinecap="round"
-      />
-    </svg>
-  );
 }
 
 function formatTimeRemaining(secs) {
@@ -399,7 +360,7 @@ export default function Fleet() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Fleet</h1>
-          <PollTimer lastPolled={lastPolled} />
+          <PollTimer lastPolled={lastPolled} intervalMs={15000} />
         </div>
         <button
           onClick={sweep}

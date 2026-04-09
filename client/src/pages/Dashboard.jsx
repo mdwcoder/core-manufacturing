@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import PollTimer from '../components/PollTimer';
+
+const POLL_INTERVAL_MS = 15000;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -93,6 +96,7 @@ export default function Dashboard() {
   const [data,  setData]  = useState(null);
   const [clock, setClock] = useState(new Date());
   const [allModels, setAllModels] = useState([]);
+  const [lastPolled, setLastPolled] = useState(null);
   const dashRef = useRef(null);
 
   useEffect(() => {
@@ -109,13 +113,16 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/dashboard');
-      if (res.ok) setData(await res.json());
+      if (res.ok) {
+        setData(await res.json());
+        setLastPolled(Date.now());
+      }
     } catch (_) {}
   }, []);
 
   useEffect(() => {
     fetchData();
-    const id = setInterval(fetchData, 15000);
+    const id = setInterval(fetchData, POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [fetchData]);
 
@@ -208,6 +215,7 @@ export default function Dashboard() {
               {formatDate(clock)}
             </div>
           </div>
+          <PollTimer lastPolled={lastPolled} intervalMs={POLL_INTERVAL_MS} size={28} />
           <button
             onClick={enterTV}
             title="Enter fullscreen TV mode"

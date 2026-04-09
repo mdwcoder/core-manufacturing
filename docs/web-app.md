@@ -26,6 +26,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 | `client/src/pages/Dashboard.jsx` | TV command center dashboard |
 | `client/src/pages/Projects.jsx` | Project/Part/G-code management |
 | `client/src/pages/Jobs.jsx` | Job queue table with filters |
+| `client/src/components/PollTimer.jsx` | Shared circular refresh-countdown ring used by Fleet and Dashboard |
 | `client/index.html` | HTML shell with dark background baseline CSS |
 | `client/vite.config.js` | Vite config — port 5173, `/api` proxy to 3000 |
 
