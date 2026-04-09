@@ -62,7 +62,16 @@ beforeAll(() => {
       finished_at INTEGER,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE printer_models (
+      model_id  TEXT PRIMARY KEY,
+      label     TEXT NOT NULL,
+      connector TEXT NOT NULL
+    );
   `);
+
+  // Seed models used by upload tests
+  db.exec(`INSERT INTO printer_models VALUES ('mk4s', 'MK4S', 'prusa')`);
+  db.exec(`INSERT INTO printer_models VALUES ('c1',   'Core One', 'prusa')`);
 
   if (!fs.existsSync(GCODE_DIR)) fs.mkdirSync(GCODE_DIR, { recursive: true });
 
