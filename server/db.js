@@ -86,6 +86,7 @@ try { db.exec('ALTER TABLE parts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 
 try { db.exec('ALTER TABLE printers ADD COLUMN job_name TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE printers ADD COLUMN job_progress REAL'); } catch (_) {}
 try { db.exec('ALTER TABLE printers ADD COLUMN job_time_remaining INTEGER'); } catch (_) {}
+try { db.exec("ALTER TABLE printers ADD COLUMN serial_number TEXT DEFAULT ''"); } catch (_) {}
 
 // Settings table — key/value store for operator-configurable options
 try {

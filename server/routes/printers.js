@@ -6,8 +6,8 @@ const router = express.Router();
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-const VALID_MODELS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl', 'centauri-carbon'];
-const ELEGOO_TYPES = new Set(['elegoo-centauri']);
+const VALID_MODELS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl', 'centauri-carbon', 'x1c', 'p1s', 'p1p', 'a1', 'a1-mini'];
+const ELEGOO_TYPES = new Set(['elegoo-centauri']); // types that store no api_key
 
 // Normalize a CSV model column value to internal ID.
 // Accepts the canonical value set (case-insensitive): MK4, MK4S, C1, C1L, XL
@@ -65,7 +65,7 @@ module.exports = (db) => {
 
   // POST /api/printers — add single printer
   router.post('/', (req, res) => {
-    const { name, ip, api_key, group_name, type, model } = req.body;
+    const { name, ip, api_key, serial_number, group_name, type, model } = req.body;
     const printerType = type || 'prusa';
     const requiresApiKey = !ELEGOO_TYPES.has(printerType);
     if (!name || !ip || !model || (requiresApiKey && !api_key)) {
@@ -78,9 +78,9 @@ module.exports = (db) => {
     }
     try {
       const result = db.prepare(`
-        INSERT INTO printers (name, ip, api_key, group_name, type, model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(name, ip, api_key || '', group_name || null, printerType, normalized, Date.now());
+        INSERT INTO printers (name, ip, api_key, serial_number, group_name, type, model, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(name, ip, api_key || '', serial_number || '', group_name || null, printerType, normalized, Date.now());
       res.status(201).json(db.prepare('SELECT * FROM printers WHERE id = ?').get(result.lastInsertRowid));
     } catch (err) {
       if (err.message.includes('UNIQUE')) {
@@ -95,7 +95,7 @@ module.exports = (db) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
 
-    const { name, ip, api_key, group_name, type, model, is_held, decommission_note } = req.body;
+    const { name, ip, api_key, serial_number, group_name, type, model, is_held, decommission_note } = req.body;
     let normalized = undefined;
     if (model !== undefined) {
       normalized = normalizeModel(model);
@@ -110,13 +110,14 @@ module.exports = (db) => {
         SET name = COALESCE(?, name),
             ip = COALESCE(?, ip),
             api_key = COALESCE(?, api_key),
+            serial_number = COALESCE(?, serial_number),
             group_name = COALESCE(?, group_name),
             type = COALESCE(?, type),
             model = COALESCE(?, model),
             is_held = COALESCE(?, is_held),
             decommission_note = COALESCE(?, decommission_note)
         WHERE id = ?
-      `).run(name, ip, api_key, group_name, type, normalized, is_held, decommission_note ?? null, req.params.id);
+      `).run(name, ip, api_key, serial_number, group_name, type, normalized, is_held, decommission_note ?? null, req.params.id);
 
       res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id));
     } catch (err) {
@@ -229,17 +230,18 @@ module.exports = (db) => {
     const summary = { imported: 0, skipped: 0, flagged: [] };
 
     const insertStmt = db.prepare(`
-      INSERT INTO printers (name, ip, api_key, group_name, type, model, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO printers (name, ip, api_key, serial_number, group_name, type, model, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const existsStmt = db.prepare('SELECT id FROM printers WHERE name = ?');
 
     for (const row of rows) {
-      const name     = (row.name    || '').trim();
-      const ip       = (row.ip      || '').trim();
-      const api_key  = (row.api_key || '').trim();
-      const group_name = (row.group || '').trim() || null;
-      const type     = (row.type    || 'prusa').trim();
+      const name          = (row.name          || '').trim();
+      const ip            = (row.ip            || '').trim();
+      const api_key       = (row.api_key       || '').trim();
+      const serial_number = (row.serial_number || '').trim();
+      const group_name    = (row.group         || '').trim() || null;
+      const type          = (row.type          || 'prusa').trim();
 
       const rowRequiresApiKey = !ELEGOO_TYPES.has(type);
       if (!name || !ip || (rowRequiresApiKey && !api_key)) {
@@ -262,7 +264,7 @@ module.exports = (db) => {
       }
 
       try {
-        insertStmt.run(name, ip, api_key, group_name, type, model, Date.now());
+        insertStmt.run(name, ip, api_key, serial_number, group_name, type, model, Date.now());
         summary.imported++;
       } catch (err) {
         summary.flagged.push({ row, reason: err.message });

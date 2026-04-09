@@ -9,6 +9,7 @@
 const LOADERS = {
   'prusa':           () => require('./prusa'),
   'elegoo-centauri': () => require('./elegoo-centauri'),
+  'bambu':           () => require('./bambu'),
 };
 
 function getDriver(type) {

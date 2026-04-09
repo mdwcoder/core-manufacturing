@@ -13,11 +13,13 @@ const inputStyle = {
 
 const PRUSA_MODELS  = ['mk4', 'mk4s', 'c1', 'c1l', 'xl'];
 const ELEGOO_MODELS = ['centauri-carbon'];
-const MODEL_OPTIONS = [...PRUSA_MODELS, ...ELEGOO_MODELS];
+const BAMBU_MODELS  = ['x1c', 'p1s', 'p1p', 'a1', 'a1-mini'];
+const MODEL_OPTIONS = [...PRUSA_MODELS, ...ELEGOO_MODELS, ...BAMBU_MODELS];
 
 const TYPE_OPTIONS = [
   { value: 'prusa',           label: 'Prusa (PrusaLink)' },
   { value: 'elegoo-centauri', label: 'Elegoo (SDCP)' },
+  { value: 'bambu',           label: 'Bambu (MQTT)' },
 ];
 
 export default function Settings() {
@@ -28,7 +30,7 @@ export default function Settings() {
   const fileRef = useRef(null);
 
   // Add single printer
-  const [addForm, setAddForm] = useState({ name: '', ip: '', api_key: '', model: 'mk4s', group_name: '', type: 'prusa' });
+  const [addForm, setAddForm] = useState({ name: '', ip: '', api_key: '', serial_number: '', model: 'mk4s', group_name: '', type: 'prusa' });
   const [addResult, setAddResult] = useState(null);
   const [addError, setAddError] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -46,6 +48,7 @@ export default function Settings() {
           name: addForm.name.trim(),
           ip: addForm.ip.trim(),
           api_key: addForm.api_key.trim(),
+          serial_number: addForm.serial_number.trim() || undefined,
           model: addForm.model,
           group_name: addForm.group_name.trim() || null,
           type: addForm.type,
@@ -54,7 +57,7 @@ export default function Settings() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Add failed');
       setAddResult(data);
-      setAddForm({ name: '', ip: '', api_key: '', model: 'mk4s', group_name: '', type: 'prusa' });
+      setAddForm({ name: '', ip: '', api_key: '', serial_number: '', model: 'mk4s', group_name: '', type: 'prusa' });
     } catch (err) {
       setAddError(err.message);
     } finally {
@@ -389,8 +392,10 @@ export default function Settings() {
                 value={addForm.type}
                 onChange={e => {
                   const t = e.target.value;
-                  const defaultModel = t === 'elegoo-centauri' ? 'centauri-carbon' : 'mk4s';
-                  setAddForm(p => ({ ...p, type: t, model: defaultModel }));
+                  const defaultModel = t === 'elegoo-centauri' ? 'centauri-carbon'
+                                     : t === 'bambu'           ? 'x1c'
+                                     : 'mk4s';
+                  setAddForm(p => ({ ...p, type: t, model: defaultModel, serial_number: '' }));
                 }}
                 style={inputStyle}
               >
@@ -404,7 +409,9 @@ export default function Settings() {
                 onChange={e => setAddForm(p => ({ ...p, model: e.target.value }))}
                 style={inputStyle}
               >
-                {(addForm.type === 'elegoo-centauri' ? ELEGOO_MODELS : PRUSA_MODELS).map(m => (
+                {(addForm.type === 'elegoo-centauri' ? ELEGOO_MODELS
+                : addForm.type === 'bambu' ? BAMBU_MODELS
+                : PRUSA_MODELS).map(m => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>
@@ -415,7 +422,7 @@ export default function Settings() {
                 value={addForm.name}
                 onChange={e => setAddForm(p => ({ ...p, name: e.target.value }))}
                 required
-                placeholder={addForm.type === 'elegoo-centauri' ? 'Centauri_01' : 'MK4S_11'}
+                placeholder={addForm.type === 'elegoo-centauri' ? 'Centauri_01' : addForm.type === 'bambu' ? 'Bambu_X1C_01' : 'MK4S_11'}
                 style={inputStyle}
               />
             </div>
@@ -429,14 +436,28 @@ export default function Settings() {
                 style={inputStyle}
               />
             </div>
+            {addForm.type === 'bambu' && (
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Serial Number *</label>
+                <input
+                  value={addForm.serial_number}
+                  onChange={e => setAddForm(p => ({ ...p, serial_number: e.target.value }))}
+                  required
+                  placeholder="00M09C123400789"
+                  style={inputStyle}
+                />
+              </div>
+            )}
             {addForm.type !== 'elegoo-centauri' && (
               <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>API Key *</label>
+                <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
+                  {addForm.type === 'bambu' ? 'Access Code *' : 'API Key *'}
+                </label>
                 <input
                   value={addForm.api_key}
                   onChange={e => setAddForm(p => ({ ...p, api_key: e.target.value }))}
                   required
-                  placeholder="xxxxxxxxxxxxxxxx"
+                  placeholder={addForm.type === 'bambu' ? '12AB34' : 'xxxxxxxxxxxxxxxx'}
                   style={inputStyle}
                 />
               </div>
