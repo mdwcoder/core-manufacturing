@@ -89,7 +89,7 @@ module.exports = (db) => {
       return res.status(400).json({ error: 'part_id, parts_per_plate, and printer_model are required' });
     }
 
-    const VALID_MODELS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl'];
+    const VALID_MODELS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl', 'centauri-carbon'];
     if (!VALID_MODELS.includes(printer_model)) {
       fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: `printer_model must be one of: ${VALID_MODELS.join(', ')}` });
