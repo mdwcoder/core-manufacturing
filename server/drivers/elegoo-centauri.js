@@ -10,6 +10,7 @@
 // Require only the WebSocket class directly — sdcp's main index also loads
 // SDCPPrinterMQTT which requires 'mqtt-server' (an optional peer dep we don't need).
 const SDCPPrinterWS = require('sdcp/SDCPPrinterWS');
+const path = require('path');
 
 // Map of printer.id → SDCPPrinterWS instance
 const connections = new Map();
@@ -137,9 +138,11 @@ async function uploadAndPrint(printer, gcodeFullPath, filename) {
 
   console.log(`[elegoo] Upload complete — starting print on ${printer.name}`);
 
-  // Start the print — sdcp Start takes the bare filename, not a full path.
-  // (GetFiles returns '/usb/name' but Start expects just 'name'.)
-  await client.Start(filename);
+  // sdcp's UploadFile uses path.basename(gcodeFullPath) as the on-printer filename
+  // (the multer-timestamped name, e.g. "1746000000000_part.gcode").
+  // Start must reference that same name — not the original `filename` arg, which
+  // is the clean display name and won't match what was actually uploaded.
+  await client.Start(path.basename(gcodeFullPath));
 
   console.log(`[elegoo] Print started on ${printer.name}`);
 }

@@ -152,10 +152,12 @@ describe('uploadAndPrint', () => {
     );
   });
 
-  test('calls Start with bare filename (not a /usb/ path)', async () => {
+  test('calls Start with basename of gcodeFullPath, not the display filename', async () => {
     const printer = nextPrinter();
-    await elegoo.uploadAndPrint(printer, '/tmp/part.gcode', 'part.gcode');
-    expect(mockClient.Start).toHaveBeenCalledWith('part.gcode');
+    // gcodeFullPath has a multer timestamp prefix; filename is the clean display name.
+    // sdcp uploads using basename(gcodeFullPath), so Start must use the same name.
+    await elegoo.uploadAndPrint(printer, '/tmp/1746000000000_part.gcode', 'part.gcode');
+    expect(mockClient.Start).toHaveBeenCalledWith('1746000000000_part.gcode');
   });
 
   test('calls UploadFile before Start', async () => {
