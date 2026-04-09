@@ -237,7 +237,7 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
       command:         'project_file',
       param:           'Metadata/plate_1.gcode',
       subtask_name:    subtaskName,
-      url:             `ftp:///sdcard/${onPrinterFilename}`,
+      url:             `ftp://${printer.ip}/${onPrinterFilename}`,
       bed_type:        'auto',
       timelapse:       false,
       bed_leveling:    true,
