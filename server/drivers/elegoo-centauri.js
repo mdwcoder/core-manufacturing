@@ -7,7 +7,9 @@
 // Connections are kept alive in a module-level Map and reused across poll ticks.
 // AutoReconnect handles drops transparently.
 
-const SDCP = require('sdcp');
+// Require only the WebSocket class directly — sdcp's main index also loads
+// SDCPPrinterMQTT which requires 'mqtt-server' (an optional peer dep we don't need).
+const SDCPPrinterWS = require('sdcp/SDCPPrinterWS');
 
 // Map of printer.id → SDCPPrinterWS instance
 const connections = new Map();
@@ -21,7 +23,7 @@ async function getConnection(printer) {
     return connections.get(printer.id);
   }
 
-  const client = new SDCP.SDCPPrinterWS({
+  const client = new SDCPPrinterWS({
     MainboardIP: printer.ip,
   });
 

@@ -4,11 +4,9 @@
 // Each test uses a unique printer ID to avoid sharing the module-level connection
 // cache between test cases (the driver keeps a Map of id → SDCPPrinterWS).
 
-jest.mock('sdcp', () => ({
-  SDCPPrinterWS: jest.fn(),
-}));
+jest.mock('sdcp/SDCPPrinterWS', () => jest.fn());
 
-const SDCP = require('sdcp');
+const SDCPPrinterWS = require('sdcp/SDCPPrinterWS');
 const elegoo = require('../drivers/elegoo-centauri');
 
 // Shared mock client — reset before each test
@@ -25,7 +23,7 @@ beforeEach(() => {
     Stop: jest.fn().mockResolvedValue(undefined),
     Disconnect: jest.fn(),
   };
-  SDCP.SDCPPrinterWS.mockImplementation(() => mockClient);
+  SDCPPrinterWS.mockImplementation(() => mockClient);
 });
 
 afterEach(() => {
