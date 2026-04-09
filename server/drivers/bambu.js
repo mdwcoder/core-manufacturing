@@ -207,10 +207,6 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
       },
     });
 
-    if (!is3mf) {
-      // ensureDir creates the directory if absent and navigates into it.
-      await ftpClient.ensureDir('gcodes');
-    }
     await ftpClient.uploadFrom(gcodeFullPath, onPrinterFilename);
     console.log(`[bambu] Upload complete on ${printer.name}`);
   } finally {
@@ -237,7 +233,7 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
       command:         'project_file',
       param:           'Metadata/plate_1.gcode',
       subtask_name:    subtaskName,
-      url:             `ftp://${printer.ip}/${onPrinterFilename}`,
+      url:             `ftp:///${onPrinterFilename}`,
       bed_type:        'auto',
       timelapse:       false,
       bed_leveling:    true,
@@ -256,7 +252,7 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
     printPayload = {
       sequence_id: '0',
       command:     'gcode_file',
-      param:       `/sdcard/gcodes/${onPrinterFilename}`,
+      param:       onPrinterFilename,
     };
     console.log(`[bambu] Print triggered on ${printer.name}: gcodes/${onPrinterFilename}`);
   }
