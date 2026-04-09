@@ -11,16 +11,16 @@ const inputStyle = {
   boxSizing: 'border-box',
 };
 
-const PRUSA_MODELS  = ['mk4', 'mk4s', 'c1', 'c1l', 'xl'];
-const ELEGOO_MODELS = ['centauri-carbon'];
-const BAMBU_MODELS  = ['x1c', 'p1s', 'p1p', 'a1', 'a1-mini'];
-const MODEL_OPTIONS = [...PRUSA_MODELS, ...ELEGOO_MODELS, ...BAMBU_MODELS];
-
-const TYPE_OPTIONS = [
+const CONNECTOR_OPTIONS = [
   { value: 'prusa',           label: 'Prusa (PrusaLink)' },
   { value: 'elegoo-centauri', label: 'Elegoo (SDCP)' },
   { value: 'bambu',           label: 'Bambu (MQTT)' },
 ];
+const CONNECTOR_LABEL = {
+  'prusa': 'Prusa (PrusaLink)',
+  'elegoo-centauri': 'Elegoo (SDCP)',
+  'bambu': 'Bambu (MQTT)',
+};
 
 export default function Settings() {
   const [importing, setImporting] = useState(false);
@@ -30,7 +30,14 @@ export default function Settings() {
   const fileRef = useRef(null);
 
   // Add single printer
-  const [addForm, setAddForm] = useState({ name: '', ip: '', api_key: '', serial_number: '', model: 'mk4s', group_name: '', type: 'prusa' });
+  // Printer models — fetched from DB, used throughout this page
+  const [allModels, setAllModels] = useState([]);
+  const fetchModels = useCallback(() => {
+    fetch('/api/models').then(r => r.json()).then(setAllModels).catch(() => {});
+  }, []);
+  useEffect(() => { fetchModels(); }, [fetchModels]);
+
+  const [addForm, setAddForm] = useState({ name: '', ip: '', api_key: '', serial_number: '', model: '', group_name: '', type: 'prusa' });
   const [addResult, setAddResult] = useState(null);
   const [addError, setAddError] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -62,6 +69,41 @@ export default function Settings() {
       setAddError(err.message);
     } finally {
       setAdding(false);
+    }
+  }
+
+  // Printer Models management
+  const [modelForm, setModelForm] = useState({ model_id: '', label: '', connector: 'prusa' });
+  const [modelFormError, setModelFormError] = useState(null);
+  const [modelDeleteError, setModelDeleteError] = useState({});
+
+  async function handleAddModel(e) {
+    e.preventDefault();
+    setModelFormError(null);
+    try {
+      const res = await fetch('/api/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(modelForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add model');
+      setModelForm({ model_id: '', label: '', connector: 'prusa' });
+      fetchModels();
+    } catch (err) {
+      setModelFormError(err.message);
+    }
+  }
+
+  async function handleDeleteModel(model_id) {
+    setModelDeleteError(prev => ({ ...prev, [model_id]: null }));
+    try {
+      const res = await fetch(`/api/models/${encodeURIComponent(model_id)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete model');
+      fetchModels();
+    } catch (err) {
+      setModelDeleteError(prev => ({ ...prev, [model_id]: err.message }));
     }
   }
 
@@ -392,14 +434,12 @@ export default function Settings() {
                 value={addForm.type}
                 onChange={e => {
                   const t = e.target.value;
-                  const defaultModel = t === 'elegoo-centauri' ? 'centauri-carbon'
-                                     : t === 'bambu'           ? 'x1c'
-                                     : 'mk4s';
-                  setAddForm(p => ({ ...p, type: t, model: defaultModel, serial_number: '' }));
+                  const first = allModels.find(m => m.connector === t);
+                  setAddForm(p => ({ ...p, type: t, model: first?.model_id || '', serial_number: '' }));
                 }}
                 style={inputStyle}
               >
-                {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {CONNECTOR_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
@@ -409,11 +449,11 @@ export default function Settings() {
                 onChange={e => setAddForm(p => ({ ...p, model: e.target.value }))}
                 style={inputStyle}
               >
-                {(addForm.type === 'elegoo-centauri' ? ELEGOO_MODELS
-                : addForm.type === 'bambu' ? BAMBU_MODELS
-                : PRUSA_MODELS).map(m => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
+                {allModels.filter(m => m.connector === addForm.type).length === 0
+                ? <option value="">— no models configured —</option>
+                : allModels.filter(m => m.connector === addForm.type).map(m => (
+                    <option key={m.model_id} value={m.model_id}>{m.label}</option>
+                  ))}
               </select>
             </div>
             <div>
@@ -499,6 +539,94 @@ export default function Settings() {
           <div style={{ marginTop: 14, background: '#14532d', borderRadius: 6, padding: '10px 14px', color: '#4ade80', fontSize: 13 }}>
             Printer <strong>{addResult.name}</strong> added (ID #{addResult.id}).
           </div>
+        )}
+      </section>
+
+      {/* Printer Models */}
+      <section style={{ background: '#1e2433', borderRadius: 10, padding: 20, marginBottom: 24, maxWidth: 640 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Printer Models</h2>
+        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+          Configure which printer models are available in your farm. Models appear in the G-code upload
+          selector and the Add Printer form. Deleting a model is blocked if active printers use it.
+        </p>
+
+        {allModels.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 16 }}>
+            <thead>
+              <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #334155' }}>
+                <th style={{ padding: '4px 8px' }}>ID</th>
+                <th style={{ padding: '4px 8px' }}>Label</th>
+                <th style={{ padding: '4px 8px' }}>Connector</th>
+                <th style={{ padding: '4px 8px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {allModels.map(m => (
+                <tr key={m.model_id} style={{ borderBottom: '1px solid #1a2030' }}>
+                  <td style={{ padding: '6px 8px', color: '#94a3b8', fontFamily: 'monospace' }}>{m.model_id}</td>
+                  <td style={{ padding: '6px 8px', color: '#e2e8f0' }}>{m.label}</td>
+                  <td style={{ padding: '6px 8px', color: '#64748b' }}>{CONNECTOR_LABEL[m.connector] || m.connector}</td>
+                  <td style={{ padding: '6px 8px' }}>
+                    <button
+                      onClick={() => handleDeleteModel(m.model_id)}
+                      style={{ background: 'none', border: '1px solid #7f1d1d', borderRadius: 4, color: '#f87171', fontSize: 12, padding: '2px 8px', cursor: 'pointer' }}
+                    >
+                      Delete
+                    </button>
+                    {modelDeleteError[m.model_id] && (
+                      <span style={{ color: '#fca5a5', fontSize: 12, marginLeft: 8 }}>{modelDeleteError[m.model_id]}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {allModels.length === 0 && (
+          <p style={{ color: '#475569', fontSize: 13, marginBottom: 16 }}>No models configured yet. Add your first model below.</p>
+        )}
+
+        <form onSubmit={handleAddModel} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Model ID *</label>
+            <input
+              value={modelForm.model_id}
+              onChange={e => setModelForm(p => ({ ...p, model_id: e.target.value }))}
+              required
+              placeholder="x1c"
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Label *</label>
+            <input
+              value={modelForm.label}
+              onChange={e => setModelForm(p => ({ ...p, label: e.target.value }))}
+              required
+              placeholder="X1 Carbon"
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Connector *</label>
+            <select
+              value={modelForm.connector}
+              onChange={e => setModelForm(p => ({ ...p, connector: e.target.value }))}
+              style={inputStyle}
+            >
+              {CONNECTOR_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <button
+            type="submit"
+            style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Add
+          </button>
+        </form>
+        {modelFormError && (
+          <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 13 }}>{modelFormError}</div>
         )}
       </section>
 

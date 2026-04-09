@@ -88,6 +88,47 @@ try { db.exec('ALTER TABLE printers ADD COLUMN job_progress REAL'); } catch (_) 
 try { db.exec('ALTER TABLE printers ADD COLUMN job_time_remaining INTEGER'); } catch (_) {}
 try { db.exec("ALTER TABLE printers ADD COLUMN serial_number TEXT DEFAULT ''"); } catch (_) {}
 
+// Printer models — source of truth for which models this farm supports.
+// New installs start empty; operator adds models in Settings.
+// Existing installs auto-seed from models already referenced in the live DB.
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS printer_models (
+    model_id   TEXT PRIMARY KEY,
+    label      TEXT NOT NULL,
+    connector  TEXT NOT NULL
+  )`);
+} catch (_) {}
+
+try {
+  const KNOWN_MODEL_META = {
+    'mk4':             { label: 'MK4',            connector: 'prusa' },
+    'mk4s':            { label: 'MK4S',           connector: 'prusa' },
+    'c1':              { label: 'Core One',        connector: 'prusa' },
+    'c1l':             { label: 'Core 1L',         connector: 'prusa' },
+    'xl':              { label: 'XL',              connector: 'prusa' },
+    'centauri-carbon': { label: 'Centauri Carbon', connector: 'elegoo-centauri' },
+    'x1c':             { label: 'X1 Carbon',       connector: 'bambu' },
+    'p1s':             { label: 'P1S',             connector: 'bambu' },
+    'p1p':             { label: 'P1P',             connector: 'bambu' },
+    'a1':              { label: 'A1',              connector: 'bambu' },
+    'a1-mini':         { label: 'A1 Mini',         connector: 'bambu' },
+  };
+  // Collect every distinct model already in use across printers + gcodes
+  const inUse = db.prepare(`
+    SELECT DISTINCT model AS m FROM printers WHERE model IS NOT NULL AND model != ''
+    UNION
+    SELECT DISTINCT printer_model AS m FROM gcodes WHERE printer_model IS NOT NULL AND printer_model != ''
+  `).all().map(r => r.m);
+
+  const insertModel = db.prepare(
+    'INSERT OR IGNORE INTO printer_models (model_id, label, connector) VALUES (?, ?, ?)'
+  );
+  for (const modelId of inUse) {
+    const meta = KNOWN_MODEL_META[modelId];
+    insertModel.run(modelId, meta?.label || modelId, meta?.connector || 'prusa');
+  }
+} catch (_) {}
+
 // Settings table — key/value store for operator-configurable options
 try {
   db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);

@@ -2,9 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const MODEL_ORDER  = ['mk4', 'mk4s', 'c1', 'c1l', 'xl', 'centauri-carbon', 'x1c', 'p1s', 'p1p', 'a1', 'a1-mini'];
-const MODEL_LABELS = { mk4: 'MK4', mk4s: 'MK4S', c1: 'Core One', c1l: 'Core 1L', xl: 'XL', 'centauri-carbon': 'Centauri Carbon', x1c: 'X1 Carbon', p1s: 'P1S', p1p: 'P1P', a1: 'A1', 'a1-mini': 'A1 Mini', other: 'Other' };
-
 const CELL_COLORS = {
   PRINTING:  { bg: '#1e3a5f', text: '#60a5fa', border: '#1e40af' },
   IDLE:      { bg: '#1a2030', text: '#374151', border: '#232b3a' },
@@ -95,7 +92,12 @@ function RowSummary({ group }) {
 export default function Dashboard() {
   const [data,  setData]  = useState(null);
   const [clock, setClock] = useState(new Date());
+  const [allModels, setAllModels] = useState([]);
   const dashRef = useRef(null);
+
+  useEffect(() => {
+    fetch('/api/models').then(r => r.json()).then(setAllModels).catch(() => {});
+  }, []);
 
   // 1-second clock
   useEffect(() => {
@@ -136,12 +138,15 @@ export default function Dashboard() {
   const { stats, printers, active_projects, recent_activity } = data;
 
   // Group printers by model for the fleet grid
-  const grouped = MODEL_ORDER.reduce((acc, m) => {
+  const modelOrder = allModels.map(m => m.model_id);
+  const MODEL_LABELS = Object.fromEntries(allModels.map(m => [m.model_id, m.label]));
+  MODEL_LABELS.other = 'Other';
+  const grouped = modelOrder.reduce((acc, m) => {
     const g = printers.filter(p => p.model === m);
     if (g.length) acc[m] = g;
     return acc;
   }, {});
-  const others = printers.filter(p => !MODEL_ORDER.includes(p.model));
+  const others = printers.filter(p => !modelOrder.includes(p.model));
   if (others.length) grouped['other'] = others;
 
   const utilPct = printers.length > 0

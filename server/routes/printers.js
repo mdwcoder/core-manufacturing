@@ -6,15 +6,13 @@ const router = express.Router();
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-const VALID_MODELS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl', 'centauri-carbon', 'x1c', 'p1s', 'p1p', 'a1', 'a1-mini'];
 const ELEGOO_TYPES = new Set(['elegoo-centauri']); // types that store no api_key
 
-// Normalize a CSV model column value to internal ID.
-// Accepts the canonical value set (case-insensitive): MK4, MK4S, C1, C1L, XL
+// Normalize a raw model string to a canonical ID (lowercase, trimmed).
+// Validation against the registered model list is done via DB query at each call site.
 function normalizeModel(raw) {
   if (!raw) return null;
-  const lower = raw.trim().toLowerCase();
-  return VALID_MODELS.includes(lower) ? lower : null;
+  return raw.trim().toLowerCase() || null;
 }
 
 // Fallback: infer model from printer name when no model column is present.
@@ -73,8 +71,8 @@ module.exports = (db) => {
       return res.status(400).json({ error: `name, ip${keyMsg}, and model are required` });
     }
     const normalized = normalizeModel(model);
-    if (!normalized) {
-      return res.status(400).json({ error: `model must be one of: ${VALID_MODELS.join(', ')}` });
+    if (!normalized || !db.prepare('SELECT 1 FROM printer_models WHERE model_id = ?').get(normalized)) {
+      return res.status(400).json({ error: `Unknown model "${model}". Add it in Settings → Printer Models first.` });
     }
     try {
       const result = db.prepare(`
@@ -99,8 +97,8 @@ module.exports = (db) => {
     let normalized = undefined;
     if (model !== undefined) {
       normalized = normalizeModel(model);
-      if (!normalized) {
-        return res.status(400).json({ error: `model must be one of: ${VALID_MODELS.join(', ')}` });
+      if (!normalized || !db.prepare('SELECT 1 FROM printer_models WHERE model_id = ?').get(normalized)) {
+        return res.status(400).json({ error: `Unknown model "${model}". Add it in Settings → Printer Models first.` });
       }
     }
 
@@ -258,7 +256,14 @@ module.exports = (db) => {
       if (!model) {
         summary.flagged.push({
           row,
-          reason: `Could not determine model for "${name}". Add a "model" column (${VALID_MODELS.join(', ')}) or use a recognized name prefix.`,
+          reason: `Could not determine model for "${name}". Add a "model" column or use a recognized name prefix.`,
+        });
+        continue;
+      }
+      if (!db.prepare('SELECT 1 FROM printer_models WHERE model_id = ?').get(model)) {
+        summary.flagged.push({
+          row,
+          reason: `Model "${model}" is not registered. Add it in Settings → Printer Models first.`,
         });
         continue;
       }

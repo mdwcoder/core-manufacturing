@@ -24,6 +24,7 @@ const jobsRouter      = require('./routes/jobs')(db);
 const backupRouter    = require('./routes/backup')(db);
 const dashboardRouter = require('./routes/dashboard')(db);
 const settingsRouter  = require('./routes/settings')(db);
+const modelsRouter    = require('./routes/models')(db);
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -38,6 +39,7 @@ app.use('/api/jobs',      jobsRouter);
 app.use('/api/backup',    backupRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/settings',  settingsRouter);
+app.use('/api/models',    modelsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

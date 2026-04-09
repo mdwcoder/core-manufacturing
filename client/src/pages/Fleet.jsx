@@ -233,8 +233,6 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
   );
 }
 
-const MODEL_ORDER = ['mk4', 'mk4s', 'c1', 'c1l', 'xl', 'centauri-carbon', 'x1c', 'p1s', 'p1p', 'a1', 'a1-mini'];
-
 export default function Fleet() {
   const [printers, setPrinters]               = useState([]);
   const [loading, setLoading]                 = useState(true);
@@ -243,6 +241,11 @@ export default function Fleet() {
   const [search, setSearch]                   = useState('');
   const [selectedForReady, setSelectedForReady] = useState(new Set());
   const [lastPolled, setLastPolled]           = useState(null);
+  const [allModels, setAllModels]             = useState([]);
+
+  useEffect(() => {
+    fetch('/api/models').then(r => r.json()).then(setAllModels).catch(() => {});
+  }, []);
 
   const fetchPrinters = useCallback(async () => {
     try {
@@ -364,16 +367,18 @@ export default function Fleet() {
     return true;
   });
 
-  // Group by model
-  const grouped = MODEL_ORDER.reduce((acc, model) => {
+  // Group by model — order and labels come from the DB via /api/models
+  const modelOrder  = allModels.map(m => m.model_id);
+  const MODEL_LABELS = Object.fromEntries(allModels.map(m => [m.model_id, m.label]));
+  MODEL_LABELS.other = 'Other';
+
+  const grouped = modelOrder.reduce((acc, model) => {
     const group = filtered.filter((p) => p.model === model);
     if (group.length > 0) acc[model] = group;
     return acc;
   }, {});
-  const otherModels = filtered.filter((p) => !MODEL_ORDER.includes(p.model));
+  const otherModels = filtered.filter((p) => !modelOrder.includes(p.model));
   if (otherModels.length > 0) grouped['other'] = otherModels;
-
-  const MODEL_LABELS = { mk4: 'MK4', mk4s: 'MK4S', c1: 'Core One', c1l: 'Core 1L', xl: 'XL', 'centauri-carbon': 'Centauri Carbon', x1c: 'X1 Carbon', p1s: 'P1S', p1p: 'P1P', a1: 'A1', 'a1-mini': 'A1 Mini', other: 'Other' };
 
   async function sweep() {
     await fetch('/api/scheduler/dispatch', { method: 'POST' });

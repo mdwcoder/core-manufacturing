@@ -2,6 +2,30 @@
 
 ---
 
+## 2026-04-08 — Printer Models refactor: DB-backed model registry
+
+Replaces all hardcoded printer model lists (previously duplicated in `printers.js`, `gcodes.js`, `Projects.jsx`, `Settings.jsx`, `Fleet.jsx`, `Dashboard.jsx`) with a single source of truth: a `printer_models` DB table managed by operators in **Settings → Printer Models**.
+
+### New files
+- `server/routes/models.js` — `GET /api/models`, `POST /api/models`, `DELETE /api/models/:model_id`. Delete is blocked if any printers are using that model.
+
+### Modified files
+- `server/db.js` — creates `printer_models` table on startup; auto-seeds from models already in use by `printers` and `gcodes` tables via `INSERT OR IGNORE` (idempotent, runs once)
+- `server/index.js` — mounts the models router at `/api/models`
+- `server/routes/printers.js` — removed `VALID_MODELS` hardcode; model validation is now a DB query; `serial_number` field added for Bambu printers
+- `server/routes/gcodes.js` — removed inline `VALID_MODELS`; validates via DB query
+- `client/src/pages/Settings.jsx` — new **Printer Models** management section (table, add form, per-row delete); Add Printer model dropdown is dynamically filtered by connector; removed all hardcoded model constants
+- `client/src/pages/Projects.jsx` — G-code upload model picker fetches from `/api/models` instead of a hardcoded list
+- `client/src/pages/Fleet.jsx` — grouping and labels derived from `/api/models`
+- `client/src/pages/Dashboard.jsx` — grouping and labels derived from `/api/models`
+
+### Migration behaviour
+- **New installs:** `printer_models` starts empty; operator adds models in Settings before adding printers
+- **Existing installs:** auto-seed populates the table from models already referenced in `printers` + `gcodes` tables — no manual action required after `update.bat`
+- Connectors remain hardcoded (`prusa`, `elegoo-centauri`, `bambu`) — they require driver implementations
+
+---
+
 ## 2026-04-08 — Phase 6B milestone: Elegoo SDCP connector finalized
 
 ### Connector naming

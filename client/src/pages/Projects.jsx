@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-const MODEL_OPTIONS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl', 'centauri-carbon', 'x1c', 'p1s', 'p1p', 'a1', 'a1-mini'];
+// Model options are loaded from /api/models at runtime — no hardcoded list here.
 
 const PROJECT_STATUS = {
   draft:     { bg: '#1f2937', text: '#9ca3af', dot: '#6b7280', label: 'Draft' },
@@ -122,6 +122,11 @@ function GcodeUploadPanel({ part, onUploaded }) {
   const [error, setError]           = useState(null);
   const [uploading, setUploading]   = useState(false);
   const fileInputRef                = useRef(null);
+  const [modelOptions, setModelOptions] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/models').then(r => r.json()).then(setModelOptions).catch(() => {});
+  }, []);
 
   async function handleFileChange(e) {
     const f = e.target.files[0];
@@ -203,7 +208,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
         style={{ ...inputSx, width: 90 }}
       >
         <option value="">Model…</option>
-        {MODEL_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+        {modelOptions.map(m => <option key={m.model_id} value={m.model_id}>{m.label}</option>)}
       </select>
       <button
         onClick={handleUpload}
