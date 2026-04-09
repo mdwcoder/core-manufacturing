@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-const MODEL_OPTIONS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl', 'centauri-carbon'];
+const MODEL_OPTIONS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl', 'centauri-carbon', 'x1c', 'p1s', 'p1p', 'a1', 'a1-mini'];
 
 const PROJECT_STATUS = {
   draft:     { bg: '#1f2937', text: '#9ca3af', dot: '#6b7280', label: 'Draft' },
