@@ -137,8 +137,9 @@ async function uploadAndPrint(printer, gcodeFullPath, filename) {
 
   console.log(`[elegoo] Upload complete — starting print on ${printer.name}`);
 
-  // Start the print (file path on the printer's USB storage)
-  await client.Start(`/usb/${filename}`);
+  // Start the print — sdcp Start takes the bare filename, not a full path.
+  // (GetFiles returns '/usb/name' but Start expects just 'name'.)
+  await client.Start(filename);
 
   console.log(`[elegoo] Print started on ${printer.name}`);
 }

@@ -152,10 +152,10 @@ describe('uploadAndPrint', () => {
     );
   });
 
-  test('calls Start with /usb/<filename> path', async () => {
+  test('calls Start with bare filename (not a /usb/ path)', async () => {
     const printer = nextPrinter();
     await elegoo.uploadAndPrint(printer, '/tmp/part.gcode', 'part.gcode');
-    expect(mockClient.Start).toHaveBeenCalledWith('/usb/part.gcode');
+    expect(mockClient.Start).toHaveBeenCalledWith('part.gcode');
   });
 
   test('calls UploadFile before Start', async () => {
