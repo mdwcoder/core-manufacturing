@@ -110,9 +110,42 @@ Returns a decommissioned printer to active duty (`is_active = 1`). Returns the u
 
 ### `POST /api/printers/:id/mark-job-failure`
 
-Marks the printer's most recent `finished` job as `failed`, undoes the `completed_qty` increment on the associated Part, and reopens the Part (and Project if needed). Also releases the hold so the printer can receive a new job.
+Marks the printer's most recent `finished` or `printing` job as `failed`, undoes the `completed_qty` increment on the associated Part (for `finished` jobs), reopens the Part and Project if needed, and decommissions the printer (`is_active = 0`).
 
-Returns `{ "success": true, "job_id": N }`. Returns `404` if no finished job exists for this printer.
+If no tracked job exists (e.g. the print completed while the printer was in an unrecognised status), the printer is still decommissioned — operator intent is always to take the machine offline.
+
+Returns `{ "success": true, "job_id": N }` (or `job_id: null` when no job was found). Returns `404` only if the printer itself does not exist.
+
+### `GET /api/printers/:id/events`
+
+Returns all events for a printer, newest first.
+
+```json
+[
+  {
+    "id": 12,
+    "printer_id": 57,
+    "event_type": "job_failed",
+    "note": "Job 304 — part: Left Bracket",
+    "created_at": 1775001234567
+  }
+]
+```
+
+Event types: `decommission`, `recommission`, `job_finished`, `job_failed`, `note`.
+
+Returns `404` if the printer does not exist.
+
+### `POST /api/printers/:id/events`
+
+Adds a freeform operator note to the printer's event log.
+
+**Body:**
+```json
+{ "note": "Nozzle replaced, tension checked — cleared to run." }
+```
+
+Returns `201` with the created event object. Returns `400` if `note` is missing or blank. Returns `404` if the printer does not exist.
 
 ### `GET /api/printers/:id/raw-status`
 

@@ -2,7 +2,9 @@
 
 ## Purpose
 
-`server/db.js` manages the SQLite database. It opens the connection, sets pragmas, and runs `CREATE TABLE IF NOT EXISTS` for all five tables on every startup. New columns on existing installs are added via `ALTER TABLE` migrations wrapped in `try/catch` — SQLite throws if the column already exists, which is silently ignored.
+`server/db.js` manages the SQLite database. It opens the connection, sets pragmas, and runs `CREATE TABLE IF NOT EXISTS` for all tables on every startup. New columns on existing installs are added via `ALTER TABLE` migrations wrapped in `try/catch` — SQLite throws if the column already exists, which is silently ignored.
+
+On startup, `db.js` also runs one-time idempotent data migrations: seeding `printer_models` from existing printer/gcode records, and backfilling `printer_events` decommission entries for printers that were decommissioned before the events table existed.
 
 ## Driver
 
@@ -130,6 +132,32 @@ CREATE TABLE IF NOT EXISTS jobs (
 ```
 
 `parts_per_plate` is snapshotted at dispatch time so changing the G-code record after dispatch doesn't retroactively affect in-flight jobs.
+
+### printer_events
+
+Permanent audit log for each printer. Events are never deleted and survive printer deletion (no FK constraint on `printer_id`).
+
+```sql
+CREATE TABLE IF NOT EXISTS printer_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  printer_id  INTEGER NOT NULL,   -- no FK — history survives printer deletion
+  event_type  TEXT NOT NULL,      -- decommission | recommission | job_finished | job_failed | note
+  note        TEXT,               -- human-readable detail; null for recommission
+  created_at  INTEGER NOT NULL
+);
+```
+
+**Event types and when they are written:**
+
+| `event_type` | Written by | Note content |
+|---|---|---|
+| `job_finished` | `scheduler.js` `_handleFinished` | `"Job N — Part Name (M parts)"` |
+| `job_failed` | `printers.js` `mark-job-failure` | Job ID + part name, or `"No tracked job"` |
+| `decommission` | `printers.js` decommission route | Operator's decommission note (if any) |
+| `recommission` | `index.js` recommission route | `null` |
+| `note` | Events route (`POST /api/printers/:id/events`) | Operator-entered text |
+
+**Backfill migration:** on first server start after this table was introduced, any printer with `is_active = 0` and `decommissioned_at` set automatically receives a synthetic `decommission` event using the stored timestamp and note — idempotent across restarts.
 
 ## Conventions
 

@@ -5,7 +5,9 @@
 The React single-page application served by Vite. In development, Vite runs on port 5173 and proxies all `/api/*` requests to the Express server on port 3000. The app provides:
 
 - **Dashboard** — TV-optimized command center: fleet utilization, stat cards, printer grid, active project progress, recent activity
-- **Fleet page** — live grid of all printers with PrusaLink status, filterable and searchable
+- **Fleet page** — live grid of all active printers with status, filterable and searchable
+- **Printers page** — searchable directory of all printers (active and decommissioned); click any row to open the detail view
+- **Printer detail view** — per-machine event timeline, inline note form, printer header
 - **Settings page** — CSV import UI for the printer registry, with flagged-row resolution
 - **Projects page** — project/part/G-code management and production tracking
 - **Jobs page** — live job queue with filters and cancel action
@@ -17,7 +19,10 @@ The React single-page application served by Vite. In development, Vite runs on p
 | `client/src/main.jsx` | React root — mounts `<App />` into `#root` |
 | `client/src/App.jsx` | Layout shell, sidebar/topbar nav, `<Routes>` |
 | `client/src/pages/Fleet.jsx` | Live printer grid |
-| `client/src/pages/Settings.jsx` | CSV import, flagged-row resolution |
+| `client/src/pages/Printers.jsx` | Searchable all-printers directory |
+| `client/src/pages/PrinterDetail.jsx` | Per-printer event timeline and note form |
+| `client/src/pages/Decommissioned.jsx` | Decommissioned printer list with notes and recommission |
+| `client/src/pages/Settings.jsx` | CSV import, flagged-row resolution, printer models |
 | `client/src/pages/Dashboard.jsx` | TV command center dashboard |
 | `client/src/pages/Projects.jsx` | Project/Part/G-code management |
 | `client/src/pages/Jobs.jsx` | Job queue table with filters |
@@ -36,8 +41,10 @@ The React single-page application served by Vite. In development, Vite runs on p
 │                   │                       │
 │  Dashboard        │                       │
 │  Fleet            │                       │
+│  Printers         │                       │
 │  Projects         │                       │
 │  Jobs             │                       │
+│  Decommissioned   │                       │
 │  Settings         │                       │
 └───────────────────┴───────────────────────┘
 ```
@@ -111,6 +118,35 @@ Filter chips in the Fleet header derive their text color from the same `STATUS_C
 **Confirmation button visibility:** "Set Ready" and "Bad Print" buttons (and the green card highlight) only appear when `is_held === 1` AND `status` is `FINISHED` or `IDLE`. Printers in ATTENTION, ERROR, OFFLINE, or PAUSED never show these buttons — a filament runout or error is not a completed print.
 
 **Partial plate confirmation:** when a job's `last_parts_per_plate` is known, a `Good: [N] / M` number input appears between the Include checkbox and the Set Ready button. It pre-fills with the full plate count. If the operator reduces it (e.g. 24 of 25 parts came out good), clicking Set Ready applies the delta to `completed_qty` and the Include checkbox is hidden — the printer cannot be batch-confirmed and must be set ready individually. Bad Print remains for full/catastrophic failures that also decommission the printer.
+
+## Printers Page
+
+`client/src/pages/Printers.jsx`
+
+Searchable directory of every printer registered in the farm — both active and decommissioned. Sorted active-first, then alphabetically within each group. Decommissioned printers are visually dimmed.
+
+**Columns:** Name (with "decommissioned" label if applicable), Model, Group, IP, Status badge.
+
+**Search:** filters by name, model, group, or IP (case-insensitive).
+
+Click any row to navigate to `/printers/:id` (the Printer Detail view).
+
+## Printer Detail View
+
+`client/src/pages/PrinterDetail.jsx`
+
+Per-machine history and annotation screen. Reached by clicking a row in the Printers page, or via the "View History" button in the Decommissioned page.
+
+**Header card:** printer name, live status badge (or DECOMMISSIONED), model, IP, connector type, decommissioned timestamp if applicable.
+
+**Add note form:** freeform textarea → `POST /api/printers/:id/events`. Submitted note appears immediately at the top of the timeline.
+
+**Event timeline:** all `printer_events` rows for this printer, newest first. Each entry shows:
+- Color-coded type badge (`Job Finished` / `Job Failed` / `Decommissioned` / `Recommissioned` / `Note`)
+- Note text (if any)
+- Formatted timestamp
+
+**← All Printers** back button returns to the Printers list.
 
 ## Settings Page
 
