@@ -68,6 +68,7 @@ module.exports = (db) => {
       resolvedStatus = status;
     }
 
+    const now = Date.now();
     db.prepare(`
       UPDATE parts
       SET name          = COALESCE(?, name),
@@ -81,9 +82,22 @@ module.exports = (db) => {
       target_qty !== undefined ? parseInt(target_qty, 10) : null,
       completed_qty !== undefined ? parseInt(completed_qty, 10) : null,
       resolvedStatus,
-      Date.now(),
+      now,
       req.params.id
     );
+
+    // If this update reopened a closed part, also reopen the project if it was
+    // completed. This happens when the operator raises target_qty via the UI
+    // (which sends both completed_qty and target_qty), causing the auto-status
+    // logic above to flip the part from 'closed' to 'open'. Without this, the
+    // project stays 'completed' and reactivation finds nothing to reopen.
+    if (part.status === 'closed' && resolvedStatus === 'open') {
+      const project = db.prepare('SELECT id, status FROM projects WHERE id = ?').get(part.project_id);
+      if (project && project.status === 'completed') {
+        db.prepare("UPDATE projects SET status = 'active', updated_at = ? WHERE id = ?").run(now, project.id);
+        console.log(`[parts] Project ${project.id} reopened — part ${part.id} target_qty raised above completed_qty`);
+      }
+    }
 
     res.json(db.prepare('SELECT * FROM parts WHERE id = ?').get(req.params.id));
   });
