@@ -123,10 +123,22 @@ function GcodeUploadPanel({ part, onUploaded }) {
   const [uploading, setUploading]   = useState(false);
   const fileInputRef                = useRef(null);
   const [modelOptions, setModelOptions] = useState([]);
+  const [amsSlots, setAmsSlots]     = useState([]);   // [] = not a Bambu model
+  const [amsSlot, setAmsSlot]       = useState('');   // '' = not yet chosen
 
   useEffect(() => {
     fetch('/api/models').then(r => r.json()).then(setModelOptions).catch(() => {});
   }, []);
+
+  // Fetch live AMS slots whenever the model changes.
+  // Returns [] for non-Bambu models or when no printer of that model is online.
+  useEffect(() => {
+    if (!model) { setAmsSlots([]); setAmsSlot(''); return; }
+    fetch(`/api/printers/ams?model=${encodeURIComponent(model)}`)
+      .then(r => r.json())
+      .then(slots => { setAmsSlots(slots); setAmsSlot(''); })
+      .catch(() => { setAmsSlots([]); setAmsSlot(''); });
+  }, [model]);
 
   async function handleFileChange(e) {
     const f = e.target.files[0];
@@ -151,6 +163,9 @@ function GcodeUploadPanel({ part, onUploaded }) {
     if (!file)           { setError('Choose a file first.'); return; }
     if (!partsPerPlate)  { setError('Enter parts per plate.'); return; }
     if (!model)          { setError('Select a printer model.'); return; }
+    if (amsSlots.length > 0 && amsSlot === '') {
+      setError('Select an AMS slot or External Spool.'); return;
+    }
 
     setUploading(true);
     setError(null);
@@ -160,6 +175,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
     fd.append('part_id', String(part.id));
     fd.append('parts_per_plate', partsPerPlate);
     fd.append('printer_model', model);
+    if (amsSlots.length > 0) fd.append('ams_slot', amsSlot);
 
     try {
       const res  = await fetch('/api/gcodes/upload', { method: 'POST', body: fd });
@@ -167,7 +183,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
       if (!res.ok) {
         setError(data.error || 'Upload failed.');
       } else {
-        setFile(null); setPPP(''); setModel('');
+        setFile(null); setPPP(''); setModel(''); setAmsSlot(''); setAmsSlots([]);
         if (fileInputRef.current) fileInputRef.current.value = '';
         onUploaded();
       }
@@ -210,6 +226,19 @@ function GcodeUploadPanel({ part, onUploaded }) {
         <option value="">Model…</option>
         {modelOptions.map(m => <option key={m.model_id} value={m.model_id}>{m.label}</option>)}
       </select>
+      {amsSlots.length > 0 && (
+        <select
+          value={amsSlot}
+          onChange={(e) => setAmsSlot(e.target.value)}
+          style={{ ...inputSx, width: 160 }}
+        >
+          <option value="">AMS slot…</option>
+          {amsSlots.map(s => s.slot === -1
+            ? <option key="ext" value="-1">External Spool{s.type ? ` — ${s.type}` : ''}</option>
+            : <option key={s.slot} value={String(s.slot)}>Slot {s.slot} — {s.type || 'unknown'}</option>
+          )}
+        </select>
+      )}
       <button
         onClick={handleUpload}
         disabled={uploading}

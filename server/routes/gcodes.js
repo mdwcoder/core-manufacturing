@@ -82,7 +82,7 @@ module.exports = (db) => {
 
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const { part_id, parts_per_plate, printer_model, est_print_secs } = req.body;
+    const { part_id, parts_per_plate, printer_model, est_print_secs, ams_slot } = req.body;
 
     if (!part_id || !parts_per_plate || !printer_model) {
       fs.unlinkSync(req.file.path);
@@ -105,9 +105,12 @@ module.exports = (db) => {
       });
     }
 
+    // ams_slot: -1 = external spool, 0–N = AMS slot, null = not applicable (non-Bambu)
+    const parsedAmsSlot = ams_slot !== undefined && ams_slot !== '' ? parseInt(ams_slot, 10) : null;
+
     const gcode = db.prepare(`
-      INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, ams_slot, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       part_id,
       printer_model,
@@ -115,6 +118,7 @@ module.exports = (db) => {
       req.file.filename,
       parseInt(parts_per_plate, 10),
       est_print_secs ? parseInt(est_print_secs, 10) : null,
+      parsedAmsSlot,
       Date.now()
     );
 

@@ -179,7 +179,8 @@ class JobScheduler extends EventEmitter {
         gcodes.id         AS gcode_id,
         gcodes.filename,
         gcodes.filepath,
-        gcodes.parts_per_plate
+        gcodes.parts_per_plate,
+        gcodes.ams_slot
       FROM parts
       JOIN gcodes   ON gcodes.part_id    = parts.id
       JOIN projects ON projects.id       = parts.project_id
@@ -259,7 +260,7 @@ class JobScheduler extends EventEmitter {
 
     for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
       try {
-        await driver.uploadAndPrint(printer, gcodeFullPath, candidate.filename);
+        await driver.uploadAndPrint(printer, gcodeFullPath, candidate.filename, { amsSlot: candidate.ams_slot });
         lastErr = null;
         break;
       } catch (err) {

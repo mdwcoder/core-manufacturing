@@ -2,6 +2,40 @@
 
 ---
 
+## 2026-04-09 — Bambu .3mf support + AMS slot selection
+
+Adds full Bambu Lab print dispatch via `.3mf` files and live AMS slot selection in the upload form.
+
+### Problem
+`.gcode` files sent to Bambu printers via the `gcode_file` MQTT command always force printing from the external spool, ignoring any AMS configuration. `.3mf` files exported from Bambu Studio embed all slicer and AMS settings and use the `project_file` MQTT command, which respects those settings.
+
+### Changes
+
+**`server/drivers/bambu.js`**
+- File type detection: `.3mf` uses `project_file` MQTT command + FTP root upload; `.gcode`/`.bgcode` use `gcode_file` + FTP root upload
+- `project_file` payload: `url: ftp:///<filename>` (per OpenBambuAPI spec); `use_ams` and `ams_mapping` driven by `amsSlot` from gcode record
+- New export: `getAmsSlots(printer)` — reads live AMS state from cached MQTT payload, returns slot list with type + color for each loaded tray plus external spool
+- `uploadAndPrint` now accepts `options.amsSlot` (4th arg); `-1` = external spool, `0–N` = AMS tray, `null` = external (default)
+
+**`server/db.js`**
+- Migration: `ALTER TABLE gcodes ADD COLUMN ams_slot INTEGER` (nullable; `-1` = external, `0–N` = AMS slot, `null` = non-Bambu)
+
+**`server/routes/printers.js`**
+- New: `GET /api/printers/ams?model=...` — returns live slot list from any connected Bambu printer of that model; returns `[]` for non-Bambu models or no connected printer
+
+**`server/routes/gcodes.js`**
+- Accepts `ams_slot` in upload body; stored in `gcodes` table
+
+**`server/scheduler.js`**
+- `ams_slot` added to candidate query; passed as `options.amsSlot` to `uploadAndPrint`
+
+**`client/src/pages/Projects.jsx`**
+- File picker now accepts `.3mf` in addition to `.gcode`/`.bgcode`
+- When a Bambu model is selected, fetches `/api/printers/ams?model=...` and shows a live AMS slot dropdown (populated with filament type per slot + external spool option)
+- `ams_slot` is required before upload when AMS slots are available; included in FormData
+
+---
+
 ## 2026-04-09 — Printer event log + Printers browser
 
 Persistent audit trail for each printer. Every significant machine event — job completions, failures, decommissions, recommissions, and freeform operator notes — is now recorded to a `printer_events` table and never deleted. A new **Printers** page lets you browse the full fleet and click into any machine's timeline.

@@ -47,6 +47,25 @@ Returns all active printers (`is_active = 1`) ordered by name.
 
 `job_name`, `job_progress`, and `job_time_remaining` are non-null only while `status = "PRINTING"`, and are cleared to `null` when the printer leaves that state.
 
+### `GET /api/printers/ams?model=<model_id>`
+
+Returns the live AMS slot list from any connected Bambu printer of the given model. Used by the upload form to populate the slot picker.
+
+Returns `[]` if no active Bambu printer of that model is connected or the model is not a Bambu type.
+
+**Response** (example with one AMS and external spool):
+```json
+[
+  { "slot": 0, "type": "PLA", "color": "FFFFFFFF" },
+  { "slot": 1, "type": "PETG", "color": "000000FF" },
+  { "slot": -1, "type": "PLA", "color": "FF6600FF" }
+]
+```
+
+`slot` values: `0–N` = AMS tray (compound id: `ams_unit * 4 + tray_id`), `-1` = external spool.
+
+---
+
 ### `GET /api/printers/:id`
 
 Returns a single printer by ID. `404` if not found.

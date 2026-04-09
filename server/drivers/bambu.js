@@ -175,9 +175,47 @@ async function getStatus(printer) {
 
 // ─── Upload & Print ───────────────────────────────────────────────────────────
 
+// Returns the current AMS slot list from the cached MQTT state, or null if not connected.
+// Each slot: { slot, type, color }
+//   slot  — compound id: (ams_unit * 4) + tray_id, or -1 for external spool
+//   type  — filament type string e.g. 'PLA', or '' if unknown
+//   color — RRGGBBAA hex string, or null
+// Empty trays (no tray_type field) are omitted. External spool is always included.
+function getAmsSlots(printer) {
+  const conn = connections.get(printer.id);
+  if (!conn?.latestPrint) return null;
+
+  const slots = [];
+
+  const amsUnits = conn.latestPrint.ams?.ams || [];
+  for (const unit of amsUnits) {
+    const amsId = parseInt(unit.id, 10);
+    for (const tray of unit.tray || []) {
+      if (!tray.tray_type) continue; // empty slot — no filament loaded
+      slots.push({
+        slot:  amsId * 4 + parseInt(tray.id, 10),
+        type:  tray.tray_type,
+        color: tray.tray_color || null,
+      });
+    }
+  }
+
+  // External spool is always an option regardless of whether filament is loaded
+  const vt = conn.latestPrint.vt_tray;
+  slots.push({
+    slot:  -1,
+    type:  vt?.tray_type || '',
+    color: vt?.tray_color || null,
+  });
+
+  return slots;
+}
+
 // Uploads the G-code file to the printer via FTPS, then triggers printing via MQTT.
 // gcodeFullPath must be a resolved absolute path that already exists on disk.
-async function uploadAndPrint(printer, gcodeFullPath, _filename) {
+// options.amsSlot: -1 = external spool, 0–N = AMS slot, null = default (external)
+async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
+  const { amsSlot = null } = options;
   if (!printer.serial_number) {
     throw new Error(`Bambu printer ${printer.name} has no serial number configured`);
   }
@@ -223,11 +261,11 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
   let printPayload;
 
   if (is3mf) {
-    // .3mf files use project_file command. The printer reads AMS/spool
-    // settings embedded in the file rather than forcing external spool.
-    // url uses ftp:// to tell the printer to load from its own SD card.
-    // param is the standard internal gcode path inside a Bambu Studio 3mf.
+    // .3mf files use project_file command.
+    // url uses ftp:/// to reference a file on the printer's own SD card.
+    // amsSlot drives whether to use AMS (0–N) or external spool (-1 / null).
     const subtaskName = path.basename(onPrinterFilename, '.3mf');
+    const useAms      = amsSlot != null && amsSlot >= 0;
     printPayload = {
       sequence_id:     '0',
       command:         'project_file',
@@ -240,7 +278,8 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
       flow_cali:       false,
       vibration_cali:  true,
       layer_inspect:   false,
-      use_ams:         true,
+      use_ams:         useAms,
+      ams_mapping:     useAms ? [-1, -1, -1, -1, amsSlot] : '',
       profile_id:      '0',
       project_id:      '0',
       subtask_id:      '0',
@@ -286,4 +325,4 @@ async function checkIfPrinting(printer) {
   return status === 'PRINTING' || status === 'PAUSED';
 }
 
-module.exports = { getStatus, uploadAndPrint, cancelJob, checkIfPrinting };
+module.exports = { getStatus, uploadAndPrint, cancelJob, checkIfPrinting, getAmsSlots };

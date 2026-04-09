@@ -55,6 +55,23 @@ module.exports = (db) => {
     res.json(printers);
   });
 
+  // GET /api/printers/ams?model=x1c — returns AMS slot list from any connected
+  // Bambu printer of the given model. Returns [] if none is connected or model
+  // is not a Bambu type. Used by the upload form to populate the slot picker.
+  router.get('/ams', (req, res) => {
+    const { model } = req.query;
+    if (!model) return res.json([]);
+
+    const printer = db.prepare(
+      "SELECT * FROM printers WHERE model = ? AND type = 'bambu' AND is_active = 1 LIMIT 1"
+    ).get(model);
+    if (!printer) return res.json([]);
+
+    const { getAmsSlots } = require('../drivers/bambu');
+    const slots = getAmsSlots(printer);
+    res.json(slots || []);
+  });
+
   // GET /api/printers/:id
   router.get('/:id', (req, res) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);

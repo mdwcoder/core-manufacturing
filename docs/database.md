@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS gcodes (
   filepath         TEXT NOT NULL,      -- absolute path under server/gcode/
   parts_per_plate  INTEGER NOT NULL,
   est_print_secs   INTEGER,            -- nullable; parsed from filename
+  ams_slot         INTEGER,            -- Bambu only: -1=external spool, 0–N=AMS slot, NULL=non-Bambu
   created_at       INTEGER NOT NULL
 );
 ```
