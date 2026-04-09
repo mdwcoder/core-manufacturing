@@ -338,15 +338,24 @@ export default function Fleet() {
       `and will require a manual recommission before it can run again.`
     )) return;
 
-    await fetch(`/api/printers/${printerId}/decommission`, { method: 'POST' });
+    const decommRes = await fetch(`/api/printers/${printerId}/decommission`, { method: 'POST' });
+    if (!decommRes.ok) {
+      const body = await decommRes.json().catch(() => ({}));
+      alert(`Decommission failed: ${body.error || decommRes.status}`);
+    }
     fetchPrinters();
   }
 
   async function badPrint(printerId) {
     const printer = printers.find(p => p.id === printerId);
     if (!window.confirm(`Mark the last finished job on ${printer?.name} as a failure?\n\nThis will undo the completed quantity, reopen the part if it was closed, and DECOMMISSION the printer pending investigation.\n\nRecommission the printer manually once you have confirmed it is safe to run.`)) return;
-    await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
-    setSelectedForReady(prev => { const next = new Set(prev); next.delete(printerId); return next; });
+    const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(`Failed to mark bad print: ${body.error || res.status}`);
+    } else {
+      setSelectedForReady(prev => { const next = new Set(prev); next.delete(printerId); return next; });
+    }
     fetchPrinters();
   }
 

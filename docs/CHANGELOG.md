@@ -2,6 +2,31 @@
 
 ---
 
+## 2026-04-09 — Elegoo status 9 fix + decommission bug fix
+
+### Bug fixes
+
+**Elegoo status code 9 mapped to FINISHED** (`server/drivers/elegoo-centauri.js`)
+- Status code 9 was observed on Centauri Carbon overnight after a print completed: `CurrentLayer === TotalLayer`, `Filename` cleared, `Progress = 0`. This is a post-completion state that the firmware enters after the print ends.
+- Previously mapped to `UNKNOWN`, which prevented `_handleFinished` from firing, left the job stuck in `'printing'` state, and flooded the console with repeated UNKNOWN log lines.
+- Now correctly mapped to `FINISHED`. Operator confirmation will fire as expected.
+
+**`mark-job-failure` now decommissions even when no tracked job exists** (`server/routes/printers.js`)
+- Previously returned `404` if no `finished`/`printing` job was found for the printer. This silently blocked the decommission because the UI wasn't checking the response.
+- Root cause: prints that finished while the printer was in `UNKNOWN` status (e.g. status code 9 before today's fix) never had their job transitioned, so `mark-job-failure` found nothing.
+- Now: if no job is found, the printer is still decommissioned. The response returns `{ success: true, job_id: null }`.
+
+**`badPrint()` in Fleet.jsx now surfaces errors** (`client/src/pages/Fleet.jsx`)
+- The fetch call was fire-and-forget — if the API returned an error, the UI silently refreshed with no change.
+- Now checks `res.ok` and shows an `alert()` with the error detail if the call fails.
+- Also fixed the plain `decommission()` function the same way.
+
+### Tests added
+- `server/tests/printers-decommission.test.js` — 10 tests covering `mark-job-failure` (finished job, printing job, no-job fallback, qty undo, part reopen) and `decommission` (sets is_active=0, appears in decommissioned list, absent from active list)
+- `server/tests/elegoo-driver.test.js` — added status code 9 → FINISHED test case
+
+---
+
 ## 2026-04-08 — Printer Models refactor: DB-backed model registry
 
 Replaces all hardcoded printer model lists (previously duplicated in `printers.js`, `gcodes.js`, `Projects.jsx`, `Settings.jsx`, `Fleet.jsx`, `Dashboard.jsx`) with a single source of truth: a `printer_models` DB table managed by operators in **Settings → Printer Models**.

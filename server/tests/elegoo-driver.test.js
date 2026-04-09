@@ -46,6 +46,7 @@ describe('getStatus — SDCP status code mapping', () => {
     { code: 2,  expected: 'PAUSED',   desc: 'code 2 → PAUSED' },
     { code: 3,  expected: 'FINISHED', desc: 'code 3 (stopped) → FINISHED' },
     { code: 4,  expected: 'FINISHED', desc: 'code 4 (complete) → FINISHED' },
+    { code: 9,  expected: 'FINISHED', desc: 'code 9 (post-completion: CurrentLayer===TotalLayer, Filename cleared) → FINISHED' },
     { code: 13, expected: 'PRINTING', desc: 'code 13 → PRINTING (active print, layer incrementing)' },
     { code: 16, expected: 'PRINTING', desc: 'code 16 → PRINTING (FDM preparing/preheating startup state)' },
     { code: 21, expected: 'PRINTING', desc: 'code 21 → PRINTING (startup/init state, file loaded)' },
@@ -65,7 +66,7 @@ describe('getStatus — SDCP status code mapping', () => {
     expect(result.status).toBe('UNKNOWN');
   });
 
-  test('returns UNKNOWN for unrecognised code ≥ 17 (not ERROR — avoids false holds)', async () => {
+  test('returns UNKNOWN for unrecognised code (e.g. 99 — not ERROR, avoids false holds)', async () => {
     mockClient.GetStatus.mockResolvedValueOnce({ Status: { PrintInfo: { Status: 99 } } });
     const result = await elegoo.getStatus(nextPrinter());
     expect(result.status).toBe('UNKNOWN');

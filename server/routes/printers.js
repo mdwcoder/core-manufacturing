@@ -156,7 +156,16 @@ module.exports = (db) => {
       SELECT * FROM jobs WHERE printer_id = ? AND status IN ('finished', 'printing')
       ORDER BY finished_at DESC, started_at DESC LIMIT 1
     `).get(printer.id);
-    if (!job) return res.status(404).json({ error: 'No active or finished job found for this printer' });
+
+    if (!job) {
+      // No tracked job (e.g. print was started outside the farm manager, or the
+      // printer spent all night in an UNKNOWN status so _handleFinished never fired).
+      // Operator intent is clear: take the machine offline regardless.
+      const now = Date.now();
+      db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(now, printer.id);
+      console.log(`[printers] ${printer.name} decommissioned (no tracked job to mark failed)`);
+      return res.json({ success: true, job_id: null });
+    }
 
     const now = Date.now();
 

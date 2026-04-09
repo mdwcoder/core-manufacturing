@@ -70,6 +70,8 @@ function dropConnection(printerId) {
 // 2  = Paused
 // 3  = Stopped (user-stopped — treat as FINISHED so operator confirmation fires)
 // 4  = Complete (print finished)
+// 9  = Post-completion state — observed on Centauri Carbon after print ends.
+//      CurrentLayer === TotalLayer, Filename cleared, Progress=0. Treat as FINISHED.
 // 13 = Active print (layer incrementing) — observed on Centauri Carbon during normal print
 // 16 = Preparing / preheating / homing before print starts — treat as PRINTING.
 //      Confirmed via raw PrintInfo: TotalLayer and Filename are populated,
@@ -86,6 +88,7 @@ function mapStatus(printInfo) {
     case 2:  return 'PAUSED';
     case 3:  return 'FINISHED'; // stopped — operator must confirm
     case 4:  return 'FINISHED';
+    case 9:  return 'FINISHED'; // post-completion: CurrentLayer===TotalLayer, Filename cleared
     case 13: return 'PRINTING'; // active print, layer incrementing (observed on Centauri Carbon)
     case 16: return 'PRINTING'; // preparing/preheating — normal FDM startup state
     case 21: return 'PRINTING'; // startup/init state, file loaded (observed on Centauri Carbon)
