@@ -136,13 +136,46 @@ async function uploadAndPrint(printer, gcodeFullPath, filename) {
     },
   });
 
-  console.log(`[elegoo] Upload complete — starting print on ${printer.name}`);
+  console.log(`[elegoo] Upload complete — waiting 1s before start on ${printer.name}`);
 
-  // sdcp's UploadFile uses path.basename(gcodeFullPath) as the on-printer filename
-  // (the multer-timestamped name, e.g. "1746000000000_part.gcode").
-  // Start must reference that same name — not the original `filename` arg, which
-  // is the clean display name and won't match what was actually uploaded.
-  await client.Start(path.basename(gcodeFullPath));
+  // The slicer spec recommends a 1-second delay between upload completion and Start
+  // to give the firmware time to close the file before processing the print command.
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // sdcp's UploadFile uses path.basename(gcodeFullPath) as the on-printer filename.
+  // We bypass client.Start() because the sdcp library sends an incomplete payload
+  // ({Filename, Startlayer} only). The Centauri Carbon firmware requires additional
+  // fields and crashes when they are missing.
+  // Source: ElegooSlicer repo — elegoo-link Cmd 128 implementation.
+  const onPrinterFilename = path.basename(gcodeFullPath);
+  const response = await client.SendCommand({
+    Data: {
+      Cmd: 128,
+      Data: {
+        Filename:           onPrinterFilename,
+        StartLayer:         0,
+        Calibration_switch: 0,
+        PrintPlatformType:  1,
+        Tlp_Switch:         0,
+        slot_map:           [],
+      },
+      From: 1,
+    },
+  });
+
+  const ack = response?.Data?.Data?.Ack;
+  if (ack !== 0) {
+    const ACK_ERRORS = {
+      1: 'device busy',
+      2: 'file not found on printer',
+      3: 'MD5 checksum mismatch',
+      4: 'file read failed',
+      5: 'file resolution mismatch',
+      6: 'unknown file format or model mismatch',
+    };
+    const reason = ACK_ERRORS[ack] || `unknown Ack code ${ack}`;
+    throw new Error(`Start rejected by ${printer.name}: ${reason} (Ack=${ack})`);
+  }
 
   console.log(`[elegoo] Print started on ${printer.name}`);
 }

@@ -19,7 +19,7 @@ beforeEach(() => {
     Connect: jest.fn().mockResolvedValue(undefined),
     GetStatus: jest.fn(),
     UploadFile: jest.fn().mockResolvedValue({ Status: 'Complete' }),
-    Start: jest.fn().mockResolvedValue(undefined),
+    SendCommand: jest.fn().mockResolvedValue({ Data: { Data: { Ack: 0 } } }),
     Stop: jest.fn().mockResolvedValue(undefined),
     Disconnect: jest.fn(),
   };
@@ -152,22 +152,42 @@ describe('uploadAndPrint', () => {
     );
   });
 
-  test('calls Start with basename of gcodeFullPath, not the display filename', async () => {
+  test('sends SendCommand with full Cmd 128 payload using basename of gcodeFullPath', async () => {
     const printer = nextPrinter();
-    // gcodeFullPath has a multer timestamp prefix; filename is the clean display name.
-    // sdcp uploads using basename(gcodeFullPath), so Start must use the same name.
+    mockClient.SendCommand.mockResolvedValueOnce({ Data: { Data: { Ack: 0 } } });
     await elegoo.uploadAndPrint(printer, '/tmp/1746000000000_part.gcode', 'part.gcode');
-    expect(mockClient.Start).toHaveBeenCalledWith('1746000000000_part.gcode');
+    expect(mockClient.SendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Data: expect.objectContaining({
+          Cmd: 128,
+          Data: expect.objectContaining({
+            Filename: '1746000000000_part.gcode',
+            StartLayer: 0,
+            Calibration_switch: 0,
+            PrintPlatformType: 1,
+            Tlp_Switch: 0,
+            slot_map: [],
+          }),
+        }),
+      })
+    );
   });
 
-  test('calls UploadFile before Start', async () => {
+  test('calls UploadFile before SendCommand', async () => {
     const printer = nextPrinter();
     const order = [];
     mockClient.UploadFile.mockImplementationOnce(async () => { order.push('upload'); });
-    mockClient.Start.mockImplementationOnce(async () => { order.push('start'); });
+    mockClient.SendCommand.mockImplementationOnce(async () => { order.push('start'); return { Data: { Data: { Ack: 0 } } }; });
 
     await elegoo.uploadAndPrint(printer, '/tmp/seq.gcode', 'seq.gcode');
     expect(order).toEqual(['upload', 'start']);
+  });
+
+  test('throws with Ack error description when printer rejects start', async () => {
+    const printer = nextPrinter();
+    mockClient.SendCommand.mockResolvedValueOnce({ Data: { Data: { Ack: 2 } } });
+    await expect(elegoo.uploadAndPrint(printer, '/tmp/part.gcode', 'part.gcode'))
+      .rejects.toThrow('file not found on printer');
   });
 
   test('throws when UploadFile rejects', async () => {
@@ -175,8 +195,8 @@ describe('uploadAndPrint', () => {
     mockClient.UploadFile.mockRejectedValueOnce(new Error('Upload failed'));
     await expect(elegoo.uploadAndPrint(printer, '/tmp/bad.gcode', 'bad.gcode'))
       .rejects.toThrow('Upload failed');
-    // Start should not be called if upload failed
-    expect(mockClient.Start).not.toHaveBeenCalled();
+    // SendCommand should not be called if upload failed
+    expect(mockClient.SendCommand).not.toHaveBeenCalled();
   });
 });
 
