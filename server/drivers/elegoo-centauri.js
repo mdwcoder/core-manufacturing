@@ -130,7 +130,7 @@ async function getStatus(printer) {
       ? (printInfo?.Filename ?? null)
       : null;
     const currentFile = rawFilename
-      ? rawFilename.replace(/^\d+-/, '')
+      ? rawFilename.replace(/^\d+_/, '')
       : null;
 
     return { status, progress, timeRemaining, currentFile };

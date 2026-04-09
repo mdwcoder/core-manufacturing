@@ -164,11 +164,11 @@ async function getStatus(printer) {
     : null;
 
   // subtask_name is the file or project currently printing.
-  // Strip the multer-prepended timestamp prefix (e.g. "1712345678901-benchy.gcode").
+  // Strip the multer-prepended timestamp prefix (e.g. "1712345678901_benchy.gcode").
   const rawFilename = (status === 'PRINTING' || status === 'PAUSED')
     ? (print.subtask_name ?? null)
     : null;
-  const currentFile = rawFilename ? rawFilename.replace(/^\d+-/, '') : null;
+  const currentFile = rawFilename ? rawFilename.replace(/^\d+_/, '') : null;
 
   return { status, progress, timeRemaining, currentFile };
 }
