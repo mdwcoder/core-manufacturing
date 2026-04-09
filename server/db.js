@@ -169,4 +169,29 @@ if (gcodeIdCol && gcodeIdCol.notnull === 1) {
   `);
 }
 
+// Backfill decommission events for printers that were decommissioned before the
+// printer_events table existed. Runs once per printer (checked via event absence).
+// Uses decommissioned_at as the event timestamp so the timeline is accurate.
+try {
+  const decomms = db.prepare(`
+    SELECT id, name, decommissioned_at, decommission_note
+    FROM printers
+    WHERE is_active = 0 AND decommissioned_at IS NOT NULL
+  `).all();
+
+  const hasEvent = db.prepare(
+    `SELECT 1 FROM printer_events WHERE printer_id = ? AND event_type = 'decommission' LIMIT 1`
+  );
+  const insertBackfill = db.prepare(
+    `INSERT INTO printer_events (printer_id, event_type, note, created_at) VALUES (?, 'decommission', ?, ?)`
+  );
+
+  for (const p of decomms) {
+    if (!hasEvent.get(p.id)) {
+      insertBackfill.run(p.id, p.decommission_note ?? null, p.decommissioned_at);
+      console.log(`[db] Backfilled decommission event for ${p.name}`);
+    }
+  }
+} catch (_) {}
+
 module.exports = db;
