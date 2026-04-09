@@ -46,7 +46,8 @@ describe('getStatus — SDCP status code mapping', () => {
     { code: 2, expected: 'PAUSED',   desc: 'code 2 → PAUSED' },
     { code: 3, expected: 'FINISHED', desc: 'code 3 (stopped) → FINISHED' },
     { code: 4, expected: 'FINISHED', desc: 'code 4 (complete) → FINISHED' },
-    { code: 16, expected: 'ERROR',   desc: 'code 16 → ERROR' },
+    { code: 16, expected: 'PRINTING', desc: 'code 16 → PRINTING (FDM preparing/preheating startup state)' },
+    { code: 17, expected: 'ERROR',   desc: 'code 17 → ERROR' },
     { code: 32, expected: 'ERROR',   desc: 'code 32+ → ERROR' },
   ];
 

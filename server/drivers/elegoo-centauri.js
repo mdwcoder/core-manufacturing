@@ -65,12 +65,15 @@ function dropConnection(printerId) {
 // Maps SDCP PrintInfo.Status integer codes to canonical status strings.
 // Source: SDCP V3.0.0 spec and cassini/elegoo-homeassistant reference implementations.
 //
-// 0 = Idle (no print running)
-// 1 = Printing (active print job)
-// 2 = Paused
-// 3 = Stopped (user-stopped — treat as FINISHED so operator confirmation fires)
-// 4 = Complete (print finished)
-// 16+ = Various error codes
+// 0  = Idle (no print running)
+// 1  = Printing (active print job)
+// 2  = Paused
+// 3  = Stopped (user-stopped — treat as FINISHED so operator confirmation fires)
+// 4  = Complete (print finished)
+// 16 = Preparing / preheating / homing before print starts — treat as PRINTING.
+//      Confirmed via raw PrintInfo: TotalLayer and Filename are populated,
+//      Progress=0. This is normal FDM startup, not a fault.
+// 17+ = Error codes (actual faults)
 function mapStatus(printInfo) {
   if (!printInfo) return 'UNKNOWN';
   const code = printInfo.Status ?? printInfo.CurrentStatus;
@@ -80,8 +83,9 @@ function mapStatus(printInfo) {
     case 2:  return 'PAUSED';
     case 3:  return 'FINISHED'; // stopped — operator must confirm
     case 4:  return 'FINISHED';
+    case 16: return 'PRINTING'; // preparing/preheating — normal FDM startup state
     default:
-      if (code >= 16) return 'ERROR';
+      if (code >= 17) return 'ERROR';
       return 'UNKNOWN';
   }
 }
