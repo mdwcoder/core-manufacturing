@@ -1,6 +1,6 @@
 # Multi-Brand Printer Support
 
-> **Phase 6B complete (2026-04-08).** Elegoo Centauri Carbon support is implemented via the `sdcp` npm package. Both Prusa and Elegoo printers are fully supported.
+> **Phase 6B finalized (2026-04-08).** Elegoo SDCP connector complete — covers Centauri Carbon and Centauri Carbon 2. Both Prusa Link and Elegoo SDCP are fully supported.
 
 ## Overview
 
@@ -47,15 +47,38 @@ Both brands map their native states to a shared internal set. The rest of the sy
 
 ---
 
+## Connector Families
+
+Each connector family covers all printer models that share the same protocol:
+
+| Connector | Protocol | Printer models |
+|---|---|---|
+| **Prusa Link** | PrusaLink REST API (HTTP polling) | MK4, XL, and any future Prusa models |
+| **Elegoo SDCP** | SDCP WebSocket V3.0.0 (port 3030) | Centauri Carbon, Centauri Carbon 2 |
+
+The `printer.type` DB column stores the connector identifier (`prusa` or `elegoo-centauri`). The model column (`centauri-carbon`, etc.) is used only for display grouping in the UI.
+
+---
+
 ## Driver Architecture
 
-A new `server/drivers/` directory. Each driver exports three functions with the same interface:
+A new `server/drivers/` directory. Each driver exports four functions with the same interface:
 
 ```
-getStatus(printer)         → { status, jobName, progress, timeRemaining }
-uploadAndPrint(printer, filePath, filename)  → resolves when print confirmed started
-cancelJob(printer)         → resolves when cancellation confirmed
+getStatus(printer)
+  → { status, progress, timeRemaining, currentFile }
+
+uploadAndPrint(printer, filePath, filename)
+  → resolves when print confirmed started
+
+cancelJob(printer)
+  → resolves when cancellation confirmed
+
+checkIfPrinting(printer)
+  → boolean
 ```
+
+`currentFile` is the display name of the file currently printing, or `null`. Elegoo SDCP reads this directly from `PrintInfo.Filename` (timestamp prefix stripped). Prusa Link returns `null` — the poller falls back to a jobs → gcodes DB join.
 
 The driver registry (`server/drivers/index.js`) maps `printer.type → driver module`. The poller and scheduler call `getDriver(printer.type)` and never touch brand-specific code directly.
 

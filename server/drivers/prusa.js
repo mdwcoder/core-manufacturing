@@ -24,7 +24,7 @@ async function getStatus(printer) {
     const progress = (status === 'PRINTING' && data?.job) ? (data.job.progress ?? null) : null;
     const timeRemaining = (status === 'PRINTING' && data?.job) ? (data.job.time_remaining ?? null) : null;
 
-    return { status, progress, timeRemaining };
+    return { status, progress, timeRemaining, currentFile: null };
   } catch (_) {
     return { status: 'OFFLINE', progress: null, timeRemaining: null };
   }

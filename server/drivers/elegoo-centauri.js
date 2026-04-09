@@ -123,10 +123,17 @@ async function getStatus(printer) {
       ? (printInfo?.RemainTime ?? null)
       : null;
 
-    return { status, progress, timeRemaining };
+    const rawFilename = (status === 'PRINTING' || status === 'PAUSED')
+      ? (printInfo?.Filename ?? null)
+      : null;
+    const currentFile = rawFilename
+      ? rawFilename.replace(/^\d+-/, '')
+      : null;
+
+    return { status, progress, timeRemaining, currentFile };
   } catch (_) {
     dropConnection(printer.id);
-    return { status: 'OFFLINE', progress: null, timeRemaining: null };
+    return { status: 'OFFLINE', progress: null, timeRemaining: null, currentFile: null };
   }
 }
 

@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-04-08 — Phase 6B milestone: Elegoo SDCP connector finalized
+
+### Connector naming
+The driver family is now named **Elegoo SDCP** (parallel to **Prusa Link**). Both Centauri Carbon and Centauri Carbon 2 live under this family — they share the same protocol, firmware, and interface. The connector name reflects the brand + protocol, not the specific model.
+
+### `getStatus()` now returns `currentFile`
+Both drivers (`prusa.js`, `elegoo-centauri.js`) now include `currentFile` in the `getStatus()` return shape:
+- **Elegoo SDCP:** populated from `PrintInfo.Filename` when PRINTING or PAUSED. The multer-prepended timestamp (`^\d+-`) is stripped before returning, so the display name is clean.
+- **Prusa Link:** returns `null` — PrusaLink does not expose the filename in its status endpoint.
+
+The poller was updated to prefer `result.currentFile` when populated, falling back to the existing jobs → gcodes DB join (used by Prusa). Elegoo printers no longer require a job record to display what's printing.
+
+### Driver interface (final shape for 6B)
+
+```
+getStatus(printer)
+  → { status, progress, timeRemaining, currentFile }
+
+uploadAndPrint(printer, filePath, filename)
+  → resolves when print confirmed started
+
+cancelJob(printer)
+  → resolves when cancellation confirmed
+
+checkIfPrinting(printer)
+  → boolean
+```
+
+---
+
 ## 2026-04-08 — Phase 6B: Elegoo Centauri Carbon support
 
 Adds full support for the Elegoo Centauri Carbon FDM printer via the SDCP WebSocket protocol (V3.0.0). Prusa printers are completely unaffected.

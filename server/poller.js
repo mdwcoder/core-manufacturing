@@ -88,13 +88,19 @@ class PrinterPoller extends EventEmitter {
 
     // Always persist latest job progress while printing (status may not have changed)
     if (newStatus === 'PRINTING') {
-      const activeJob = this.db.prepare(`
-        SELECT gcodes.filename FROM jobs
-        JOIN gcodes ON gcodes.id = jobs.gcode_id
-        WHERE jobs.printer_id = ? AND jobs.status = 'printing'
-        ORDER BY jobs.started_at DESC LIMIT 1
-      `).get(printer.id);
-      jobName = activeJob?.filename ?? null;
+      // Prefer the filename reported directly by the printer (Elegoo SDCP).
+      // Fall back to a DB lookup via the jobs table (Prusa Link and others).
+      if (result.currentFile) {
+        jobName = result.currentFile;
+      } else {
+        const activeJob = this.db.prepare(`
+          SELECT gcodes.filename FROM jobs
+          JOIN gcodes ON gcodes.id = jobs.gcode_id
+          WHERE jobs.printer_id = ? AND jobs.status = 'printing'
+          ORDER BY jobs.started_at DESC LIMIT 1
+        `).get(printer.id);
+        jobName = activeJob?.filename ?? null;
+      }
       this.db
         .prepare('UPDATE printers SET job_name = ?, job_progress = ?, job_time_remaining = ? WHERE id = ?')
         .run(jobName, jobProgress, jobTimeRemaining, printer.id);
