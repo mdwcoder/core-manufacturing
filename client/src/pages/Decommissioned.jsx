@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 function formatTimestamp(ms) {
   if (!ms) return 'Unknown';
@@ -9,6 +10,7 @@ function formatTimestamp(ms) {
 }
 
 export default function Decommissioned() {
+  const navigate = useNavigate();
   const [printers, setPrinters] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [notes, setNotes]       = useState({});   // { [id]: string }
@@ -39,11 +41,18 @@ export default function Decommissioned() {
 
   async function saveNote(id) {
     setSaving(prev => new Set(prev).add(id));
-    await fetch(`/api/printers/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decommission_note: notes[id] }),
-    });
+    await Promise.all([
+      fetch(`/api/printers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decommission_note: notes[id] }),
+      }),
+      notes[id]?.trim() && fetch(`/api/printers/${id}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: notes[id].trim() }),
+      }),
+    ]);
     setSaving(prev => { const next = new Set(prev); next.delete(id); return next; });
     setDirty(prev => { const next = new Set(prev); next.delete(id); return next; });
   }
@@ -142,8 +151,8 @@ export default function Decommissioned() {
               </div>
             </div>
 
-            {/* Recommission */}
-            <div>
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button
                 onClick={() => recommission(printer)}
                 style={{
@@ -158,6 +167,21 @@ export default function Decommissioned() {
                 }}
               >
                 ↩ Recommission
+              </button>
+              <button
+                onClick={() => navigate(`/printers/${printer.id}`)}
+                style={{
+                  background: 'none',
+                  color: '#94a3b8',
+                  border: '1px solid #2d3748',
+                  borderRadius: 5,
+                  padding: '4px 14px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                View History
               </button>
             </div>
           </div>

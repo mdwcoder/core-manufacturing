@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Fleet from './pages/Fleet';
+import Printers from './pages/Printers';
+import PrinterDetail from './pages/PrinterDetail';
 import Projects from './pages/Projects';
 import Jobs from './pages/Jobs';
 import Settings from './pages/Settings';
@@ -9,6 +11,7 @@ import Decommissioned from './pages/Decommissioned';
 const NAV_ITEMS = [
   { to: '/',               label: 'Dashboard' },
   { to: '/fleet',          label: 'Fleet' },
+  { to: '/printers',       label: 'Printers',      end: true },
   { to: '/projects',       label: 'Projects' },
   { to: '/jobs',           label: 'Jobs' },
   { to: '/decommissioned', label: 'Decommissioned' },
@@ -53,7 +56,7 @@ export default function App() {
             <div style={{ fontWeight: 400, fontSize: 11, color: '#475569' }}>Manager</div>
           </div>
           {NAV_ITEMS.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.to === '/'} style={navLinkStyle}>
+            <NavLink key={item.to} to={item.to} end={item.to === '/' || !!item.end} style={navLinkStyle}>
               {item.label}
             </NavLink>
           ))}
@@ -66,7 +69,7 @@ export default function App() {
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === '/'}
+              end={item.to === '/' || !!item.end}
               style={({ isActive }) => ({
                 padding: '5px 10px',
                 borderRadius: 6,
@@ -85,12 +88,14 @@ export default function App() {
         {/* Main content */}
         <main id="main">
           <Routes>
-            <Route path="/"               element={<Dashboard />} />
-            <Route path="/fleet"          element={<Fleet />} />
-            <Route path="/projects"       element={<Projects />} />
-            <Route path="/jobs"           element={<Jobs />} />
-            <Route path="/decommissioned" element={<Decommissioned />} />
-            <Route path="/settings"       element={<Settings />} />
+            <Route path="/"                element={<Dashboard />} />
+            <Route path="/fleet"           element={<Fleet />} />
+            <Route path="/printers"        element={<Printers />} />
+            <Route path="/printers/:id"    element={<PrinterDetail />} />
+            <Route path="/projects"        element={<Projects />} />
+            <Route path="/jobs"            element={<Jobs />} />
+            <Route path="/decommissioned"  element={<Decommissioned />} />
+            <Route path="/settings"        element={<Settings />} />
           </Routes>
         </main>
       </div>

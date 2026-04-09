@@ -3,6 +3,7 @@ const multer = require('multer');
 const Papa = require('papaparse');
 const axios = require('axios');
 const router = express.Router();
+const events = require('../events');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -138,7 +139,9 @@ module.exports = (db) => {
   router.post('/:id/decommission', (req, res) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
-    db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(Date.now(), printer.id);
+    const now = Date.now();
+    db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(now, printer.id);
+    events.insert(printer.id, 'decommission', req.body?.note ?? null);
     console.log(`[printers] ${printer.name} decommissioned`);
     res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id));
   });
@@ -163,6 +166,7 @@ module.exports = (db) => {
       // Operator intent is clear: take the machine offline regardless.
       const now = Date.now();
       db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(now, printer.id);
+      events.insert(printer.id, 'job_failed', 'No tracked job — printer decommissioned for investigation');
       console.log(`[printers] ${printer.name} decommissioned (no tracked job to mark failed)`);
       return res.json({ success: true, job_id: null });
     }
@@ -196,6 +200,9 @@ module.exports = (db) => {
     // Decommission the printer — a failed print requires investigation before it can run again.
     // The operator must explicitly recommission it when the machine is confirmed safe.
     db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(now, printer.id);
+
+    const failedPart = db.prepare('SELECT name FROM parts WHERE id = ?').get(job.part_id);
+    events.insert(printer.id, 'job_failed', `Job ${job.id} — part: ${failedPart?.name ?? 'unknown'}`);
 
     console.log(`[printers] Job ${job.id} marked failed — ${printer.name} decommissioned pending investigation`);
     res.json({ success: true, job_id: job.id });
@@ -287,6 +294,9 @@ module.exports = (db) => {
 
     res.json(summary);
   });
+
+  // Mount events sub-router — GET/POST /api/printers/:id/events
+  router.use('/:id/events', require('./events')(db));
 
   return router;
 };

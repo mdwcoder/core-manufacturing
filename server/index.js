@@ -16,6 +16,7 @@ const db             = require('./db');
 const PrinterPoller  = require('./poller');
 const JobScheduler   = require('./scheduler');
 const notifications  = require('./notifications');
+const events         = require('./events');
 
 const printersRouter  = require('./routes/printers')(db);
 const partsRouter     = require('./routes/parts')(db);
@@ -117,6 +118,7 @@ const server = app.listen(PORT, () => {
       SET is_active = 1, is_held = 0, decommissioned_at = NULL, decommission_note = NULL
       WHERE id = ?
     `).run(printer.id);
+    events.insert(printer.id, 'recommission', null);
     const updated = db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id);
     console.log(`[server] ${printer.name} recommissioned — dispatching...`);
     scheduler.scheduleForPrinter(updated);

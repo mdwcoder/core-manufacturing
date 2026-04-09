@@ -27,11 +27,12 @@ function runUpload(req, res) {
 module.exports = (db) => {
   // GET /api/backup — export full farm as a downloadable JSON bundle
   router.get('/', (req, res) => {
-    const printers = db.prepare('SELECT * FROM printers').all();
-    const projects = db.prepare('SELECT * FROM projects').all();
-    const parts    = db.prepare('SELECT * FROM parts').all();
-    const gcodes   = db.prepare('SELECT * FROM gcodes').all();
-    const jobs     = db.prepare('SELECT * FROM jobs').all();
+    const printers        = db.prepare('SELECT * FROM printers').all();
+    const projects        = db.prepare('SELECT * FROM projects').all();
+    const parts           = db.prepare('SELECT * FROM parts').all();
+    const gcodes          = db.prepare('SELECT * FROM gcodes').all();
+    const jobs            = db.prepare('SELECT * FROM jobs').all();
+    const printer_events  = db.prepare('SELECT * FROM printer_events').all();
 
     // Embed gcode files as base64, keyed by their on-disk basename
     const gcodeFiles = {};
@@ -50,6 +51,7 @@ module.exports = (db) => {
       parts,
       gcodes,
       jobs,
+      printer_events,
       gcode_files: gcodeFiles,
     };
 
@@ -85,6 +87,7 @@ module.exports = (db) => {
 
       const restore = db.transaction(() => {
         // Delete in FK dependency order
+        db.prepare('DELETE FROM printer_events').run();
         db.prepare('DELETE FROM jobs').run();
         db.prepare('DELETE FROM gcodes').run();
         db.prepare('DELETE FROM parts').run();
@@ -127,6 +130,10 @@ module.exports = (db) => {
             VALUES
               (@id, @part_id, @printer_id, @gcode_id, @parts_per_plate, @status, @started_at, @finished_at, @created_at)
           `),
+          printer_event: db.prepare(`
+            INSERT INTO printer_events (id, printer_id, event_type, note, created_at)
+            VALUES (@id, @printer_id, @event_type, @note, @created_at)
+          `),
         };
 
         for (const p of (backup.printers || [])) stmts.printer.run(p);
@@ -137,11 +144,13 @@ module.exports = (db) => {
           stmts.gcode.run({ ...g, filepath: path.basename(g.filepath) });
         }
         for (const j of (backup.jobs || [])) stmts.job.run(j);
+        for (const e of (backup.printer_events || [])) stmts.printer_event.run(e);
 
         // Sync auto-increment counters so new inserts don't collide
         for (const [table, col] of [
           ['printers', 'printers'], ['projects', 'projects'],
           ['parts', 'parts'], ['gcodes', 'gcodes'], ['jobs', 'jobs'],
+          ['printer_events', 'printer_events'],
         ]) {
           db.prepare(`
             INSERT OR REPLACE INTO sqlite_sequence (name, seq)
@@ -152,15 +161,16 @@ module.exports = (db) => {
 
       restore();
 
-      console.log(`[backup] Farm restored — ${backup.printers.length} printers, ${backup.projects.length} projects, ${backup.gcodes.length} gcodes, ${backup.jobs.length} jobs`);
+      console.log(`[backup] Farm restored — ${backup.printers.length} printers, ${backup.projects.length} projects, ${backup.gcodes.length} gcodes, ${backup.jobs.length} jobs, ${(backup.printer_events || []).length} events`);
 
       res.json({
         ok: true,
-        printers: (backup.printers || []).length,
-        projects: (backup.projects || []).length,
-        parts:    (backup.parts    || []).length,
-        gcodes:   (backup.gcodes   || []).length,
-        jobs:     (backup.jobs     || []).length,
+        printers:       (backup.printers       || []).length,
+        projects:       (backup.projects       || []).length,
+        parts:          (backup.parts          || []).length,
+        gcodes:         (backup.gcodes         || []).length,
+        jobs:           (backup.jobs           || []).length,
+        printer_events: (backup.printer_events || []).length,
       });
     } catch (err) {
       console.error('[backup] restore error:', err);

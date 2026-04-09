@@ -76,6 +76,14 @@ db.exec(`
     finished_at      INTEGER,
     created_at       INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS printer_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    printer_id  INTEGER NOT NULL,
+    event_type  TEXT NOT NULL,
+    note        TEXT,
+    created_at  INTEGER NOT NULL
+  );
 `);
 
 // Migrations for existing installs

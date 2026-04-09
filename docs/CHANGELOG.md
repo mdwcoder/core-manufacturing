@@ -2,6 +2,47 @@
 
 ---
 
+## 2026-04-09 — Printer event log + Printers browser
+
+Persistent audit trail for each printer. Every significant machine event — job completions, failures, decommissions, recommissions, and freeform operator notes — is now recorded to a `printer_events` table and never deleted. A new **Printers** page lets you browse the full fleet and click into any machine's timeline.
+
+### New files
+- `server/events.js` — singleton helper (`insert(printerId, eventType, note)`) used at all call sites
+- `server/routes/events.js` — `GET /api/printers/:id/events`, `POST /api/printers/:id/events`; mounted as sub-router on `/api/printers`
+- `client/src/pages/Printers.jsx` — searchable list of all printers (active + decommissioned); click any row to open the detail view
+- `client/src/pages/PrinterDetail.jsx` — printer header (name, model, IP, status), inline "Add note" form, full event timeline with type badge + timestamp
+
+### Modified files
+- `server/db.js` — `printer_events` table added to `CREATE TABLE IF NOT EXISTS` block; no migration needed (new table)
+- `server/routes/printers.js` — mounts events sub-router; inserts events on decommission and both mark-job-failure paths
+- `server/index.js` — inserts `recommission` event when printer is returned to active fleet
+- `server/scheduler.js` — inserts `job_finished` event in `_handleFinished` (part name + qty in note)
+- `server/routes/backup.js` — `printer_events` included in export and restore; backwards-compatible (`|| []` fallback for old backup files)
+- `client/src/App.jsx` — "Printers" nav item added between Fleet and Projects; routes for `/printers` and `/printers/:id`; `end` prop support on NavLink items
+- `client/src/pages/Decommissioned.jsx` — note save now also writes a `note` event to `printer_events`; "View History" button links to PrinterDetail
+
+### Event types recorded automatically
+| Event | Trigger |
+|---|---|
+| `job_finished` | Scheduler `_handleFinished` — includes part name and plate qty |
+| `job_failed` | `mark-job-failure` — both the tracked-job and no-job paths |
+| `decommission` | `POST /api/printers/:id/decommission` |
+| `recommission` | `POST /api/printers/:id/recommission` |
+| `note` | Operator via PrinterDetail or Decommissioned page |
+
+### Schema
+```sql
+CREATE TABLE IF NOT EXISTS printer_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  printer_id  INTEGER NOT NULL,  -- no FK — history survives printer deletion
+  event_type  TEXT NOT NULL,
+  note        TEXT,
+  created_at  INTEGER NOT NULL
+);
+```
+
+---
+
 ## 2026-04-09 — Elegoo status 9 fix + decommission bug fix
 
 ### Bug fixes

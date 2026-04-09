@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { getDriver } = require('./drivers');
 const notifications = require('./notifications');
+const events = require('./events');
 
 const GCODE_DIR = path.join(__dirname, 'gcode');
 
@@ -341,6 +342,7 @@ class JobScheduler extends EventEmitter {
 
     // Hold the printer — operator must confirm print quality before next job dispatches
     this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
+    events.insert(printer.id, 'job_finished', `Job ${job.id} — ${part.name} (${job.parts_per_plate} parts)`);
     console.log(`[scheduler] ${printer.name} held — awaiting operator confirmation`);
   }
 
