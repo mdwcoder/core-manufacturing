@@ -68,6 +68,10 @@ export default function PrinterDetail() {
   const [loading, setLoading]   = useState(true);
   const [note, setNote]         = useState('');
   const [saving, setSaving]     = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft]     = useState('');
+  const [nameError, setNameError]     = useState(null);
+  const [renaming, setRenaming]       = useState(false);
 
   const fetchData = useCallback(async () => {
     const [printerRes, eventsRes, statsRes] = await Promise.all([
@@ -103,6 +107,48 @@ export default function PrinterDetail() {
     fetchData();
   }
 
+  function startRename() {
+    setNameDraft(printer.name);
+    setNameError(null);
+    setEditingName(true);
+  }
+
+  function cancelRename() {
+    setEditingName(false);
+    setNameError(null);
+  }
+
+  async function submitRename(e) {
+    e.preventDefault();
+    const trimmed = nameDraft.trim();
+    if (!trimmed) {
+      setNameError('Name cannot be empty');
+      return;
+    }
+    if (trimmed === printer.name) {
+      setEditingName(false);
+      return;
+    }
+    setRenaming(true);
+    setNameError(null);
+    try {
+      const res = await fetch(`/api/printers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setNameError(body.error || `Rename failed (${res.status})`);
+        return;
+      }
+      setPrinter(await res.json());
+      setEditingName(false);
+    } finally {
+      setRenaming(false);
+    }
+  }
+
   if (loading) return <p style={{ color: '#64748b' }}>Loading…</p>;
   if (!printer) return <p style={{ color: '#fca5a5' }}>Printer not found.</p>;
 
@@ -127,23 +173,87 @@ export default function PrinterDetail() {
         borderRadius: 8, padding: '16px 20px', marginBottom: 24,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-          <span style={{ fontWeight: 800, fontSize: 20, color: '#e2e8f0' }}>{printer.name}</span>
-          {printer.is_active ? (
-            <span style={{
-              background: sc.bg, color: sc.text,
-              borderRadius: 4, padding: '2px 9px', fontSize: 12, fontWeight: 700,
-            }}>
-              {printer.status}
-            </span>
+          {editingName ? (
+            <form onSubmit={submitRename} style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '1 1 auto' }}>
+              <input
+                autoFocus
+                value={nameDraft}
+                onChange={e => setNameDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape') cancelRename(); }}
+                disabled={renaming}
+                style={{
+                  flex: 1, minWidth: 180,
+                  background: '#1e2433', border: '1px solid #2d3748',
+                  borderRadius: 5, color: '#e2e8f0',
+                  fontSize: 18, fontWeight: 700,
+                  padding: '4px 10px', outline: 'none',
+                }}
+              />
+              <button
+                type="submit"
+                disabled={renaming || !nameDraft.trim()}
+                style={{
+                  background: renaming || !nameDraft.trim() ? '#1e2433' : '#1e40af',
+                  color: renaming || !nameDraft.trim() ? '#475569' : '#fff',
+                  border: 'none', borderRadius: 5,
+                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                  cursor: renaming || !nameDraft.trim() ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {renaming ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={cancelRename}
+                disabled={renaming}
+                style={{
+                  background: '#1e2433', color: '#94a3b8',
+                  border: 'none', borderRadius: 5,
+                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                  cursor: renaming ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </form>
           ) : (
-            <span style={{
-              background: '#1e2433', color: '#ef4444',
-              borderRadius: 4, padding: '2px 9px', fontSize: 12, fontWeight: 700,
-            }}>
-              DECOMMISSIONED
-            </span>
+            <>
+              <span style={{ fontWeight: 800, fontSize: 20, color: '#e2e8f0' }}>{printer.name}</span>
+              <button
+                onClick={startRename}
+                title="Rename printer"
+                style={{
+                  background: 'none', border: '1px solid #2d3748',
+                  color: '#94a3b8', borderRadius: 5,
+                  padding: '3px 10px', fontSize: 11, fontWeight: 600,
+                  cursor: 'pointer', letterSpacing: '0.04em',
+                }}
+              >
+                Rename
+              </button>
+              {printer.is_active ? (
+                <span style={{
+                  background: sc.bg, color: sc.text,
+                  borderRadius: 4, padding: '2px 9px', fontSize: 12, fontWeight: 700,
+                }}>
+                  {printer.status}
+                </span>
+              ) : (
+                <span style={{
+                  background: '#1e2433', color: '#ef4444',
+                  borderRadius: 4, padding: '2px 9px', fontSize: 12, fontWeight: 700,
+                }}>
+                  DECOMMISSIONED
+                </span>
+              )}
+            </>
           )}
         </div>
+        {nameError && (
+          <div style={{ fontSize: 12, color: '#fca5a5', marginBottom: 8 }}>
+            {nameError}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13, color: '#64748b' }}>
           <span>Model: <span style={{ color: '#94a3b8', fontFamily: 'monospace' }}>{printer.model}</span></span>

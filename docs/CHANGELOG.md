@@ -2,6 +2,19 @@
 
 ---
 
+## 2026-04-09 — Inline rename on Printer detail page
+
+Operators can now rename a printer from the Printer detail view. Clicking the **Rename** button next to the printer name swaps the header into an inline edit field with Save / Cancel controls (Escape also cancels). The save path `PUT /api/printers/:id` already supported `name` updates — this is a UI-only addition. Duplicate names surface the server's 409 error inline.
+
+### Changes
+
+**`client/src/pages/PrinterDetail.jsx`**
+- Added `editingName`, `nameDraft`, `nameError`, `renaming` state
+- Added `startRename` / `cancelRename` / `submitRename` handlers that PUT `/api/printers/:id`
+- Header row conditionally renders either the name + Rename button or an inline form with an input, Save, Cancel
+
+---
+
 ## 2026-04-09 — Fix phantom completion on server restart with held Bambu printer
 
 Fixes a critical part-count bug: every time the server was restarted with a Bambu printer sitting in the `FINISHED` + held state (awaiting operator confirmation), the printer's completed print was re-credited to its Part, inflating the production count.

@@ -140,6 +140,8 @@ Per-machine history and annotation screen. Reached by clicking a row in the Prin
 
 **Header card:** printer name, live status badge (or DECOMMISSIONED), model, IP, connector type, decommissioned timestamp if applicable.
 
+**Rename:** a **Rename** button next to the printer name swaps the header into an inline edit form. Save sends `PUT /api/printers/:id` with the new `name`; the server's UNIQUE-name 409 is surfaced inline. Escape or the Cancel button closes the form without saving.
+
 **Add note form:** freeform textarea → `POST /api/printers/:id/events`. Submitted note appears immediately at the top of the timeline.
 
 **Event timeline:** all `printer_events` rows for this printer, newest first. Each entry shows:
