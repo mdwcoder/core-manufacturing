@@ -69,7 +69,7 @@ TV-optimized command center intended to be shown full-screen on a large monitor 
 | Header | Branding, fleet utilization % (printing / total), live HH:MM:SS clock and date |
 | Hero stat cards | Printing, Idle, Awaiting sign-off, Parts Today (rolling 24h) — large tabular numerals |
 | Fleet grid | All active printers as color-coded 54×44px cells, grouped by model row with per-row status summary badges and a color legend |
-| Active Projects | All active projects with **all parts** listed — per-part progress bars (turns green at ≥75%), completion counts, and DONE badges on closed parts. No truncation. |
+| Active Projects | All active projects with **all parts** listed — per-part 3-segment progress bars (green = completed, blue = printing, dark = remaining), completion counts with `+N printing` annotation, and DONE badges on closed parts. No truncation. |
 | Recent Activity | Last 12 finished/failed jobs — ✓/✗ icon, part name, qty, printer name, relative time |
 
 **Fleet cell colors:**
@@ -116,7 +116,13 @@ Live printer grid that polls `GET /api/printers` every 15 seconds (matching the 
 
 Filter chips in the Fleet header derive their text color from the same `STATUS_COLORS` constant so badges and chips are always in sync.
 
-**Confirmation button visibility:** "Set Ready" and "Bad Print" buttons (and the green card highlight) only appear when `is_held === 1` AND `status` is `FINISHED` or `IDLE`. Printers in ATTENTION, ERROR, OFFLINE, or PAUSED never show these buttons — a filament runout or error is not a completed print.
+**Confirmation button visibility:** "Set Ready" and "Bad Print" buttons (and the green card highlight) appear when `is_held === 1` AND `status` is `FINISHED` or `IDLE`.
+
+**OFFLINE-with-job handling:** when `is_held === 1` AND `status` is `OFFLINE` AND `has_active_job === 1`, an amber card and separate amber banner appear instead of the green confirmation UI. Two buttons are shown:
+- **✓ Job OK** — releases the hold via `POST /api/printers/:id/set-ready`. The job stays as `printing` and resolves naturally when the printer finishes. No qty is credited.
+- **✗ Job Failed** — calls `POST /api/printers/:id/mark-job-failure`, marking the job failed and decommissioning the printer for investigation.
+
+If the printer recovers and transitions back to `PRINTING` on its own, the scheduler auto-releases the hold with no operator action required. The amber banner includes a note explaining this.
 
 **Partial plate confirmation:** when a job's `last_parts_per_plate` is known, a `Good: [N] / M` number input appears between the Include checkbox and the Set Ready button. It pre-fills with the full plate count. If the operator reduces it (e.g. 24 of 25 parts came out good), clicking Set Ready applies the delta to `completed_qty` and the Include checkbox is hidden — the printer cannot be batch-confirmed and must be set ready individually. Bad Print remains for full/catastrophic failures that also decommission the printer.
 
@@ -185,7 +191,9 @@ Primary operator screen for setting up and launching print runs.
   - `active` → "Pause" → `PUT /api/projects/:id { status: 'paused' }`
   - `paused` → "Resume" → same as Activate
   - `completed` → no button
-- **Parts list:** each row shows name (with ▲/▼ priority buttons), progress bar (`completed_qty / target_qty`), status badge, G-code model chips. A red `×` delete button appears at the far right — clicking it confirms then calls `DELETE /api/parts/:id`, which cascades to all jobs and G-code files for that part. Deletion is blocked (with an alert) if the part has an active uploading or printing job. All other editing is behind the Details button.
+- **Parts list:** each row shows name (with ▲/▼ priority buttons), a 3-segment progress bar, a fixed-width status badge (Open/Closed), and a Details toggle. A red `×` delete button appears at the far right — clicking it confirms then calls `DELETE /api/parts/:id`, which cascades to all jobs and G-code files for that part. Deletion is blocked (with an alert) if the part has an active uploading or printing job. All other editing is behind the Details button.
+
+  **Progress bar segments:** green = `completed_qty` (confirmed done); blue = `active_qty` (parts currently printing across all active jobs); dark background = not yet started. When active jobs push the total past `target_qty`, the bar rescales against `max(target, completed + active)` and an amber tick marks the target. The count label shows `976 +24 printing / 1000` when jobs are active.
 - **▲/▼ ordering buttons:** move a part up or down in dispatch priority. Updates `sort_order` via `PUT /api/parts/reorder`. Optimistic — local state reorders immediately.
 - **Details panel** (per part, toggle with "Details" button): four sections:
   - *Part Name* — current name displayed with a ✎ pencil button. Click to edit inline; Enter or blur saves, Escape cancels → `PUT /api/parts/:id { name }`

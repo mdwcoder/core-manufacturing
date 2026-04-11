@@ -47,6 +47,10 @@ Returns all active printers (`is_active = 1`) ordered by name.
 
 `job_name`, `job_progress`, and `job_time_remaining` are non-null only while `status = "PRINTING"`, and are cleared to `null` when the printer leaves that state.
 
+`last_parts_per_plate` is the `parts_per_plate` from the most recent finished (or currently printing) job — used by the Fleet UI to pre-fill the confirmed-qty input.
+
+`has_active_job` is `1` if the printer currently has a job in `uploading` or `printing` status, `0` otherwise — used by the Fleet UI to show the OFFLINE-with-job confirmation buttons.
+
 ### `GET /api/printers/ams?model=<model_id>`
 
 Returns the live AMS slot list from any connected Bambu printer of the given model. Used by the upload form to populate the slot picker.
@@ -116,6 +120,8 @@ Accepts an optional body:
 ```
 
 If `confirmed_qty` is provided and differs from the `parts_per_plate` of the printer's most recent finished job, the delta is applied to the part's `completed_qty` (e.g. operator confirms 24 of 25 good → `completed_qty` decremented by 1). If the auto-credit had closed the part, it is reopened. Omitting the body leaves `completed_qty` unchanged.
+
+**OFFLINE-with-job exception:** if the printer's current status is `OFFLINE` and it has a `printing` job (no finished job), qty is not credited and the job is not marked finished. The printer is simply unheld and the job continues to its natural finish. This is the "Job OK" path from the Fleet UI — the operator is confirming the job is still running, not that it completed.
 
 Returns the updated printer object.
 
@@ -246,7 +252,11 @@ When setting `status` to `active`, the UI also calls `POST /api/scheduler/dispat
 
 Optional query param `?project_id=N` to filter by project. Results ordered by `sort_order ASC, created_at ASC`.
 
+Each part includes `active_qty` — the sum of `parts_per_plate` across all `uploading` or `printing` jobs for that part. Used by the progress bars in the Projects and Dashboard pages to show in-flight work.
+
 ### `GET /api/parts/:id`
+
+Also includes `active_qty` (same calculation as the list endpoint).
 
 ### `POST /api/parts`
 

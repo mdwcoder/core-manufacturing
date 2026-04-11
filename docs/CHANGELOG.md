@@ -2,6 +2,96 @@
 
 ---
 
+## 2026-04-11 — OFFLINE printers no longer auto-fail their active job
+
+Previously, when a printer transitioned to `OFFLINE`, the scheduler immediately marked its active job as `failed` and held the printer. This was too aggressive — most OFFLINE events are transient network blips where the printer keeps printing uninterrupted.
+
+The scheduler now distinguishes OFFLINE from ERROR:
+
+- **OFFLINE with active job:** printer is held for operator review, but the job stays as `printing`. If the printer comes back as `PRINTING` on its own, the hold is released automatically — no operator action needed. If the operator needs to intervene, the Fleet UI shows amber **Job OK** / **Job Failed** buttons on the card.
+- **OFFLINE without active job:** printer is held as before (no job to preserve).
+- **ERROR:** unchanged — still fails the job immediately and holds the printer.
+
+**Job OK** (green) releases the hold and lets the job continue to its natural finish. **Job Failed** (red) calls `mark-job-failure`, which marks the job failed and decommissions the printer for investigation.
+
+The `set-ready` endpoint was also guarded: when an OFFLINE printer with a `printing` job calls set-ready, qty is not credited (the job hasn't finished — the operator is saying "resume", not "confirm finish").
+
+### Changes
+
+**`server/scheduler.js`**
+- Added `_handlePrinterOffline(printer)` — holds printer, leaves job as `printing`, logs event
+- Added `_handleRecoveredToPrinting(printer)` — auto-unhollds held printer when it comes back printing with an active job
+- `statusChange` handler now routes `OFFLINE` to `_handlePrinterOffline` and `PRINTING` to `_handleRecoveredToPrinting`; `ERROR` continues to use `_handlePrinterUnavailable`
+
+**`server/routes/printers.js`**
+- `GET /api/printers` now includes `has_active_job` (1/0) — used by Fleet UI to distinguish held OFFLINE printers that have a job in progress
+
+**`server/index.js`**
+- `POST /api/printers/:id/set-ready` skips qty crediting and job-finish when the printer is `OFFLINE` with a `printing` job
+
+**`client/src/pages/Fleet.jsx`**
+- New `needsOfflineConfirmation` condition: `is_held === 1 && status === 'OFFLINE' && has_active_job === 1`
+- Amber card border/background for offline-with-job printers
+- Amber banner counts printers in this state with auto-clear note
+- **Job OK** and **Job Failed** buttons on affected cards; no qty input or batch-select checkbox (each needs individual decision)
+
+---
+
+## 2026-04-11 — Ceiling-hit log message corrected
+
+The scheduler's ceiling-hit log included the probe job in the active count, making it read "26 active jobs cover 25 remaining" when in reality 25 jobs were covering 25 slots. The probe is always inserted before the check and deleted on ceiling hit, so the correct message subtracts 1.
+
+### Changes
+
+**`server/scheduler.js`**
+- Ceiling-hit log now reads `N of M jobs already active` where N is `activeCount - 1`
+
+---
+
+## 2026-04-11 — Active printing jobs shown in part progress bars
+
+Part progress bars in the Projects page and Dashboard now display a third segment representing jobs that are currently printing (but not yet finished). Previously the bar was a single fill (green if closed, blue if open).
+
+**Bar segments:**
+- **Green** — `completed_qty` (confirmed done)
+- **Blue** — `active_qty` (sum of `parts_per_plate` for all `uploading`/`printing` jobs on this part)
+- **Dark background** — not yet started
+
+When active jobs push the total past `target_qty` (due to batch ceiling rounding), the bar rescales against `max(target, completed + active)` and an amber tick mark appears at the target position.
+
+**Number annotation:** `976 +24 printing / 1000` — the `+N printing` label is blue and only appears when active jobs exist. `Have` always reflects confirmed-complete qty, not the optimistic total.
+
+### Changes
+
+**`server/routes/parts.js`**
+- All three `GET /api/parts` queries now include `active_qty` via a correlated subquery on `jobs` (status `uploading` or `printing`)
+
+**`server/routes/dashboard.js`**
+- Parts fetch in `GET /api/dashboard` includes the same `active_qty` subquery
+
+**`client/src/pages/Projects.jsx`**
+- 3-segment progress bar using absolute-positioned divs
+- `+N printing` annotation in the count label
+- Amber tick mark at target position when rescaled past 100%
+- Status badge (Open/Closed) is now fixed 54px width so all bars end at the same point
+- Printer model chips removed from the part row (still visible in the Details panel)
+
+**`client/src/pages/Dashboard.jsx`**
+- Same 3-segment bar treatment as Projects page
+
+---
+
+## 2026-04-11 — Batch set-ready log reads actual batch size from DB
+
+The `[server] Batch set-ready` log message had "batches of 10" hardcoded. It now reads `dispatch_batch_size` from the settings table at log time, accurately reflecting whatever the operator has configured.
+
+### Changes
+
+**`server/index.js`**
+- `POST /api/printers/set-ready-batch` reads `dispatch_batch_size` from DB before logging
+
+---
+
 ## 2026-04-10 — Elegoo status 18 mapped to PRINTING
 
 Status code 18 from the Elegoo SDCP protocol is a transient startup state (file loaded, `Progress=0`, `CurrentLayer=0`) observed on Centauri Carbon printers between `IDLE` and active printing. It now maps to `PRINTING` alongside codes 16 and 21, eliminating the spurious `IDLE → UNKNOWN → PRINTING` transition in the poller log.
