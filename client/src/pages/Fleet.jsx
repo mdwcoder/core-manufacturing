@@ -75,6 +75,10 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
   // A printer that is actively printing is held-in-advance — it will need sign-off
   // when it finishes, but there is nothing to confirm right now.
   const needsConfirmation = printer.is_held === 1 && (printer.status === 'FINISHED' || printer.status === 'IDLE');
+  // OFFLINE with an active job: printer dropped off network but job may still be running.
+  // Operator can confirm the job is OK (green = resume) or declare it failed (red).
+  // If the printer comes back PRINTING on its own, the hold is released automatically.
+  const needsOfflineConfirmation = printer.is_held === 1 && printer.status === 'OFFLINE' && printer.has_active_job === 1;
   const isPrinting = printer.status === 'PRINTING';
   const pct = isPrinting && printer.job_progress != null ? Math.round(printer.job_progress) : null;
   const timeLeft = isPrinting ? formatTimeRemaining(printer.job_time_remaining) : null;
@@ -84,8 +88,8 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
       onClick={() => inspectPrinter(printer)}
       title="Click to inspect raw printer status in console"
       style={{
-        background: needsConfirmation ? '#1c2a1c' : '#1e2433',
-        border: `1px solid ${needsConfirmation ? '#15803d' : style.bg}`,
+        background: needsConfirmation ? '#1c2a1c' : needsOfflineConfirmation ? '#2a1f0e' : '#1e2433',
+        border: `1px solid ${needsConfirmation ? '#15803d' : needsOfflineConfirmation ? '#92400e' : style.bg}`,
         borderRadius: 8,
         padding: '12px 14px',
         display: 'flex',
@@ -185,6 +189,28 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
         </div>
       )}
 
+      {needsOfflineConfirmation && (
+        <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 6 }}>
+            Went offline with a job in progress. If it comes back printing, this clears automatically.
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => onSetReady(printer.id, null)}
+              style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            >
+              ✓ Job OK
+            </button>
+            <button
+              onClick={() => onBadPrint(printer.id)}
+              style={{ background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            >
+              ✗ Job Failed
+            </button>
+          </div>
+        </div>
+      )}
+
       <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 2 }}>
         <button onClick={() => onDecommission(printer.id)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}>
           Decommission
@@ -231,6 +257,7 @@ export default function Fleet() {
 
   // Printers awaiting operator confirmation — excludes those currently printing (hold is pre-set for when they finish)
   const awaitingConfirmation = printers.filter(p => p.is_held === 1 && (p.status === 'FINISHED' || p.status === 'IDLE'));
+  const awaitingOfflineReview = printers.filter(p => p.is_held === 1 && p.status === 'OFFLINE' && p.has_active_job === 1);
 
   function toggleSelect(printerId) {
     setSelectedForReady(prev => {
@@ -370,6 +397,27 @@ export default function Fleet() {
           Sweep for Jobs
         </button>
       </div>
+
+      {/* Offline-with-job banner */}
+      {awaitingOfflineReview.length > 0 && (
+        <div style={{
+          background: '#292113',
+          border: '1px solid #92400e',
+          borderRadius: 8,
+          padding: '10px 16px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}>
+          <span style={{ color: '#fbbf24', fontWeight: 600, fontSize: 14 }}>
+            {awaitingOfflineReview.length} printer{awaitingOfflineReview.length !== 1 ? 's' : ''} went offline with a job in progress
+          </span>
+          <span style={{ color: '#78350f', fontSize: 13 }}>
+            — will auto-clear if they come back printing
+          </span>
+        </div>
+      )}
 
       {/* Confirmation banner */}
       {awaitingConfirmation.length > 0 && (

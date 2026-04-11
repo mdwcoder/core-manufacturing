@@ -196,6 +196,12 @@ const server = app.listen(PORT, () => {
       `).get(printer.id, scheduler.startedAt);
 
       if (activeJob) {
+        // OFFLINE-with-job: operator is saying "job is still running, resume" — do not
+        // credit qty or mark the job finished. The job stays as 'printing' and will
+        // resolve normally when the printer finishes and _handleFinished fires.
+        if (printer.status === 'OFFLINE' && activeJob.status === 'printing') {
+          console.log(`[server] ${printer.name} set ready from OFFLINE — job ${activeJob.id} still printing, no qty credited`);
+        } else {
         const creditQty = (confirmed_qty != null && !isNaN(parseInt(confirmed_qty, 10)))
           ? parseInt(confirmed_qty, 10)
           : activeJob.parts_per_plate;
@@ -224,6 +230,7 @@ const server = app.listen(PORT, () => {
             console.log(`[server] Project ${part.project_id} completed!`);
           }
         }
+        } // end else (not OFFLINE-with-job)
       }
     }
 

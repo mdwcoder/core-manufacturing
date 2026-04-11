@@ -35,8 +35,14 @@ class JobScheduler extends EventEmitter {
       if (newStatus === 'FINISHED') {
         this._handleFinished(printer);
       }
-      if (newStatus === 'ERROR' || newStatus === 'OFFLINE') {
+      if (newStatus === 'ERROR') {
         this._handlePrinterUnavailable(printer);
+      }
+      if (newStatus === 'OFFLINE') {
+        this._handlePrinterOffline(printer);
+      }
+      if (newStatus === 'PRINTING') {
+        this._handleRecoveredToPrinting(printer);
       }
     });
   }
@@ -430,6 +436,44 @@ class JobScheduler extends EventEmitter {
   }
 
   // ─── Error / offline handling ────────────────────────────────────────────────
+
+  // OFFLINE is treated as a transient network event, not a definitive failure.
+  // The job is left as 'printing' so it can resume naturally if the printer
+  // comes back. The printer is held so the operator sees it needs attention.
+  // If the printer comes back PRINTING, _handleRecoveredToPrinting auto-unhollds.
+  // If the operator confirms via green (set-ready), the job keeps running.
+  // If the operator confirms via red (mark-job-failure), the job is failed.
+  _handlePrinterOffline(printer) {
+    const activeJob = this.db.prepare(
+      "SELECT id FROM jobs WHERE printer_id = ? AND status IN ('uploading', 'printing') LIMIT 1"
+    ).get(printer.id);
+
+    this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
+
+    if (activeJob) {
+      events.insert(printer.id, 'offline_with_job', `Printer went offline with job ${activeJob.id} in progress — awaiting operator confirmation`);
+      console.warn(`[scheduler] ${printer.name} went OFFLINE with active job — held for operator review (job left as printing)`);
+    } else {
+      console.warn(`[scheduler] ${printer.name} went OFFLINE (no active job) — held`);
+    }
+  }
+
+  // When a held printer transitions to PRINTING, it has recovered from a transient
+  // OFFLINE. If it still has a printing job, auto-unhold — no operator action needed.
+  _handleRecoveredToPrinting(printer) {
+    const fresh = this.db.prepare('SELECT is_held FROM printers WHERE id = ?').get(printer.id);
+    if (!fresh || !fresh.is_held) return;
+
+    const activeJob = this.db.prepare(
+      "SELECT id FROM jobs WHERE printer_id = ? AND status = 'printing' LIMIT 1"
+    ).get(printer.id);
+
+    if (activeJob) {
+      this.db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
+      events.insert(printer.id, 'recovered', `Printer came back online and resumed printing — hold released automatically`);
+      console.log(`[scheduler] ${printer.name} auto-unhold — came back online and is printing (job ${activeJob.id})`);
+    }
+  }
 
   _handlePrinterUnavailable(printer) {
     // Mark any uploading/printing job on this printer as failed
