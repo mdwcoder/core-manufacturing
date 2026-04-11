@@ -6,16 +6,23 @@ const router = express.Router();
 const GCODE_DIR = path.join(__dirname, '..', 'gcode');
 
 module.exports = (db) => {
+  const ACTIVE_QTY_SQL = `
+    COALESCE((
+      SELECT SUM(j.parts_per_plate) FROM jobs j
+      WHERE j.part_id = parts.id AND j.status IN ('uploading', 'printing')
+    ), 0) AS active_qty
+  `;
+
   router.get('/', (req, res) => {
     const { project_id } = req.query;
     const parts = project_id
-      ? db.prepare('SELECT * FROM parts WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC').all(project_id)
-      : db.prepare('SELECT * FROM parts ORDER BY sort_order ASC, created_at ASC').all();
+      ? db.prepare(`SELECT parts.*, ${ACTIVE_QTY_SQL} FROM parts WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC`).all(project_id)
+      : db.prepare(`SELECT parts.*, ${ACTIVE_QTY_SQL} FROM parts ORDER BY sort_order ASC, created_at ASC`).all();
     res.json(parts);
   });
 
   router.get('/:id', (req, res) => {
-    const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(req.params.id);
+    const part = db.prepare(`SELECT parts.*, ${ACTIVE_QTY_SQL} FROM parts WHERE parts.id = ?`).get(req.params.id);
     if (!part) return res.status(404).json({ error: 'Part not found' });
     res.json(part);
   });

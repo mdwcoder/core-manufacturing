@@ -360,10 +360,15 @@ export default function Dashboard() {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {proj.parts.map(part => {
+                        const activeQty    = part.active_qty || 0;
+                        const scale        = Math.max(part.target_qty, part.completed_qty + activeQty);
+                        const completedPct = scale > 0 ? (part.completed_qty / scale) * 100 : 0;
+                        const activePct    = scale > 0 ? (activeQty / scale) * 100 : 0;
+                        const isOver       = part.completed_qty + activeQty > part.target_qty;
+                        const targetTickPct = isOver && scale > 0 ? (part.target_qty / scale) * 100 : null;
                         const pct = part.target_qty > 0
-                          ? Math.min(100, Math.round((part.completed_qty / part.target_qty) * 100))
+                          ? Math.round((part.completed_qty / part.target_qty) * 100)
                           : 0;
-                        const barColor = part.status === 'closed' || pct >= 75 ? '#22c55e' : '#3b82f6';
                         return (
                           <div key={part.id}>
                             <div style={{
@@ -373,9 +378,14 @@ export default function Dashboard() {
                               <span style={{ fontSize: 12, color: '#94a3b8' }}>{part.name}</span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <span style={{ fontSize: 11, color: '#475569', fontVariantNumeric: 'tabular-nums' }}>
-                                  {part.completed_qty.toLocaleString()} / {part.target_qty.toLocaleString()}
+                                  {part.completed_qty.toLocaleString()}
+                                  {activeQty > 0 && (
+                                    <span style={{ color: '#3b82f6' }}> +{activeQty.toLocaleString()}</span>
+                                  )}
+                                  {' / '}
+                                  {part.target_qty.toLocaleString()}
                                 </span>
-                                <span style={{ fontSize: 11, fontWeight: 700, color: barColor, minWidth: 30, textAlign: 'right' }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: part.status === 'closed' ? '#22c55e' : '#3b82f6', minWidth: 30, textAlign: 'right' }}>
                                   {pct}%
                                 </span>
                                 {part.status === 'closed' && (
@@ -389,12 +399,34 @@ export default function Dashboard() {
                                 )}
                               </div>
                             </div>
-                            <div style={{ background: '#0f172a', borderRadius: 3, height: 5, overflow: 'hidden' }}>
+                            <div style={{ position: 'relative', background: '#0f172a', borderRadius: 3, height: 5 }}>
+                              {/* Completed segment */}
                               <div style={{
-                                width: `${pct}%`, height: '100%',
-                                background: barColor, borderRadius: 3,
+                                position: 'absolute', left: 0, top: 0, height: '100%',
+                                width: `${completedPct}%`,
+                                background: '#22c55e',
+                                borderRadius: activePct > 0 ? '3px 0 0 3px' : 3,
                                 transition: 'width 0.5s',
                               }} />
+                              {/* Printing segment */}
+                              {activePct > 0 && (
+                                <div style={{
+                                  position: 'absolute', left: `${completedPct}%`, top: 0, height: '100%',
+                                  width: `${activePct}%`,
+                                  background: '#3b82f6',
+                                  borderRadius: '0 3px 3px 0',
+                                  transition: 'width 0.5s',
+                                }} />
+                              )}
+                              {/* Target tick when active jobs push past the goal */}
+                              {targetTickPct !== null && (
+                                <div style={{
+                                  position: 'absolute', left: `${targetTickPct}%`, top: 0,
+                                  width: 2, height: '100%',
+                                  background: '#f59e0b',
+                                  transform: 'translateX(-50%)',
+                                }} />
+                              )}
                             </div>
                           </div>
                         );

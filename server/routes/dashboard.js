@@ -40,7 +40,12 @@ module.exports = (db) => {
 
     const projectsWithParts = activeProjects.map(proj => {
       const parts = db.prepare(`
-        SELECT * FROM parts WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC
+        SELECT parts.*,
+          COALESCE((
+            SELECT SUM(j.parts_per_plate) FROM jobs j
+            WHERE j.part_id = parts.id AND j.status IN ('uploading', 'printing')
+          ), 0) AS active_qty
+        FROM parts WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC
       `).all(proj.id);
       return { ...proj, parts };
     });

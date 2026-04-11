@@ -93,7 +93,7 @@ const server = app.listen(PORT, () => {
   });
 
   // Bulk set-ready — releases hold for multiple printers and dispatches through the
-  // batched sweep (10 at a time, waits for each batch to reach printing before the next).
+  // batched sweep (dispatch_batch_size at a time, waits for each batch to reach printing before the next).
   // Used by the "Set Ready (N)" action in the Fleet UI.
   app.post('/api/printers/set-ready-batch', (req, res) => {
     const { ids } = req.body;
@@ -103,7 +103,9 @@ const server = app.listen(PORT, () => {
     const placeholders = ids.map(() => '?').join(',');
     db.prepare(`UPDATE printers SET is_held = 0 WHERE id IN (${placeholders})`).run(...ids);
     const printers = db.prepare(`SELECT * FROM printers WHERE id IN (${placeholders}) AND is_active = 1`).all(...ids);
-    console.log(`[server] Batch set-ready: ${printers.length} printer(s) — dispatching in batches of 10`);
+    const batchSetting = db.prepare("SELECT value FROM settings WHERE key = 'dispatch_batch_size'").get();
+    const batchSize = batchSetting ? parseInt(batchSetting.value, 10) : 10;
+    console.log(`[server] Batch set-ready: ${printers.length} printer(s) — dispatching in batches of ${batchSize}`);
     scheduler._sweepInBatches(printers).catch(err =>
       console.error('[scheduler] Batch set-ready sweep error:', err)
     );

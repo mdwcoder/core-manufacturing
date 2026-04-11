@@ -819,8 +819,13 @@ export default function Projects() {
 
       {parts.map(part => {
         const partGs    = gcodesMap[part.id] || [];
-        const progress  = part.target_qty > 0 ? Math.min(1, part.completed_qty / part.target_qty) : 0;
-        const pct       = Math.round(progress * 100);
+        const activeQty = part.active_qty || 0;
+        const scale     = Math.max(part.target_qty, part.completed_qty + activeQty);
+        const completedPct = scale > 0 ? (part.completed_qty / scale) * 100 : 0;
+        const activePct    = scale > 0 ? (activeQty / scale) * 100 : 0;
+        const isOver       = part.completed_qty + activeQty > part.target_qty;
+        const targetTickPct = isOver && scale > 0 ? (part.target_qty / scale) * 100 : null;
+        const pct       = part.target_qty > 0 ? Math.round((part.completed_qty / part.target_qty) * 100) : 0;
         const partSt    = PART_STATUS[part.status] || PART_STATUS.open;
         const panelOpen = openPanels.has(part.id);
 
@@ -858,14 +863,44 @@ export default function Projects() {
               {/* Progress */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginBottom: 3 }}>
-                  <span>{part.completed_qty} / {part.target_qty}</span>
+                  <span>
+                    {part.completed_qty}
+                    {activeQty > 0 && (
+                      <span style={{ color: '#3b82f6', marginLeft: 4 }}>+{activeQty} printing</span>
+                    )}
+                    {' / '}
+                    {part.target_qty}
+                  </span>
                   <span>{pct}%</span>
                 </div>
-                <div style={{ background: '#0f172a', borderRadius: 3, height: 6, overflow: 'hidden' }}>
+                <div style={{ position: 'relative', background: '#0f172a', borderRadius: 3, height: 6 }}>
+                  {/* Completed segment */}
                   <div style={{
-                    background: part.status === 'closed' ? '#22c55e' : '#3b82f6',
-                    height: '100%', width: `${pct}%`, borderRadius: 3, transition: 'width 0.3s',
+                    position: 'absolute', left: 0, top: 0, height: '100%',
+                    width: `${completedPct}%`,
+                    background: '#22c55e',
+                    borderRadius: activePct > 0 ? '3px 0 0 3px' : 3,
+                    transition: 'width 0.3s',
                   }} />
+                  {/* Printing segment */}
+                  {activePct > 0 && (
+                    <div style={{
+                      position: 'absolute', left: `${completedPct}%`, top: 0, height: '100%',
+                      width: `${activePct}%`,
+                      background: '#3b82f6',
+                      borderRadius: '0 3px 3px 0',
+                      transition: 'width 0.3s',
+                    }} />
+                  )}
+                  {/* Target tick when active jobs push past the goal */}
+                  {targetTickPct !== null && (
+                    <div style={{
+                      position: 'absolute', left: `${targetTickPct}%`, top: 0,
+                      width: 2, height: '100%',
+                      background: '#f59e0b',
+                      transform: 'translateX(-50%)',
+                    }} />
+                  )}
                 </div>
               </div>
 
