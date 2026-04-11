@@ -242,7 +242,7 @@ class JobScheduler extends EventEmitter {
       if (activeCount > jobsRemaining) {
         // This part is already covered — try the next one down the list
         this.db.prepare('DELETE FROM jobs WHERE id = ?').run(jobId);
-        console.log(`[scheduler] Ceiling hit for part ${candidate.part_id} (${activeCount} active jobs cover ${jobsRemaining} remaining) — trying next part for ${printer.name}`);
+        console.log(`[scheduler] Ceiling hit for part ${candidate.part_id} (${activeCount - 1} of ${jobsRemaining} jobs already active) — trying next part for ${printer.name}`);
         skippedPartIds.push(candidate.part_id);
         continue;
       }
