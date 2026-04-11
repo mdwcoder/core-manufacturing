@@ -8,7 +8,8 @@
     "client": "npm run dev --prefix client",
     "build": "npm run build --prefix client",
     "start": "node server/index.js",
-    "test": "jest --testPathPatterns=server/tests"
+    "test": "jest --testPathPatterns=server/tests",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "axios": "^1.7.2",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "jest": "^30.3.0",
+    "patch-package": "^8.0.1",
     "supertest": "^7.2.2"
   }
 }

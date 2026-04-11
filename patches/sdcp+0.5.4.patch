@@ -1,0 +1,14 @@
+diff --git a/node_modules/sdcp/SDCPPrinterWS.js b/node_modules/sdcp/SDCPPrinterWS.js
+index 72f92a0..603ba5d 100644
+--- a/node_modules/sdcp/SDCPPrinterWS.js
++++ b/node_modules/sdcp/SDCPPrinterWS.js
+@@ -102,9 +102,7 @@ class SDCPPrinterWS extends require("./SDCPPrinter")
+ 		}
+ 
+ 		var Printer = this;
+-		console.log(Printer);
+ 		this.#Websocket = new WebSocket(`ws://${MainboardIP}:3030/websocket`, {timeout: 5000});
+-		console.log(this.#Websocket);
+ 		this.#Websocket.on('open', ()=>
+ 		{
+ 			if (debug) console.log(`Websocket connected to ${this.#Websocket._socket.remoteAddress}:${this.#Websocket._socket.remotePort}`);
