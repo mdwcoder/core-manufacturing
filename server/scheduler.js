@@ -174,58 +174,75 @@ class JobScheduler extends EventEmitter {
       return null;
     }
 
-    // Find the best open Part that has a G-code for this printer's model,
-    // belonging to an active project. FIFO across projects by created_at.
-    const candidate = this.db.prepare(`
-      SELECT
-        parts.id          AS part_id,
-        parts.target_qty,
-        parts.completed_qty,
-        parts.project_id,
-        gcodes.id         AS gcode_id,
-        gcodes.filename,
-        gcodes.filepath,
-        gcodes.parts_per_plate,
-        gcodes.ams_slot
-      FROM parts
-      JOIN gcodes   ON gcodes.part_id    = parts.id
-      JOIN projects ON projects.id       = parts.project_id
-      WHERE parts.status    = 'open'
-        AND projects.status = 'active'
-        AND gcodes.printer_model = ?
-      ORDER BY projects.priority ASC, projects.created_at ASC, parts.sort_order ASC, parts.created_at ASC
-      LIMIT 1
-    `).get(printer.model);
+    // Walk candidates in priority order (project priority → part sort_order) until
+    // we find a part that still needs a job, skipping any whose active jobs already
+    // cover the remaining qty (ceiling). This allows a printer to fall through to
+    // the next part in the list when the highest-priority part is fully covered.
+    const skippedPartIds = [];
+    let candidate = null;
+    let jobId = null;
 
-    if (!candidate) {
-      console.log(`[scheduler] No candidate found for ${printer.name} (model: ${printer.model}) — no open parts with matching G-code in an active project`);
-      return null;
-    }
+    while (true) {
+      const excludeClause = skippedPartIds.length > 0
+        ? `AND parts.id NOT IN (${skippedPartIds.map(() => '?').join(',')})`
+        : '';
 
-    // Synchronously insert a job as 'uploading' — this acts as a dispatch lock
-    // so concurrent printerIdle events for printers of the same model don't
-    // over-dispatch the same Part.
-    const jobRow = this.db.prepare(`
-      INSERT INTO jobs (part_id, printer_id, gcode_id, parts_per_plate, status, created_at)
-      VALUES (?, ?, ?, ?, 'uploading', ?)
-    `).run(candidate.part_id, printer.id, candidate.gcode_id, candidate.parts_per_plate, Date.now());
-    const jobId = jobRow.lastInsertRowid;
+      candidate = this.db.prepare(`
+        SELECT
+          parts.id          AS part_id,
+          parts.target_qty,
+          parts.completed_qty,
+          parts.project_id,
+          gcodes.id         AS gcode_id,
+          gcodes.filename,
+          gcodes.filepath,
+          gcodes.parts_per_plate,
+          gcodes.ams_slot
+        FROM parts
+        JOIN gcodes   ON gcodes.part_id    = parts.id
+        JOIN projects ON projects.id       = parts.project_id
+        WHERE parts.status    = 'open'
+          AND projects.status = 'active'
+          AND gcodes.printer_model = ?
+          ${excludeClause}
+        ORDER BY projects.priority ASC, projects.created_at ASC, parts.sort_order ASC, parts.created_at ASC
+        LIMIT 1
+      `).get(printer.model, ...skippedPartIds);
 
-    // Ceiling check: how many jobs are still needed vs how many are already active?
-    const jobsRemaining = Math.max(
-      0,
-      Math.ceil((candidate.target_qty - candidate.completed_qty) / candidate.parts_per_plate)
-    );
-    const activeCount = this.db.prepare(`
-      SELECT COUNT(*) AS count FROM jobs
-      WHERE part_id = ? AND status IN ('uploading', 'printing')
-    `).get(candidate.part_id).count;
+      if (!candidate) {
+        console.log(`[scheduler] No candidate found for ${printer.name} (model: ${printer.model}) — no open parts with matching G-code in an active project`);
+        return null;
+      }
 
-    if (activeCount > jobsRemaining) {
-      // We inserted one too many — Part is already covered
-      this.db.prepare('DELETE FROM jobs WHERE id = ?').run(jobId);
-      console.log(`[scheduler] Ceiling hit for ${printer.name} — ${activeCount} active jobs already cover ${jobsRemaining} remaining for part ${candidate.part_id}`);
-      return null;
+      // Synchronously insert a job as 'uploading' — this acts as a dispatch lock
+      // so concurrent printerIdle events for printers of the same model don't
+      // over-dispatch the same Part.
+      const jobRow = this.db.prepare(`
+        INSERT INTO jobs (part_id, printer_id, gcode_id, parts_per_plate, status, created_at)
+        VALUES (?, ?, ?, ?, 'uploading', ?)
+      `).run(candidate.part_id, printer.id, candidate.gcode_id, candidate.parts_per_plate, Date.now());
+      jobId = jobRow.lastInsertRowid;
+
+      // Ceiling check: how many jobs are still needed vs how many are already active?
+      const jobsRemaining = Math.max(
+        0,
+        Math.ceil((candidate.target_qty - candidate.completed_qty) / candidate.parts_per_plate)
+      );
+      const activeCount = this.db.prepare(`
+        SELECT COUNT(*) AS count FROM jobs
+        WHERE part_id = ? AND status IN ('uploading', 'printing')
+      `).get(candidate.part_id).count;
+
+      if (activeCount > jobsRemaining) {
+        // This part is already covered — try the next one down the list
+        this.db.prepare('DELETE FROM jobs WHERE id = ?').run(jobId);
+        console.log(`[scheduler] Ceiling hit for part ${candidate.part_id} (${activeCount} active jobs cover ${jobsRemaining} remaining) — trying next part for ${printer.name}`);
+        skippedPartIds.push(candidate.part_id);
+        continue;
+      }
+
+      // This part has room — proceed with upload
+      break;
     }
 
     // Resolve driver. If the printer type is unrecognised, fail the job cleanly
