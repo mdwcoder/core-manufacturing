@@ -91,6 +91,7 @@ function mapStatus(printInfo) {
     case 9:  return 'FINISHED'; // post-completion: CurrentLayer===TotalLayer, Filename cleared
     case 13: return 'PRINTING'; // active print, layer incrementing (observed on Centauri Carbon)
     case 16: return 'PRINTING'; // preparing/preheating — normal FDM startup state
+    case 18: return 'PRINTING'; // startup/init state, file loaded, Progress=0 (observed on Centauri Carbon)
     case 21: return 'PRINTING'; // startup/init state, file loaded (observed on Centauri Carbon)
     default: return 'UNKNOWN';
   }
