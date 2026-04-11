@@ -2,6 +2,60 @@
 
 ---
 
+## 2026-04-10 — Elegoo status 18 mapped to PRINTING
+
+Status code 18 from the Elegoo SDCP protocol is a transient startup state (file loaded, `Progress=0`, `CurrentLayer=0`) observed on Centauri Carbon printers between `IDLE` and active printing. It now maps to `PRINTING` alongside codes 16 and 21, eliminating the spurious `IDLE → UNKNOWN → PRINTING` transition in the poller log.
+
+### Changes
+
+**`server/drivers/elegoo-centauri.js`**
+- Added `case 18: return 'PRINTING'` to `mapStatus()`
+
+---
+
+## 2026-04-10 — Silence sdcp library debug log spam
+
+The `sdcp` npm package had two unconditional `console.log()` calls in `SDCPPrinterWS.js` that dumped the full `Printer` object and `WebSocket` object to stdout on every connection attempt (every poll cycle per Elegoo printer). These were debug statements left in by the library author.
+
+Patched via `patch-package` so the fix survives `npm install`. A `postinstall` script in `package.json` re-applies the patch automatically.
+
+### Changes
+
+**`patches/sdcp+0.5.4.patch`** — new file; removes two unconditional `console.log` calls from `SDCPPrinterWS.js`
+
+**`package.json`**
+- Added `"postinstall": "patch-package"` to scripts
+- Added `patch-package ^8.0.1` to devDependencies
+
+---
+
+## 2026-04-10 — Scheduler cascades to next part when ceiling is hit
+
+Previously, when a batch of printers was dispatched and the highest-priority part's remaining quota was already fully covered by active jobs (ceiling hit), surplus printers returned `null` and sat idle. They did not fall through to the next open part in the project.
+
+Now `_dispatchToPrinter` walks candidates in priority order, skipping any part whose active job count already covers its remaining qty, until it finds a part that needs a job or exhausts all options. This means that in a large harvest (e.g. 55 printers set ready at once), machines that can't contribute to the top part automatically pick up work on the next part down the list.
+
+### Changes
+
+**`server/scheduler.js`**
+- Replaced single `LIMIT 1` candidate query with a `while` loop that tracks `skippedPartIds` and re-queries with `NOT IN (...)` on ceiling hits
+- Ceiling-hit path now logs and continues the loop instead of returning `null`
+
+---
+
+## 2026-04-10 — Parts list column alignment
+
+The parts list in the Projects view had a staggered layout because the name column used `flex: '1 1 100px'`, causing it to grow to different widths across rows and pushing the progress bar to inconsistent starting positions. Row items could also wrap onto a second line.
+
+### Changes
+
+**`client/src/pages/Projects.jsx`**
+- Name column: changed from `flex: '1 1 100px', minWidth: 80` to `width: 200, flexShrink: 0` (fixed width)
+- Progress column: changed from `flex: '2 1 160px', minWidth: 120` to `flex: 1, minWidth: 0`
+- Row container: removed `flexWrap: 'wrap'`
+
+---
+
 ## 2026-04-09 — Inline rename on Printer detail page
 
 Operators can now rename a printer from the Printer detail view. Clicking the **Rename** button next to the printer name swaps the header into an inline edit field with Save / Cancel controls (Escape also cancels). The save path `PUT /api/printers/:id` already supported `name` updates — this is a UI-only addition. Duplicate names surface the server's 409 error inline.

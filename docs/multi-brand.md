@@ -38,7 +38,7 @@ Both brands map their native states to a shared internal set. The rest of the sy
 | Canonical | PrusaLink source | SDCP source |
 |---|---|---|
 | `IDLE` | `IDLE` | Code 0 |
-| `PRINTING` | `PRINTING` | Codes 1, 13, 16, 21 (several FDM startup states — see CHANGELOG) |
+| `PRINTING` | `PRINTING` | Codes 1, 13, 16, 18, 21 (several FDM startup states — see CHANGELOG) |
 | `FINISHED` | `FINISHED` | Codes 3 (stopped) and 4 (complete) |
 | `PAUSED` | `PAUSED` | Code 2 |
 | `ERROR` | `ERROR`, `ATTENTION` | Not currently generated; reserved for confirmed fault codes |
@@ -144,7 +144,7 @@ The existing Prusa Slicer filename regex (`^(\d+)x ... .bgcode$`) will not match
 ## What Is Not Changing
 
 - The entire state machine in `poller.js` (hold logic, cold-start handling, event emission)
-- The dispatch batching, ceiling math, and retry logic in `scheduler.js`
+- The dispatch batching, ceiling math, retry logic, and part-cascade fallthrough in `scheduler.js`
 - The DB schema
 - All existing Prusa functionality
 
