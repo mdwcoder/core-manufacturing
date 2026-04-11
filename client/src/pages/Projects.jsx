@@ -826,10 +826,10 @@ export default function Projects() {
 
         return (
           <div key={part.id} style={{ background: '#1e2433', border: '1px solid #2d3748', borderRadius: 8, padding: '12px 16px', marginBottom: 8 }}>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
 
               {/* Name + order buttons */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: '1 1 100px', minWidth: 80 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 200, flexShrink: 0 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   <button
                     onClick={() => movePart(part.id, 'up')}
@@ -856,7 +856,7 @@ export default function Projects() {
               </div>
 
               {/* Progress */}
-              <div style={{ flex: '2 1 160px', minWidth: 120 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginBottom: 3 }}>
                   <span>{part.completed_qty} / {part.target_qty}</span>
                   <span>{pct}%</span>
