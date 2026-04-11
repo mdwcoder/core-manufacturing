@@ -904,25 +904,14 @@ export default function Projects() {
                 </div>
               </div>
 
-              {/* Status badge */}
-              <span style={{ background: partSt.bg, color: partSt.text, borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+              {/* Status badge — fixed width so bar length is consistent across all parts */}
+              <span style={{
+                background: partSt.bg, color: partSt.text, borderRadius: 4,
+                padding: '2px 8px', fontSize: 11, fontWeight: 700,
+                width: 54, flexShrink: 0, textAlign: 'center',
+              }}>
                 {partSt.label}
               </span>
-
-              {/* G-code model chips (read-only) */}
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {partGs.map(gc => (
-                  <span
-                    key={gc.id}
-                    style={{
-                      background: '#0f172a', border: '1px solid #2d3748', borderRadius: 4,
-                      padding: '1px 8px', fontSize: 11, color: '#94a3b8', fontFamily: 'monospace',
-                    }}
-                  >
-                    {gc.printer_model}
-                  </span>
-                ))}
-              </div>
 
               {/* Details toggle */}
               <button
