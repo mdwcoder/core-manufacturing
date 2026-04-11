@@ -14,6 +14,7 @@ class JobScheduler extends EventEmitter {
     this.poller = poller;
     this._isSweeping = false;
     this._pendingPrinters = [];
+    this._activeUploads = new Set(); // printer IDs with an upload currently in flight
     // Stamped in start(). Used to gate the failed-job recovery fallback so
     // that only jobs failed during the current process lifetime are eligible.
     // Prevents stale failed jobs from a previous session being credited when a
@@ -132,7 +133,10 @@ class JobScheduler extends EventEmitter {
     );
   }
 
-  // Poll jobs table until all given job IDs are printing or terminal (failed/cancelled).
+  // Poll jobs table until all given job IDs are printing or terminal.
+  // A job left as 'uploading' with its printer held counts as terminal — the upload
+  // failed and operator confirmation is needed before anything changes. The batch
+  // must not block on it indefinitely.
   // Gives up after 10 minutes — large files on slow networks can take several minutes to transfer.
   _waitForBatch(jobIds, pollIntervalMs = 3000, timeoutMs = 600000) {
     return new Promise((resolve) => {
@@ -140,12 +144,15 @@ class JobScheduler extends EventEmitter {
       const placeholders = jobIds.map(() => '?').join(',');
 
       const check = () => {
-        const rows = this.db.prepare(
-          `SELECT status FROM jobs WHERE id IN (${placeholders})`
-        ).all(...jobIds);
+        const rows = this.db.prepare(`
+          SELECT j.status, p.is_held
+          FROM jobs j JOIN printers p ON p.id = j.printer_id
+          WHERE j.id IN (${placeholders})
+        `).all(...jobIds);
 
         const allSettled = rows.every(r =>
-          r.status === 'printing' || r.status === 'failed' || r.status === 'cancelled'
+          r.status === 'printing' || r.status === 'failed' || r.status === 'cancelled' ||
+          (r.status === 'uploading' && r.is_held === 1)
         );
 
         if (allSettled || Date.now() - start > timeoutMs) {
@@ -180,6 +187,27 @@ class JobScheduler extends EventEmitter {
       return null;
     }
 
+    // Guard against starting a new upload while one is already in flight for this printer.
+    // Prevents the 409-Conflict retry cycle where a slow transfer causes a retry that
+    // immediately hits the still-running first attempt.
+    if (this._activeUploads.has(printer.id)) {
+      console.log(`[scheduler] ${printer.name} upload already in flight — skipping dispatch`);
+      return null;
+    }
+
+    // Resolve driver up-front — before any job row is created.
+    // A printer with an unknown type should never have jobs farmed to it.
+    // Holding the printer surfaces the misconfiguration to an operator without
+    // leaving any stale job record behind.
+    let driver;
+    try {
+      driver = getDriver(printer.type);
+    } catch (err) {
+      this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
+      console.error(`[scheduler] ${printer.name} has unknown type "${printer.type}" — held, no job created: ${err.message}`);
+      return null;
+    }
+
     // Walk candidates in priority order (project priority → part sort_order) until
     // we find a part that still needs a job, skipping any whose active jobs already
     // cover the remaining qty (ceiling). This allows a printer to fall through to
@@ -187,6 +215,7 @@ class JobScheduler extends EventEmitter {
     const skippedPartIds = [];
     let candidate = null;
     let jobId = null;
+    let gcodeFullPath = null;
 
     while (true) {
       const excludeClause = skippedPartIds.length > 0
@@ -247,39 +276,30 @@ class JobScheduler extends EventEmitter {
         continue;
       }
 
-      // This part has room — proceed with upload
+      // Verify the G-code file exists on disk before committing to this candidate.
+      // A missing file is a permanent condition — retrying won't fix it. Delete the
+      // probe job, notify the operator, and fall through to the next part so the
+      // printer can still pick up other work. No job record is left behind.
+      const gcodeFilename = candidate.filepath.split(/[\\/]/).pop();
+      gcodeFullPath = path.join(GCODE_DIR, gcodeFilename);
+      if (!fs.existsSync(gcodeFullPath)) {
+        this.db.prepare('DELETE FROM jobs WHERE id = ?').run(jobId);
+        const part = this.db.prepare('SELECT parts.name, projects.name AS project_name FROM parts JOIN projects ON projects.id = parts.project_id WHERE parts.id = ?').get(candidate.part_id);
+        notifications.add(
+          `G-code file missing for "${candidate.filename}" — re-upload the file for part "${part?.name}" in project "${part?.project_name}".`
+        );
+        console.warn(`[scheduler] G-code missing for part ${candidate.part_id} ("${candidate.filename}") — skipping to next part for ${printer.name}`);
+        skippedPartIds.push(candidate.part_id);
+        continue;
+      }
+
+      // Candidate has room and file exists — proceed with upload
       break;
-    }
-
-    // Resolve driver. If the printer type is unrecognised, fail the job cleanly
-    // rather than leaving it stuck as 'uploading' which would stall _waitForBatch.
-    let driver;
-    try {
-      driver = getDriver(printer.type);
-    } catch (err) {
-      this.db.prepare(`UPDATE jobs SET status = 'failed' WHERE id = ?`).run(jobId);
-      this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
-      console.error(`[scheduler] ${printer.name} has unknown type "${printer.type}" — holding printer: ${err.message}`);
-      return null;
-    }
-
-    // Resolve the G-code path on disk before invoking the driver.
-    // A missing file won't be fixed by retrying, so we bail immediately.
-    const gcodeFilename = candidate.filepath.split(/[\\/]/).pop();
-    const gcodeFullPath = path.join(GCODE_DIR, gcodeFilename);
-    if (!fs.existsSync(gcodeFullPath)) {
-      this.db.prepare(`UPDATE jobs SET status = 'failed' WHERE id = ?`).run(jobId);
-      this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
-      const part = this.db.prepare('SELECT parts.name, projects.name AS project_name FROM parts JOIN projects ON projects.id = parts.project_id WHERE parts.id = ?').get(candidate.part_id);
-      notifications.add(
-        `G-code file missing for "${candidate.filename}" — re-upload the file for part "${part?.name}" in project "${part?.project_name}". Printer ${printer.name} has been held.`
-      );
-      return null;
     }
 
     // Upload with retries. A transient network timeout (common when many printers
     // start simultaneously) will self-heal. Only after all attempts are exhausted
-    // does the printer get re-held for operator attention.
+    // does the printer get held for operator attention.
     //
     // 409 CONFLICT means a file transfer is already in progress on the printer
     // (typically a previous attempt that timed out on our side but continued on the printer).
@@ -287,23 +307,28 @@ class JobScheduler extends EventEmitter {
     const MAX_RETRIES = 2;
     let lastErr = null;
 
-    for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
-      try {
-        await driver.uploadAndPrint(printer, gcodeFullPath, candidate.filename, { amsSlot: candidate.ams_slot });
-        lastErr = null;
-        break;
-      } catch (err) {
-        lastErr = err;
-        if (attempt <= MAX_RETRIES) {
-          const isConflict = err.code === 'UPLOAD_CONFLICT';
-          const waitMs = isConflict ? 60000 : 5000;
-          console.warn(
-            `[scheduler] ${printer.name} upload attempt ${attempt}/${MAX_RETRIES + 1} failed ` +
-            `(${err.message}) — retrying in ${waitMs / 1000}s`
-          );
-          await new Promise(r => setTimeout(r, waitMs));
+    this._activeUploads.add(printer.id);
+    try {
+      for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
+        try {
+          await driver.uploadAndPrint(printer, gcodeFullPath, candidate.filename, { amsSlot: candidate.ams_slot });
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt <= MAX_RETRIES) {
+            const isConflict = err.code === 'UPLOAD_CONFLICT';
+            const waitMs = isConflict ? 60000 : 5000;
+            console.warn(
+              `[scheduler] ${printer.name} upload attempt ${attempt}/${MAX_RETRIES + 1} failed ` +
+              `(${err.message}) — retrying in ${waitMs / 1000}s`
+            );
+            await new Promise(r => setTimeout(r, waitMs));
+          }
         }
       }
+    } finally {
+      this._activeUploads.delete(printer.id);
     }
 
     if (lastErr) {
@@ -318,10 +343,16 @@ class JobScheduler extends EventEmitter {
         return jobId;
       }
 
-      this.db.prepare(`UPDATE jobs SET status = 'failed' WHERE id = ?`).run(jobId);
-      // Re-hold the printer — upload failed, operator must inspect before next dispatch.
+      // Upload failed and printer is not printing. Hold the printer and leave the job
+      // as 'uploading' — the operator must confirm the outcome via Fleet UI.
+      // Job Running: confirms the print is actually running (changes job to printing).
+      // Upload Failed: marks the job failed and decommissions.
+      // Never auto-fail here — the operator decides.
       this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
-      console.error(`[scheduler] ${printer.name} dispatch failed after ${MAX_RETRIES + 1} attempts: ${lastErr.message}`);
+      notifications.add(
+        `Upload to ${printer.name} failed after ${MAX_RETRIES + 1} attempts — check the printer and confirm the outcome in Fleet.`
+      );
+      console.error(`[scheduler] ${printer.name} upload failed after ${MAX_RETRIES + 1} attempts — held, job ${jobId} left as uploading for operator confirmation`);
       return null;
     }
 

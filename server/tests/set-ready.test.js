@@ -85,6 +85,17 @@ function makeApp(db, scheduler = { scheduleForPrinter: jest.fn(), startedAt: 0 }
             db.prepare(`UPDATE projects SET status = 'completed', updated_at = ? WHERE id = ?`).run(now, part.project_id);
           }
         }
+      } else {
+        // Upload-stalled case: no finished/printing/recently-failed job, but there may be
+        // a stalled 'uploading' job. Operator is confirming the print is actually running —
+        // change the job to 'printing' so it resolves naturally when the printer finishes.
+        const uploadingJob = db.prepare(
+          "SELECT * FROM jobs WHERE printer_id = ? AND status = 'uploading' ORDER BY created_at DESC LIMIT 1"
+        ).get(printer.id);
+        if (uploadingJob) {
+          db.prepare("UPDATE jobs SET status = 'printing', started_at = ? WHERE id = ?")
+            .run(now, uploadingJob.id);
+        }
       }
     }
 
@@ -443,5 +454,100 @@ describe('set-ready — MQTT recovery (failed job, no printing or finished job)'
 
     const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
     expect(part.completed_qty).toBe(0); // stale job not credited
+  });
+});
+
+// ── Case 4: Upload stalled — job is 'uploading', operator confirms it's running ──
+//
+// When all upload retries are exhausted and checkIfPrinting returns false, the
+// scheduler leaves the job as 'uploading' and holds the printer. The operator
+// checks the machine and presses Job Running. Set-ready changes the job to
+// 'printing' without crediting any qty — the print resolves normally at finish.
+
+describe('set-ready — upload stalled (uploading job, operator confirms running)', () => {
+  test('changes uploading job to printing', async () => {
+    const db        = makeDb();
+    const printerId = seedPrinter(db, { name: `P_upst_${Date.now()}`, status: 'IDLE' });
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId, { completedQty: 0 });
+    const gcodeId   = seedGcode(db, partId);
+    const jobId     = seedJob(db, printerId, partId, gcodeId, 'uploading');
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({});
+
+    const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(jobId);
+    expect(job.status).toBe('printing');
+  });
+
+  test('does not credit completed_qty for an uploading job', async () => {
+    const db        = makeDb();
+    const printerId = seedPrinter(db, { name: `P_upstq_${Date.now()}`, status: 'IDLE' });
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId, { completedQty: 0 });
+    const gcodeId   = seedGcode(db, partId);
+    seedJob(db, printerId, partId, gcodeId, 'uploading', { partsPerPlate: 4 });
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({});
+
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(0); // print hasn't finished — no credit yet
+  });
+
+  test('releases the hold', async () => {
+    const db        = makeDb();
+    const printerId = seedPrinter(db, { name: `P_upsth_${Date.now()}`, status: 'IDLE' });
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId);
+    const gcodeId   = seedGcode(db, partId);
+    seedJob(db, printerId, partId, gcodeId, 'uploading');
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({});
+
+    const printer = db.prepare('SELECT is_held FROM printers WHERE id = ?').get(printerId);
+    expect(printer.is_held).toBe(0);
+  });
+
+  test('calls scheduleForPrinter after confirming upload-stalled job', async () => {
+    const db        = makeDb();
+    const scheduler = { scheduleForPrinter: jest.fn(), startedAt: 0 };
+    const printerId = seedPrinter(db, { name: `P_upsts_${Date.now()}`, status: 'IDLE' });
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId);
+    const gcodeId   = seedGcode(db, partId);
+    seedJob(db, printerId, partId, gcodeId, 'uploading');
+
+    await request(makeApp(db, scheduler))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({});
+
+    expect(scheduler.scheduleForPrinter).toHaveBeenCalledTimes(1);
+  });
+
+  test('ignores uploading job when a printing job also exists', async () => {
+    // A printing job takes priority — the uploading job should not change status
+    const db         = makeDb();
+    const printerId  = seedPrinter(db, { name: `P_upst2_${Date.now()}`, status: 'IDLE' });
+    const projectId  = seedProject(db);
+    const partId     = seedPart(db, projectId, { completedQty: 0 });
+    const gcodeId    = seedGcode(db, partId);
+    const printingId = seedJob(db, printerId, partId, gcodeId, 'printing', { partsPerPlate: 4 });
+    const uploadingId = seedJob(db, printerId, partId, gcodeId, 'uploading', { partsPerPlate: 4 });
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({});
+
+    // Printing job was handled (credited and marked finished)
+    const printingJob = db.prepare('SELECT status FROM jobs WHERE id = ?').get(printingId);
+    expect(printingJob.status).toBe('finished');
+    // Uploading job must be left untouched
+    const uploadingJob = db.prepare('SELECT status FROM jobs WHERE id = ?').get(uploadingId);
+    expect(uploadingJob.status).toBe('uploading');
   });
 });

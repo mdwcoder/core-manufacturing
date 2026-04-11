@@ -215,6 +215,41 @@ describe('POST /api/printers/:id/mark-job-failure', () => {
     expect(part.completed_qty).toBe(0); // unchanged — was never incremented
   });
 
+  test('marks an uploading job as failed and decommissions the printer', async () => {
+    // Upload stalled — operator pressed Upload Failed. The job never ran, so no qty
+    // was ever credited. The job should be marked failed and printer decommissioned.
+    const projectId = seedProject();
+    const partId    = seedPart(projectId, 10, 0);
+    const gcodeId   = seedGcode(partId);
+    const printerId = seedPrinter({ name: `Printer_upfail_${Date.now()}`, status: 'IDLE' });
+    const jobId     = seedJob(printerId, partId, gcodeId, 'uploading', 4);
+
+    const res = await request(app).post(`/api/printers/${printerId}/mark-job-failure`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(jobId);
+    expect(job.status).toBe('failed');
+
+    const printer = db.prepare('SELECT is_active FROM printers WHERE id = ?').get(printerId);
+    expect(printer.is_active).toBe(0);
+  });
+
+  test('does not change completed_qty when an uploading job is marked failed', async () => {
+    // Upload stalled jobs never ran, so completed_qty was never incremented.
+    // Marking them failed must not subtract anything.
+    const projectId = seedProject();
+    const partId    = seedPart(projectId, 10, 6); // 6 already counted from prior runs
+    const gcodeId   = seedGcode(partId);
+    const printerId = seedPrinter({ name: `Printer_upnoCred_${Date.now()}`, status: 'IDLE' });
+    seedJob(printerId, partId, gcodeId, 'uploading', 4);
+
+    await request(app).post(`/api/printers/${printerId}/mark-job-failure`);
+
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(6); // unchanged — nothing to undo
+  });
+
   test('decommissions even when no tracked job exists', async () => {
     // This covers the case where a print ran to completion but the status mapped
     // to UNKNOWN (e.g. status code 9 before it was correctly mapped), so

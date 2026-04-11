@@ -27,6 +27,17 @@ beforeAll(() => {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      part_id INTEGER NOT NULL REFERENCES parts(id),
+      printer_id INTEGER NOT NULL,
+      gcode_id INTEGER,
+      parts_per_plate INTEGER NOT NULL,
+      status TEXT DEFAULT 'queued',
+      started_at INTEGER,
+      finished_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
   `);
 
   const now = Date.now();

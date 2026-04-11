@@ -46,7 +46,10 @@ module.exports = (db) => {
         ) AS last_parts_per_plate,
         EXISTS(
           SELECT 1 FROM jobs j WHERE j.printer_id = p.id AND j.status IN ('uploading', 'printing')
-        ) AS has_active_job
+        ) AS has_active_job,
+        EXISTS(
+          SELECT 1 FROM jobs j WHERE j.printer_id = p.id AND j.status = 'uploading'
+        ) AS has_uploading_job
       FROM printers p
       WHERE p.is_active = 1
       ORDER BY p.name
@@ -175,10 +178,12 @@ module.exports = (db) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
 
-    // Find the most recent job that is either finished (normal case) or still marked
-    // printing (missed-finish case: server was down when the print completed).
+    // Find the most recent job in any active or recently-completed state:
+    //   finished  — normal case; completed_qty was already credited
+    //   printing  — missed-finish; server was down when print completed
+    //   uploading — upload stalled; operator confirmed the print failed before it started
     const job = db.prepare(`
-      SELECT * FROM jobs WHERE printer_id = ? AND status IN ('finished', 'printing')
+      SELECT * FROM jobs WHERE printer_id = ? AND status IN ('finished', 'printing', 'uploading')
       ORDER BY finished_at DESC, started_at DESC LIMIT 1
     `).get(printer.id);
 
@@ -216,8 +221,8 @@ module.exports = (db) => {
         }
       }
     }
-    // Missed-finish case (job.status === 'printing'): completed_qty was never incremented,
-    // so there is nothing to undo. Just mark failed and decommission below.
+    // printing (missed-finish) and uploading (upload stalled) cases: completed_qty was never
+    // incremented, so there is nothing to undo. Just mark failed and decommission below.
 
     // Decommission the printer — a failed print requires investigation before it can run again.
     // The operator must explicitly recommission it when the machine is confirmed safe.

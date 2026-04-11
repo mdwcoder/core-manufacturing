@@ -48,7 +48,7 @@ function formatTimeRemaining(secs) {
   return '< 1m left';
 }
 
-function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onDecommission }) {
+function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onUploadFailed, onDecommission }) {
   const style = statusStyle(printer.status);
 
   // Confirmed-qty input — pre-filled from the last finished job's parts_per_plate.
@@ -79,6 +79,9 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
   // Operator can confirm the job is OK (green = resume) or declare it failed (red).
   // If the printer comes back PRINTING on its own, the hold is released automatically.
   const needsOfflineConfirmation = printer.is_held === 1 && printer.status === 'OFFLINE' && printer.has_active_job === 1;
+  // Upload stalled: all retries exhausted but printer is not confirmed printing or idle.
+  // Operator must check the machine and confirm whether the print is running or not.
+  const needsUploadConfirmation = printer.is_held === 1 && printer.has_uploading_job === 1 && printer.status !== 'OFFLINE';
   const isPrinting = printer.status === 'PRINTING';
   const pct = isPrinting && printer.job_progress != null ? Math.round(printer.job_progress) : null;
   const timeLeft = isPrinting ? formatTimeRemaining(printer.job_time_remaining) : null;
@@ -88,8 +91,8 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
       onClick={() => inspectPrinter(printer)}
       title="Click to inspect raw printer status in console"
       style={{
-        background: needsConfirmation ? '#1c2a1c' : needsOfflineConfirmation ? '#2a1f0e' : '#1e2433',
-        border: `1px solid ${needsConfirmation ? '#15803d' : needsOfflineConfirmation ? '#92400e' : style.bg}`,
+        background: needsConfirmation ? '#1c2a1c' : (needsOfflineConfirmation || needsUploadConfirmation) ? '#2a1f0e' : '#1e2433',
+        border: `1px solid ${needsConfirmation ? '#15803d' : (needsOfflineConfirmation || needsUploadConfirmation) ? '#92400e' : style.bg}`,
         borderRadius: 8,
         padding: '12px 14px',
         display: 'flex',
@@ -211,6 +214,28 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
         </div>
       )}
 
+      {needsUploadConfirmation && (
+        <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 6 }}>
+            Upload failed after retries — check the printer. Is it actually printing?
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => onSetReady(printer.id, null)}
+              style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            >
+              ✓ Job Running
+            </button>
+            <button
+              onClick={() => onUploadFailed(printer.id)}
+              style={{ background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            >
+              ✗ Upload Failed
+            </button>
+          </div>
+        </div>
+      )}
+
       <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 2 }}>
         <button onClick={() => onDecommission(printer.id)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}>
           Decommission
@@ -258,6 +283,7 @@ export default function Fleet() {
   // Printers awaiting operator confirmation — excludes those currently printing (hold is pre-set for when they finish)
   const awaitingConfirmation = printers.filter(p => p.is_held === 1 && (p.status === 'FINISHED' || p.status === 'IDLE'));
   const awaitingOfflineReview = printers.filter(p => p.is_held === 1 && p.status === 'OFFLINE' && p.has_active_job === 1);
+  const awaitingUploadReview = printers.filter(p => p.is_held === 1 && p.has_uploading_job === 1 && p.status !== 'OFFLINE');
 
   function toggleSelect(printerId) {
     setSelectedForReady(prev => {
@@ -347,6 +373,17 @@ export default function Fleet() {
     fetchPrinters();
   }
 
+  async function uploadFailed(printerId) {
+    const printer = printers.find(p => p.id === printerId);
+    if (!window.confirm(`Confirm upload failure for ${printer?.name}?\n\nThis confirms the print never started. No completed quantity will be deducted. The printer will be DECOMMISSIONED pending investigation.\n\nRecommission the printer manually when it is ready to run again.`)) return;
+    const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(`Failed to mark upload failure: ${body.error || res.status}`);
+    }
+    fetchPrinters();
+  }
+
   const counts = printers.reduce((acc, p) => {
     acc[p.status] = (acc[p.status] || 0) + 1;
     return acc;
@@ -415,6 +452,24 @@ export default function Fleet() {
           </span>
           <span style={{ color: '#78350f', fontSize: 13 }}>
             — will auto-clear if they come back printing
+          </span>
+        </div>
+      )}
+
+      {/* Upload-stalled banner */}
+      {awaitingUploadReview.length > 0 && (
+        <div style={{
+          background: '#292113',
+          border: '1px solid #92400e',
+          borderRadius: 8,
+          padding: '10px 16px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}>
+          <span style={{ color: '#fbbf24', fontWeight: 600, fontSize: 14 }}>
+            {awaitingUploadReview.length} printer{awaitingUploadReview.length !== 1 ? 's' : ''} had a failed upload — check each machine
           </span>
         </div>
       )}
@@ -535,6 +590,7 @@ export default function Fleet() {
                 onToggleSelect={toggleSelect}
                 onSetReady={setReady}
                 onBadPrint={badPrint}
+                onUploadFailed={uploadFailed}
                 onDecommission={decommission}
               />
             ))}

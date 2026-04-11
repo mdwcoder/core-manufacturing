@@ -2,6 +2,61 @@
 
 ---
 
+## 2026-04-11 — No automatic job failures; upload safety hardening
+
+The server can no longer automatically mark a job as `failed` without an operator confirming it. Previously, exhausted upload retries and misconfigured/missing-file pre-flight errors could all silently write failed job records. These paths have been removed or rerouted to operator confirmation.
+
+### Pre-flight checks before job creation
+
+**Unknown printer type** — `getDriver()` is now resolved before any job row is inserted. If the printer type is unrecognised, the printer is held and no job is created. Previously a job was inserted then immediately marked failed.
+
+**Missing G-code file** — File existence is now checked inside the candidate-selection loop, after the ceiling check, before the job row is ever committed. If a file is missing, the probe job is deleted and the part is skipped (same as a ceiling-hit). The printer falls through to its next eligible part instead of bailing entirely. No job record is left behind. Previously a job was inserted then immediately marked failed.
+
+### Upload stall — operator confirmation instead of auto-fail
+
+When all upload retries are exhausted and `checkIfPrinting` returns false, the server now holds the printer and leaves the job as `uploading` rather than marking it `failed`. The operator must verify the machine and confirm the outcome via the Fleet UI.
+
+Two new card buttons appear on amber upload-stalled cards:
+- **Job Running** — operator confirms the print is actually running; job changes from `uploading` → `printing` and resolves naturally when `_handleFinished` fires.
+- **Upload Failed** — calls `mark-job-failure`; job is marked `failed`, printer is decommissioned.
+
+An amber banner appears when any printer is in the upload-stalled state.
+
+### Upload lock
+
+A `_activeUploads` Set in the scheduler now tracks which printer IDs have an upload currently in flight. A new dispatch call for the same printer is skipped until the in-flight upload finishes. This prevents the 409-Conflict retry cycle where a slow transfer causes a retry that immediately hits the still-running first attempt.
+
+### `_waitForBatch` — stalled uploads no longer block the batch
+
+`_waitForBatch` joins the printers table and treats an `uploading` job with `is_held = 1` as settled. Previously the batch could block up to its 10-minute timeout waiting for a job that would never advance.
+
+### `mark-job-failure` extended to `uploading` jobs
+
+The endpoint now finds `finished`, `printing`, and `uploading` jobs (previously only the first two). For `uploading` jobs, nothing has been credited so there is nothing to undo — the printer is decommissioned with no qty side-effect.
+
+### Changes
+
+**`server/scheduler.js`**
+- `_activeUploads = new Set()` added to constructor
+- `_dispatchToPrinter`: driver resolved before while loop (no job created for unknown type); G-code check moved inside while loop with probe-job delete + skip on missing file; `_activeUploads` lock wraps `uploadAndPrint`; exhausted-retries path now holds printer + leaves job as `uploading` instead of marking `failed`
+- `_waitForBatch`: joins printers table; `uploading + is_held = 1` treated as settled
+
+**`server/routes/printers.js`**
+- `GET /api/printers`: adds `has_uploading_job` field
+- `POST /api/printers/:id/mark-job-failure`: query extended to include `uploading` status
+
+**`server/index.js`**
+- `POST /api/printers/:id/set-ready`: new `else` branch handles upload-stalled case — finds `uploading` job and changes it to `printing` when operator confirms Job Running
+
+**`client/src/pages/Fleet.jsx`**
+- `needsUploadConfirmation` condition: `is_held && has_uploading_job && status !== 'OFFLINE'`
+- Amber card border/background for upload-stalled printers
+- Amber banner for printers in upload-stalled state
+- **Job Running** and **Upload Failed** buttons on affected cards
+- `uploadFailed()` handler with appropriate confirm message (no qty deducted)
+
+---
+
 ## 2026-04-11 — OFFLINE printers no longer auto-fail their active job
 
 Previously, when a printer transitioned to `OFFLINE`, the scheduler immediately marked its active job as `failed` and held the printer. This was too aggressive — most OFFLINE events are transient network blips where the printer keeps printing uninterrupted.

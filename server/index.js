@@ -231,6 +231,20 @@ const server = app.listen(PORT, () => {
           }
         }
         } // end else (not OFFLINE-with-job)
+      } else {
+        // Upload-stalled case: no finished/printing/recently-failed job, but there may
+        // be a stalled 'uploading' job whose upload failed after exhausting retries.
+        // The operator pressing Job Running is confirming the print is actually running —
+        // change the job to 'printing' so it resolves naturally when _handleFinished fires.
+        // No qty is credited here; that happens at the normal finish confirmation.
+        const uploadingJob = db.prepare(
+          "SELECT * FROM jobs WHERE printer_id = ? AND status = 'uploading' ORDER BY created_at DESC LIMIT 1"
+        ).get(printer.id);
+        if (uploadingJob) {
+          db.prepare("UPDATE jobs SET status = 'printing', started_at = ? WHERE id = ?")
+            .run(now, uploadingJob.id);
+          console.log(`[server] ${printer.name} upload-stalled job ${uploadingJob.id} confirmed running by operator — changed to printing`);
+        }
       }
     }
 

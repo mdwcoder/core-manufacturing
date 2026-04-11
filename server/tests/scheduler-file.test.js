@@ -115,22 +115,22 @@ function createTestFile(filename) {
 // ─── GCODE_MISSING ────────────────────────────────────────────────────────────
 
 describe('_dispatchToPrinter — GCODE_MISSING', () => {
-  test('marks job failed and holds printer when file does not exist on disk', async () => {
+  test('returns null without leaving any job record when file does not exist on disk', async () => {
     const db = makeDb('nonexistent.bgcode');
     const scheduler = new JobScheduler(db, { on: () => {} });
 
     const jobId = await scheduler._dispatchToPrinter(fakePrinter);
 
     expect(jobId).toBeNull();
-    // Printer should be held
-    const printer = db.prepare('SELECT is_held FROM printers WHERE id = 1').get();
-    expect(printer.is_held).toBe(1);
-    // Job should be marked failed
+    // Probe job must be deleted — no stale job record left behind
     const job = db.prepare("SELECT status FROM jobs ORDER BY id DESC LIMIT 1").get();
-    expect(job.status).toBe('failed');
+    expect(job).toBeUndefined();
+    // Printer must NOT be held — it is free to pick up work for other parts
+    const printer = db.prepare('SELECT is_held FROM printers WHERE id = 1').get();
+    expect(printer.is_held).toBe(0);
   });
 
-  test('sends a notification when file is missing', async () => {
+  test('sends a notification naming the part and project when file is missing', async () => {
     const db = makeDb('also_missing.bgcode');
     const scheduler = new JobScheduler(db, { on: () => {} });
 
@@ -139,10 +139,10 @@ describe('_dispatchToPrinter — GCODE_MISSING', () => {
     expect(notifications.add).toHaveBeenCalledTimes(1);
     const msg = notifications.add.mock.calls[0][0];
     expect(msg).toMatch(/G-code file missing/);
-    // Notification should name the part, project, and printer so the operator knows what to fix
+    // Notification should name the part and project so the operator knows what to re-upload
     expect(msg).toMatch(/Part A/);
     expect(msg).toMatch(/Proj/);
-    expect(msg).toMatch(/P1/);
+    // Printer is not held — notification intentionally omits it
   });
 
   test('does not call driver.uploadAndPrint when file is missing', async () => {
@@ -152,6 +152,16 @@ describe('_dispatchToPrinter — GCODE_MISSING', () => {
     await scheduler._dispatchToPrinter(fakePrinter);
 
     expect(mockDriver.uploadAndPrint).not.toHaveBeenCalled();
+  });
+
+  test('sends exactly one notification (not one per retry) when file is missing', async () => {
+    const db = makeDb('single_notif.bgcode');
+    const scheduler = new JobScheduler(db, { on: () => {} });
+
+    await scheduler._dispatchToPrinter(fakePrinter);
+
+    // Missing file is a permanent condition — detected once before any retry loop
+    expect(notifications.add).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -241,7 +251,7 @@ describe('_dispatchToPrinter — upload failure recovery', () => {
     expect(printer.is_held).toBe(0);
   });
 
-  test('marks job failed and holds printer when all retries exhausted and not printing', async () => {
+  test('leaves job as uploading (not failed) and holds printer when all retries exhausted and not printing', async () => {
     const filename = `exhaust_${Date.now()}.bgcode`;
     createTestFile(filename);
     const db = makeDb(filename);
@@ -255,10 +265,31 @@ describe('_dispatchToPrinter — upload failure recovery', () => {
     const jobId = await promise;
 
     expect(jobId).toBeNull();
+    // Job must be left as 'uploading' — operator must confirm via Fleet UI (Job Running / Upload Failed)
     const job = db.prepare("SELECT status FROM jobs ORDER BY id DESC LIMIT 1").get();
-    expect(job.status).toBe('failed');
+    expect(job.status).toBe('uploading');
+    // Printer should be held for operator review
     const printer = db.prepare('SELECT is_held FROM printers WHERE id = 1').get();
     expect(printer.is_held).toBe(1);
+  });
+
+  test('sends a notification when upload retries are exhausted', async () => {
+    const filename = `notif_exhaust_${Date.now()}.bgcode`;
+    createTestFile(filename);
+    const db = makeDb(filename);
+    const scheduler = new JobScheduler(db, { on: () => {} });
+
+    mockDriver.uploadAndPrint.mockRejectedValue(new Error('ETIMEDOUT'));
+    mockDriver.checkIfPrinting.mockResolvedValue(false);
+
+    const promise = scheduler._dispatchToPrinter(fakePrinter);
+    await jest.runAllTimersAsync();
+    await promise;
+
+    expect(notifications.add).toHaveBeenCalledTimes(1);
+    const msg = notifications.add.mock.calls[0][0];
+    expect(msg).toMatch(/P1/);
+    expect(msg).toMatch(/failed after/);
   });
 
   test('retries up to MAX_RETRIES times before giving up', async () => {
@@ -280,5 +311,55 @@ describe('_dispatchToPrinter — upload failure recovery', () => {
     expect(mockDriver.uploadAndPrint).toHaveBeenCalledTimes(2);
     const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(jobId);
     expect(job.status).toBe('printing');
+  });
+});
+
+// ─── Upload lock ──────────────────────────────────────────────────────────────
+// _activeUploads prevents a second concurrent dispatch to the same printer while
+// an upload is still in flight. Without this guard, a slow transfer could cause
+// a retry that immediately triggers a 409 Conflict on the still-running first attempt.
+
+describe('_dispatchToPrinter — upload lock', () => {
+  test('skips dispatch if an upload is already in flight for the same printer', async () => {
+    const filename = `lock_${Date.now()}.bgcode`;
+    createTestFile(filename);
+    const db = makeDb(filename);
+    const scheduler = new JobScheduler(db, { on: () => {} });
+
+    let resolveUpload;
+    // First upload hangs indefinitely until we resolve it
+    mockDriver.uploadAndPrint.mockReturnValueOnce(new Promise(r => { resolveUpload = r; }));
+
+    // Start first dispatch — it will suspend at the awaited uploadAndPrint.
+    // Everything up to _activeUploads.add runs synchronously before the first await,
+    // so the printer ID is in _activeUploads immediately after this call.
+    const firstDispatch = scheduler._dispatchToPrinter(fakePrinter);
+
+    // Second dispatch for the same printer — must be skipped by the upload lock
+    const secondResult = await scheduler._dispatchToPrinter(fakePrinter);
+    expect(secondResult).toBeNull();
+    // Only one uploadAndPrint call should exist (from the first dispatch)
+    expect(mockDriver.uploadAndPrint).toHaveBeenCalledTimes(1);
+
+    // Clean up: let the first upload complete normally
+    resolveUpload();
+    await firstDispatch;
+  });
+
+  test('allows a second dispatch after the first upload completes', async () => {
+    const filename = `lock2_${Date.now()}.bgcode`;
+    createTestFile(filename);
+    const db = makeDb(filename);
+    const scheduler = new JobScheduler(db, { on: () => {} });
+
+    // First upload succeeds immediately
+    mockDriver.uploadAndPrint.mockResolvedValueOnce(undefined);
+    const firstJobId = await scheduler._dispatchToPrinter(fakePrinter);
+    expect(firstJobId).not.toBeNull();
+
+    // After first completes, _activeUploads no longer contains the printer.
+    // However, the printer now has an active 'printing' job, so the double-dispatch
+    // guard will prevent a second job — this just confirms the lock is cleared.
+    expect(scheduler._activeUploads.has(fakePrinter.id)).toBe(false);
   });
 });
