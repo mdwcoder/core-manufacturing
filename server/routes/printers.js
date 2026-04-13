@@ -179,22 +179,31 @@ module.exports = (db) => {
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
 
     // Active jobs (printing/uploading) take priority over finished ones.
-    // Querying all three in a single ORDER BY breaks down because finished jobs have
-    // a non-NULL finished_at that sorts ahead of printing/uploading jobs (NULL finished_at
-    // sorts last in DESC), causing an older finished job to be picked instead of the
-    // current stale active one.
     //
     //   printing  — active or stale; completed_qty was never credited
     //   uploading — upload stalled; completed_qty was never credited
-    //   finished  — fallback: normal case where _handleFinished already credited completed_qty
+    //   finished  — fallback: _handleFinished already credited completed_qty; operator
+    //               is confirming the print was bad
+    //
+    // The finished fallback is intentionally narrow: only match a finished job if no
+    // subsequent job was created for this printer after it finished. This ensures we
+    // find the job the printer is currently held for (awaiting operator sign-off), not
+    // an older finished job from a previous cycle that would cause a wrong qty decrement.
     let job = db.prepare(`
       SELECT * FROM jobs WHERE printer_id = ? AND status IN ('printing', 'uploading')
       ORDER BY started_at DESC LIMIT 1
     `).get(printer.id);
     if (!job) {
       job = db.prepare(`
-        SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
-        ORDER BY finished_at DESC LIMIT 1
+        SELECT * FROM jobs j
+        WHERE j.printer_id = ? AND j.status = 'finished'
+          AND NOT EXISTS (
+            SELECT 1 FROM jobs j2
+            WHERE j2.printer_id = j.printer_id
+              AND j2.id != j.id
+              AND j2.created_at > j.finished_at
+          )
+        ORDER BY j.finished_at DESC LIMIT 1
       `).get(printer.id);
     }
 

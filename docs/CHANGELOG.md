@@ -2,29 +2,35 @@
 
 ---
 
-## 2026-04-13 — Stale job detection + mark-job-failure ordering fix
+## 2026-04-13 — Stale job detection: auto-fail + mark-job-failure scope fix
 
-### Fix 1: `mark-job-failure` picks wrong job when a stale printing job exists
+### Problem
 
-**Bug:** `mark-job-failure` used `ORDER BY finished_at DESC, started_at DESC`. SQLite sorts NULLs last in DESC, so a stale `printing` job (NULL `finished_at`) would lose to any older `finished` job, which has a real timestamp. The operator hitting the red button would mark the wrong job failed and leave the stale one untouched.
+A printer with a stale `printing` job (IDLE printer, `printing` job in DB from a missed FINISHED transition) was permanently locked out of dispatch. Two bugs compounded:
 
-**Fix:** Split into two queries — active jobs (`printing`/`uploading`) are checked first; `finished` is the fallback. This guarantees the stale active job is always found before older finished ones.
+1. **`_dispatchToPrinter`** found the stale job and held the printer, but left the stale job as `'printing'`. The operator's red button then hit a second bug in `mark-job-failure`.
+2. **`mark-job-failure`** used `ORDER BY finished_at DESC, started_at DESC`. SQLite sorts NULLs last in DESC, so the stale `printing` job (NULL `finished_at`) lost to any older `finished` job, causing the wrong job to be failed and the wrong part's `completed_qty` to be decremented. The stale job was never cleaned up.
+3. Even after fixing the ordering (two-query approach), the `finished` fallback query was still too broad — it could find old finished jobs from previous cycles and incorrectly decrement their part quantities.
 
-### Fix 2: Stale active job detection: hold printer instead of silently blocking dispatch
+### Fix
 
-**Bug fixed:** A printer could get permanently locked out of dispatch after being decommissioned, fixed, and recommissioned. The sequence: a post-recommission job was uploaded and set to `printing`, the printer finished or cancelled the job on its own, and the `FINISHED` status transition was missed between two polls. The printer went back to IDLE with `is_held=0`, but the stale `printing` job in the DB caused `_dispatchToPrinter` to skip it with "already has an active job" on every subsequent sweep — forever.
+**`_dispatchToPrinter` — auto-fail stale job immediately**
 
-**Fix:** `_dispatchToPrinter` now re-reads both `is_held` and `status` from the DB (previously only `is_held`). When it finds an active job for a printer that is currently `IDLE`, it treats this as a stale-job discrepancy: holds the printer and adds an operator notification ("confirm the outcome in Fleet") instead of silently skipping. This surfaces the stuck state rather than leaving the printer dead.
+When a stale job is detected (printer IDLE, active `printing`/`uploading` job in DB), the stale job is now automatically marked `failed` with a `finished_at` timestamp before holding the printer. Since a `printing` job is never credited to `completed_qty`, this has no qty side-effect. The printer is held with a notification, and the operator can use the normal green/red Fleet UI to resume — no special "resolve stale job" flow needed.
+
+**`mark-job-failure` — narrow the `finished` fallback**
+
+The `finished` fallback now includes a `NOT EXISTS` guard: it only matches a finished job if no subsequent job was created for this printer after it finished. This ensures the endpoint targets the job the printer is currently held for (the one `_handleFinished` just completed), not an older finished job from a previous cycle.
 
 ### Changes
 
 **`server/scheduler.js`**
 - `_dispatchToPrinter`: fresh DB read extended from `SELECT is_held` to `SELECT is_held, status`
-- Active-job guard: if `fresh.status === 'IDLE'` with an active job → hold printer + notify operator; otherwise existing "skipping duplicate dispatch" log (concurrent dispatch case unchanged)
-- Job query extended from `SELECT id` to `SELECT id, status` (needed for the notification message)
+- Stale job detected (IDLE + active job): stale job auto-failed (`status='failed'`, `finished_at` stamped); printer held; operator notified
+- Concurrent-dispatch case (non-IDLE): existing "skipping duplicate dispatch" log unchanged
 
 **`server/routes/printers.js`**
-- `POST /api/printers/:id/mark-job-failure`: replaced single `ORDER BY finished_at DESC, started_at DESC` query with two sequential queries — active (`printing`/`uploading`) first, `finished` as fallback
+- `POST /api/printers/:id/mark-job-failure`: two-query approach — active (`printing`/`uploading`) first; `finished` fallback now scoped with `NOT EXISTS (newer job created after finished_at)` to prevent incorrect qty decrements on old jobs
 
 ---
 

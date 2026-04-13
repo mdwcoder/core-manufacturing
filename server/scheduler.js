@@ -190,11 +190,18 @@ class JobScheduler extends EventEmitter {
     ).get(printer.id);
     if (activeJob) {
       if (fresh.status === 'IDLE') {
+        // Auto-fail the stale job. It was 'printing' but the printer is idle, meaning
+        // the print finished or was cancelled outside our view. Since a 'printing' job
+        // is never credited to completed_qty, failing it has no qty side-effect.
+        // Auto-failing here means the operator can use the normal green/red Fleet UI
+        // without needing a special "resolve stale job" flow.
+        this.db.prepare("UPDATE jobs SET status = 'failed', finished_at = ? WHERE id = ?")
+          .run(Date.now(), activeJob.id);
         this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
         notifications.add(
-          `${printer.name} has a stale job (${activeJob.id}) — printer is idle but job is still marked "${activeJob.status}". Confirm the outcome in Fleet.`
+          `${printer.name}: stale job ${activeJob.id} automatically cancelled — printer held. Use Fleet to resume when ready.`
         );
-        console.warn(`[scheduler] ${printer.name} stale active job ${activeJob.id} (${activeJob.status}) — printer is IDLE, held for operator review`);
+        console.warn(`[scheduler] ${printer.name} stale job ${activeJob.id} auto-failed — printer is IDLE, held for operator review`);
       } else {
         console.log(`[scheduler] ${printer.name} already has an active job — skipping duplicate dispatch`);
       }
