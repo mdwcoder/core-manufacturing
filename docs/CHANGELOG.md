@@ -2,7 +2,15 @@
 
 ---
 
-## 2026-04-13 — Stale active job detection: hold printer instead of silently blocking dispatch
+## 2026-04-13 — Stale job detection + mark-job-failure ordering fix
+
+### Fix 1: `mark-job-failure` picks wrong job when a stale printing job exists
+
+**Bug:** `mark-job-failure` used `ORDER BY finished_at DESC, started_at DESC`. SQLite sorts NULLs last in DESC, so a stale `printing` job (NULL `finished_at`) would lose to any older `finished` job, which has a real timestamp. The operator hitting the red button would mark the wrong job failed and leave the stale one untouched.
+
+**Fix:** Split into two queries — active jobs (`printing`/`uploading`) are checked first; `finished` is the fallback. This guarantees the stale active job is always found before older finished ones.
+
+### Fix 2: Stale active job detection: hold printer instead of silently blocking dispatch
 
 **Bug fixed:** A printer could get permanently locked out of dispatch after being decommissioned, fixed, and recommissioned. The sequence: a post-recommission job was uploaded and set to `printing`, the printer finished or cancelled the job on its own, and the `FINISHED` status transition was missed between two polls. The printer went back to IDLE with `is_held=0`, but the stale `printing` job in the DB caused `_dispatchToPrinter` to skip it with "already has an active job" on every subsequent sweep — forever.
 
@@ -14,6 +22,9 @@
 - `_dispatchToPrinter`: fresh DB read extended from `SELECT is_held` to `SELECT is_held, status`
 - Active-job guard: if `fresh.status === 'IDLE'` with an active job → hold printer + notify operator; otherwise existing "skipping duplicate dispatch" log (concurrent dispatch case unchanged)
 - Job query extended from `SELECT id` to `SELECT id, status` (needed for the notification message)
+
+**`server/routes/printers.js`**
+- `POST /api/printers/:id/mark-job-failure`: replaced single `ORDER BY finished_at DESC, started_at DESC` query with two sequential queries — active (`printing`/`uploading`) first, `finished` as fallback
 
 ---
 

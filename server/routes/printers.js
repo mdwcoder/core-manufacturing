@@ -178,14 +178,25 @@ module.exports = (db) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
 
-    // Find the most recent job in any active or recently-completed state:
-    //   finished  — normal case; completed_qty was already credited
-    //   printing  — missed-finish; server was down when print completed
-    //   uploading — upload stalled; operator confirmed the print failed before it started
-    const job = db.prepare(`
-      SELECT * FROM jobs WHERE printer_id = ? AND status IN ('finished', 'printing', 'uploading')
-      ORDER BY finished_at DESC, started_at DESC LIMIT 1
+    // Active jobs (printing/uploading) take priority over finished ones.
+    // Querying all three in a single ORDER BY breaks down because finished jobs have
+    // a non-NULL finished_at that sorts ahead of printing/uploading jobs (NULL finished_at
+    // sorts last in DESC), causing an older finished job to be picked instead of the
+    // current stale active one.
+    //
+    //   printing  — active or stale; completed_qty was never credited
+    //   uploading — upload stalled; completed_qty was never credited
+    //   finished  — fallback: normal case where _handleFinished already credited completed_qty
+    let job = db.prepare(`
+      SELECT * FROM jobs WHERE printer_id = ? AND status IN ('printing', 'uploading')
+      ORDER BY started_at DESC LIMIT 1
     `).get(printer.id);
+    if (!job) {
+      job = db.prepare(`
+        SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
+        ORDER BY finished_at DESC LIMIT 1
+      `).get(printer.id);
+    }
 
     if (!job) {
       // No tracked job (e.g. print was started outside the farm manager, or the
