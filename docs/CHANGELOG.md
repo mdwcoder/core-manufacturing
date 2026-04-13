@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-04-13 — Stale active job detection: hold printer instead of silently blocking dispatch
+
+**Bug fixed:** A printer could get permanently locked out of dispatch after being decommissioned, fixed, and recommissioned. The sequence: a post-recommission job was uploaded and set to `printing`, the printer finished or cancelled the job on its own, and the `FINISHED` status transition was missed between two polls. The printer went back to IDLE with `is_held=0`, but the stale `printing` job in the DB caused `_dispatchToPrinter` to skip it with "already has an active job" on every subsequent sweep — forever.
+
+**Fix:** `_dispatchToPrinter` now re-reads both `is_held` and `status` from the DB (previously only `is_held`). When it finds an active job for a printer that is currently `IDLE`, it treats this as a stale-job discrepancy: holds the printer and adds an operator notification ("confirm the outcome in Fleet") instead of silently skipping. This surfaces the stuck state rather than leaving the printer dead.
+
+### Changes
+
+**`server/scheduler.js`**
+- `_dispatchToPrinter`: fresh DB read extended from `SELECT is_held` to `SELECT is_held, status`
+- Active-job guard: if `fresh.status === 'IDLE'` with an active job → hold printer + notify operator; otherwise existing "skipping duplicate dispatch" log (concurrent dispatch case unchanged)
+- Job query extended from `SELECT id` to `SELECT id, status` (needed for the notification message)
+
+---
+
 ## 2026-04-11 — No automatic job failures; upload safety hardening
 
 The server can no longer automatically mark a job as `failed` without an operator confirming it. Previously, exhausted upload retries and misconfigured/missing-file pre-flight errors could all silently write failed job records. These paths have been removed or rerouted to operator confirmation.

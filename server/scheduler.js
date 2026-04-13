@@ -169,8 +169,8 @@ class JobScheduler extends EventEmitter {
   // ─── Dispatch ───────────────────────────────────────────────────────────────
 
   async _dispatchToPrinter(printer) {
-    // Re-read is_held from DB — the printer object passed in may be stale
-    const fresh = this.db.prepare('SELECT is_held FROM printers WHERE id = ?').get(printer.id);
+    // Re-read is_held and status from DB — the printer object passed in may be stale
+    const fresh = this.db.prepare('SELECT is_held, status FROM printers WHERE id = ?').get(printer.id);
     if (!fresh || fresh.is_held) {
       console.log(`[scheduler] ${printer.name} is held — skipping dispatch`);
       return null;
@@ -179,11 +179,25 @@ class JobScheduler extends EventEmitter {
     // Guard against double-dispatch: if this printer already has an active job
     // (uploading or printing) from a concurrent dispatch path, skip it.
     // This can happen when set-ready and the initial sweep fire simultaneously.
+    //
+    // Special case: if the printer is IDLE but has an active job, the job is stale —
+    // the print finished or was cancelled outside our view (e.g. we missed a FINISHED
+    // transition between two polls, or a post-recommission upload succeeded but the
+    // printer stopped the job on its own). Hold the printer so the operator can confirm
+    // the outcome rather than leaving it permanently locked out of dispatch.
     const activeJob = this.db.prepare(
-      "SELECT id FROM jobs WHERE printer_id = ? AND status IN ('uploading', 'printing') LIMIT 1"
+      "SELECT id, status FROM jobs WHERE printer_id = ? AND status IN ('uploading', 'printing') LIMIT 1"
     ).get(printer.id);
     if (activeJob) {
-      console.log(`[scheduler] ${printer.name} already has an active job — skipping duplicate dispatch`);
+      if (fresh.status === 'IDLE') {
+        this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
+        notifications.add(
+          `${printer.name} has a stale job (${activeJob.id}) — printer is idle but job is still marked "${activeJob.status}". Confirm the outcome in Fleet.`
+        );
+        console.warn(`[scheduler] ${printer.name} stale active job ${activeJob.id} (${activeJob.status}) — printer is IDLE, held for operator review`);
+      } else {
+        console.log(`[scheduler] ${printer.name} already has an active job — skipping duplicate dispatch`);
+      }
       return null;
     }
 
