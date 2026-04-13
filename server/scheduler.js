@@ -45,6 +45,9 @@ class JobScheduler extends EventEmitter {
       if (newStatus === 'PRINTING') {
         this._handleRecoveredToPrinting(printer);
       }
+      if (newStatus === 'STOPPED') {
+        this._handlePrinterStopped(printer);
+      }
     });
   }
 
@@ -189,19 +192,18 @@ class JobScheduler extends EventEmitter {
       "SELECT id, status FROM jobs WHERE printer_id = ? AND status IN ('uploading', 'printing') LIMIT 1"
     ).get(printer.id);
     if (activeJob) {
-      if (fresh.status === 'IDLE') {
-        // Auto-fail the stale job. It was 'printing' but the printer is idle, meaning
-        // the print finished or was cancelled outside our view. Since a 'printing' job
-        // is never credited to completed_qty, failing it has no qty side-effect.
-        // Auto-failing here means the operator can use the normal green/red Fleet UI
-        // without needing a special "resolve stale job" flow.
+      // A 'printing' job is only legitimate while the printer is actively printing or
+      // paused. Any other status (IDLE, STOPPED, FINISHED, ERROR, etc.) means the job
+      // is stale — the print ended outside our view. Auto-fail it so the operator can
+      // use the normal green/red Fleet UI without a special resolution flow.
+      if (fresh.status !== 'PRINTING' && fresh.status !== 'PAUSED') {
         this.db.prepare("UPDATE jobs SET status = 'failed', finished_at = ? WHERE id = ?")
           .run(Date.now(), activeJob.id);
         this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
         notifications.add(
           `${printer.name}: stale job ${activeJob.id} automatically cancelled — printer held. Use Fleet to resume when ready.`
         );
-        console.warn(`[scheduler] ${printer.name} stale job ${activeJob.id} auto-failed — printer is IDLE, held for operator review`);
+        console.warn(`[scheduler] ${printer.name} stale job ${activeJob.id} auto-failed — printer is ${fresh.status}, held for operator review`);
       } else {
         console.log(`[scheduler] ${printer.name} already has an active job — skipping duplicate dispatch`);
       }
@@ -524,6 +526,23 @@ class JobScheduler extends EventEmitter {
       this.db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
       events.insert(printer.id, 'recovered', `Printer came back online and resumed printing — hold released automatically`);
       console.log(`[scheduler] ${printer.name} auto-unhold — came back online and is printing (job ${activeJob.id})`);
+    }
+  }
+
+  // Operator stopped the print from the printer's own screen. Cancel the active job
+  // so the Jobs view reflects reality. The poller has already set is_held = 1 (STOPPED
+  // is not a SAFE_STATE), so the printer waits for operator confirmation before the
+  // next job dispatches.
+  _handlePrinterStopped(printer) {
+    const job = this.db.prepare(
+      "SELECT id FROM jobs WHERE printer_id = ? AND status = 'printing' LIMIT 1"
+    ).get(printer.id);
+
+    if (job) {
+      this.db.prepare("UPDATE jobs SET status = 'cancelled', finished_at = ? WHERE id = ?")
+        .run(Date.now(), job.id);
+      events.insert(printer.id, 'job_cancelled', `Job ${job.id} — stopped by operator on printer screen`);
+      console.log(`[scheduler] ${printer.name} stopped — job ${job.id} cancelled`);
     }
   }
 

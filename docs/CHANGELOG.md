@@ -2,7 +2,17 @@
 
 ---
 
-## 2026-04-13 — Stale job detection: auto-fail + mark-job-failure scope fix
+## 2026-04-13 — Handle STOPPED state; broaden stale-job detection; mark-job-failure scope fix
+
+### Fix 3: STOPPED state not handled — job stayed `printing` after operator stop
+
+When an operator stops a print from the printer's own screen, Prusa reports `STOPPED`. The poller correctly held the printer (STOPPED is not a SAFE_STATE), but the scheduler had no handler for it, leaving the active job stuck as `'printing'` in the DB and Jobs view.
+
+Added `_handlePrinterStopped`: marks the active `'printing'` job as `'cancelled'` when `STOPPED` fires. The printer stays held (is_held=1 was already set by the poller) so the operator confirms before the next job dispatches.
+
+Also expanded the stale-job detection condition in `_dispatchToPrinter` from `fresh.status === 'IDLE'` to `fresh.status !== 'PRINTING' && fresh.status !== 'PAUSED'`. This ensures any state where the printer isn't actively running (STOPPED, IDLE, FINISHED, ERROR, etc.) triggers the auto-fail safety net, rather than only IDLE.
+
+### Fix 2: Stale job detection: auto-fail + mark-job-failure scope fix
 
 ### Problem
 
@@ -26,8 +36,11 @@ The `finished` fallback now includes a `NOT EXISTS` guard: it only matches a fin
 
 **`server/scheduler.js`**
 - `_dispatchToPrinter`: fresh DB read extended from `SELECT is_held` to `SELECT is_held, status`
-- Stale job detected (IDLE + active job): stale job auto-failed (`status='failed'`, `finished_at` stamped); printer held; operator notified
-- Concurrent-dispatch case (non-IDLE): existing "skipping duplicate dispatch" log unchanged
+- Stale job condition broadened: `status !== 'PRINTING' && status !== 'PAUSED'` (was `=== 'IDLE'`)
+- Stale job detected: stale job auto-failed (`status='failed'`, `finished_at` stamped); printer held; operator notified
+- Concurrent-dispatch case (PRINTING/PAUSED): existing "skipping duplicate dispatch" log unchanged
+- Added `_handlePrinterStopped`: cancels active `'printing'` job when STOPPED status fires
+- `start()`: wires `statusChange` → `_handlePrinterStopped` for `newStatus === 'STOPPED'`
 
 **`server/routes/printers.js`**
 - `POST /api/printers/:id/mark-job-failure`: two-query approach — active (`printing`/`uploading`) first; `finished` fallback now scoped with `NOT EXISTS (newer job created after finished_at)` to prevent incorrect qty decrements on old jobs
