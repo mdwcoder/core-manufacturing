@@ -281,20 +281,28 @@ class JobScheduler extends EventEmitter {
       `).run(candidate.part_id, printer.id, candidate.gcode_id, candidate.parts_per_plate, Date.now());
       jobId = jobRow.lastInsertRowid;
 
-      // Ceiling check: how many jobs are still needed vs how many are already active?
-      const jobsRemaining = Math.max(
-        0,
-        Math.ceil((candidate.target_qty - candidate.completed_qty) / candidate.parts_per_plate)
-      );
-      const activeCount = this.db.prepare(`
-        SELECT COUNT(*) AS count FROM jobs
+      // Ceiling check: are the parts already in progress enough to cover what's needed?
+      //
+      // We sum parts_per_plate across all active jobs (including the probe just inserted)
+      // rather than counting jobs. This correctly handles parts whose G-codes have
+      // different parts_per_plate on different printer models (e.g. XL=4ppp, MK4S=10ppp).
+      // Counting jobs and dividing by the current dispatch's ppp would overestimate the
+      // ceiling in those cases and dispatch more printers than needed.
+      //
+      // The probe is already in the DB with status 'uploading', so inProgressParts
+      // includes it. The ceiling is hit when the existing in-progress parts — i.e.
+      // everything except this probe — already cover the remaining target:
+      //   (inProgressParts - candidate.parts_per_plate) >= remainingParts
+      const remainingParts = Math.max(0, candidate.target_qty - candidate.completed_qty);
+      const inProgressParts = this.db.prepare(`
+        SELECT COALESCE(SUM(parts_per_plate), 0) AS total FROM jobs
         WHERE part_id = ? AND status IN ('uploading', 'printing')
-      `).get(candidate.part_id).count;
+      `).get(candidate.part_id).total;
 
-      if (activeCount > jobsRemaining) {
-        // This part is already covered — try the next one down the list
+      if (inProgressParts - candidate.parts_per_plate >= remainingParts) {
+        // Already covered without this probe — try the next part down the list
         this.db.prepare('DELETE FROM jobs WHERE id = ?').run(jobId);
-        console.log(`[scheduler] Ceiling hit for part ${candidate.part_id} (${activeCount - 1} of ${jobsRemaining} jobs already active) — trying next part for ${printer.name}`);
+        console.log(`[scheduler] Ceiling hit for part ${candidate.part_id} (${inProgressParts - candidate.parts_per_plate} of ${remainingParts} parts already in progress) — trying next part for ${printer.name}`);
         skippedPartIds.push(candidate.part_id);
         continue;
       }

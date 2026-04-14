@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-04-13 — Ceiling check: SUM(parts_per_plate) instead of COUNT(jobs)
+
+The dispatch ceiling check now sums `parts_per_plate` across all active jobs for a part rather than counting jobs. The old COUNT approach used the *current dispatch's* `parts_per_plate` to compute `jobsRemaining`, which gave the wrong ceiling when a part's G-codes have different `parts_per_plate` on different printer models (e.g. XL=4ppp, MK4S=10ppp). In that case the ceiling was inflated — the scheduler would dispatch more printers than needed and significantly overshoot the target quantity.
+
+**New logic:** after inserting the probe job, `inProgressParts = SUM(parts_per_plate)` across all `uploading`/`printing` jobs for the part (probe included). Ceiling is hit when `inProgressParts - probe.ppp >= remainingParts` — i.e. existing in-progress coverage (without this printer) already meets the target. For homogeneous fleets (all same ppp) the result is identical to the old logic; for mixed-ppp fleets it is strictly more accurate.
+
+Log message now shows parts ("240 of 250 parts already in progress") instead of jobs ("3 of 4 jobs already active").
+
+### Changes
+
+**`server/scheduler.js`**
+- `_dispatchToPrinter` ceiling check: replaced `COUNT(jobs)` + `ceil(remaining/ppp)` with `SUM(parts_per_plate)` across active jobs; condition changed from `activeCount > jobsRemaining` to `(inProgressParts - ppp) >= remainingParts`
+- Ceiling log updated to report parts in-progress vs parts remaining
+
+---
+
 ## 2026-04-13 — Handle STOPPED state; broaden stale-job detection; mark-job-failure scope fix
 
 ### Fix 3: STOPPED state not handled — job stayed `printing` after operator stop
