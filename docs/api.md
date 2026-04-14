@@ -135,9 +135,19 @@ Returns a decommissioned printer to active duty (`is_active = 1`). Returns the u
 
 ### `POST /api/printers/:id/mark-job-failure`
 
-Marks the printer's most recent `finished` or `printing` job as `failed`, undoes the `completed_qty` increment on the associated Part (for `finished` jobs), reopens the Part and Project if needed, and decommissions the printer (`is_active = 0`).
+Marks the printer's most relevant active or recently-completed job as `failed`, undoes the `completed_qty` increment if needed, reopens the Part and Project if needed, and decommissions the printer (`is_active = 0`).
 
-If no tracked job exists (e.g. the print completed while the printer was in an unrecognised status), the printer is still decommissioned — operator intent is always to take the machine offline.
+**Job selection — two-query priority:**
+
+1. **Active first:** finds the most recent `printing` or `uploading` job (`ORDER BY started_at DESC`). These jobs were never credited to `completed_qty`, so no undo is needed.
+2. **Finished fallback:** if no active job exists, finds the most recent `finished` job — but only if no subsequent job was created for this printer after it finished. This scope guard prevents the endpoint from reaching back and decrementing `completed_qty` on an old job from a previous cycle when the printer is held for an unrelated reason.
+
+**Per-status behaviour:**
+- `finished` — `completed_qty` decremented by `parts_per_plate`. Part reopened if it was closed by this job; Project reopened if it was completed.
+- `printing` — no qty change (was never credited).
+- `uploading` — no qty change (print never started).
+
+If no tracked job matches any of the above, the printer is still decommissioned — operator intent is always to take the machine offline.
 
 Returns `{ "success": true, "job_id": N }` (or `job_id: null` when no job was found). Returns `404` only if the printer itself does not exist.
 
