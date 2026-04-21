@@ -1,33 +1,132 @@
 # Print Farm Manager
 
-Locally-hosted web app for managing a multi-brand 3D printer farm. Supports Prusa (PrusaLink), Elegoo Centauri (SDCP), and Bambu printers from a single interface.
+A self-hosted web app for managing a multi-brand 3D printer farm. Replaces manual USB job distribution with centralized status monitoring and automated job dispatch — built to run 24/7 on a dedicated machine on your local network.
 
-## Quick Start
+No cloud. No subscriptions. No vendor lock-in.
+
+---
+
+## What It Does
+
+- **Live fleet view** — see every printer's status, progress, and time remaining at a glance, auto-refreshing every 15 seconds
+- **Automated job dispatch** — define projects and parts, upload G-code, and let the scheduler assign jobs to idle printers automatically
+- **Operator confirmation flow** — every finished print requires a human sign-off before the next job dispatches, preventing runaway failures
+- **Multi-brand support** — Prusa, Elegoo, Bambu, and Klipper printers in the same fleet, managed from one interface
+- **CSV fleet import** — add 50 printers at once from a spreadsheet
+- **TV dashboard mode** — a heads-up fleet summary designed for a monitor on the shop wall
+- **Farm backup and restore** — export your entire farm config and job history as a single JSON file
+
+---
+
+## Supported Printers
+
+| Brand | Protocol | Models |
+|---|---|---|
+| **Prusa** | PrusaLink REST API | MK4S, XL, and other PrusaLink-compatible models |
+| **Elegoo** | SDCP WebSocket | Centauri Carbon, Centauri Carbon 2 |
+| **Bambu Lab** | MQTT + FTPS | X1C, P1S, and other Bambu models (with AMS slot selection) |
+| **Klipper** | Moonraker REST API | Voron and any Klipper-firmware printer |
+
+---
+
+## Tech Stack
+
+### Backend
+| Package | Role |
+|---|---|
+| [Node.js](https://nodejs.org) + [Express](https://expressjs.com) | HTTP API server |
+| [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | Embedded SQLite database — synchronous, zero configuration |
+| [axios](https://axios-http.com) | HTTP communication with Prusa and Klipper printers |
+| [mqtt](https://github.com/mqttjs/MQTT.js) | MQTT over TLS for Bambu printer communication |
+| [basic-ftp](https://github.com/patrickjuchli/basic-ftp) | FTPS file transfer to Bambu printers |
+| [sdcp](https://github.com/blakejrobinson/sdcp) | WebSocket protocol driver for Elegoo SDCP printers |
+| [multer](https://github.com/expressjs/multer) | G-code file upload handling |
+| [papaparse](https://www.papaparse.com) | CSV fleet import |
+| [form-data](https://github.com/form-data/form-data) | Multipart upload for Klipper/Moonraker |
+| [PM2](https://pm2.keymetrics.io) | Process manager — auto-start on boot, crash recovery |
+
+### Frontend
+| Package | Role |
+|---|---|
+| [React 18](https://react.dev) | UI framework |
+| [React Router v6](https://reactrouter.com) | Client-side routing |
+| [Vite](https://vitejs.dev) | Build tool and dev server |
+
+### Data
+| Technology | Role |
+|---|---|
+| SQLite (via better-sqlite3) | Single-file embedded database — no database server required |
+
+---
+
+## Quick Start (Development)
 
 ```bash
+git clone https://github.com/joeltelling/print-farm-manager.git
+cd print-farm-manager
 npm install
 cd client && npm install && cd ..
 npm run dev
 ```
 
-- API server: http://localhost:3000
-- Web UI: http://localhost:5173
+- API server: `http://localhost:3000`
+- Web UI (hot reload): `http://localhost:5173`
 
-## Features
+---
 
-- Fleet view with live printer status (15-second poll)
-- Printer registry with CSV import
-- Multi-brand support: Prusa, Elegoo, Bambu
-- Settings page for managing printers and models
+## Installation (Production)
+
+For a full walkthrough covering prerequisites, network setup, auto-start with PM2, backup, updating, and troubleshooting on both Windows and macOS, see the **[Installation Guide](docs/installation.md)**.
+
+The short version:
+
+```bash
+npm install
+cd client && npm install && cd ..
+npm run build
+npm start
+```
+
+Open `http://localhost:3000` in a browser, or replace `localhost` with the machine's LAN IP to access it from any device on the network.
+
+---
 
 ## CSV Import Format
 
-| Column | Example |
-|---|---|
-| name | `MK4S_01` |
-| ip | `192.168.15.194` |
-| api_key | `aauukLtMLUTqq6e` |
-| group | `MK4S Farm` |
-| type | `prusa` |
+The fastest way to add a large fleet is via CSV import on the Settings page.
 
-Model is inferred from the printer name automatically.
+| Column | Required | Example |
+|---|---|---|
+| `name` | Yes | `MK4S_01` |
+| `ip` | Yes | `192.168.1.100` |
+| `api_key` | Prusa/Bambu only | `aauukLtMLUTqq6e` |
+| `group` | No | `MK4S Farm` |
+| `type` | Yes | `prusa` / `elegoo-centauri` / `bambu` / `klipper` |
+
+Model is inferred automatically from the printer name where possible; unrecognised models prompt for manual selection after import.
+
+---
+
+## Project Structure
+
+```
+print-farm-manager/
+├── server/
+│   ├── index.js          # Express entry point
+│   ├── db.js             # SQLite schema + migrations
+│   ├── poller.js         # 15-second printer poll loop
+│   ├── scheduler.js      # Job dispatch engine
+│   └── drivers/          # Per-brand printer drivers
+│       ├── prusa.js       # PrusaLink REST
+│       ├── elegoo-centauri.js  # SDCP WebSocket
+│       ├── bambu.js       # MQTT + FTPS
+│       └── klipper.js     # Moonraker REST
+├── client/               # React + Vite frontend
+└── docs/                 # Full documentation
+```
+
+---
+
+## License
+
+MIT
