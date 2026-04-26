@@ -86,15 +86,21 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
   const pct = isPrinting && printer.job_progress != null ? Math.round(printer.job_progress) : null;
   const timeLeft = isPrinting ? formatTimeRemaining(printer.job_time_remaining) : null;
 
+  function cardBorder() {
+    if (needsConfirmation) return selected ? '#22c55e' : '#15803d';
+    if (needsOfflineConfirmation || needsUploadConfirmation) return '#92400e';
+    return style.bg;
+  }
+
   return (
     <div
-      onClick={() => inspectPrinter(printer)}
-      title="Click to inspect raw printer status in console"
+      onClick={needsConfirmation ? () => onToggleSelect(printer.id) : () => inspectPrinter(printer)}
+      title={needsConfirmation ? (selected ? 'Click to deselect' : 'Click to select for batch Set Ready') : 'Click to inspect raw printer status in console'}
       style={{
         background: needsConfirmation ? '#1c2a1c' : (needsOfflineConfirmation || needsUploadConfirmation) ? '#2a1f0e' : '#1e2433',
-        border: `1px solid ${needsConfirmation ? '#15803d' : (needsOfflineConfirmation || needsUploadConfirmation) ? '#92400e' : style.bg}`,
+        border: `${selected ? '2px' : '1px'} solid ${cardBorder()}`,
         borderRadius: 8,
-        padding: '12px 14px',
+        padding: selected ? '11px 13px' : '12px 14px',
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
@@ -155,13 +161,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
       )}
 
       {needsConfirmation && (
-        <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, flexWrap: 'wrap' }}>
-          {!isPartial && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>
-              <input type="checkbox" checked={selected} onChange={() => onToggleSelect(printer.id)} style={{ cursor: 'pointer', accentColor: '#22c55e' }} />
-              Include
-            </label>
-          )}
+        <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
           {printer.last_parts_per_plate != null && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ fontSize: 11, color: '#64748b' }}>Good:</span>
@@ -180,15 +180,17 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
               <span style={{ fontSize: 11, color: '#475569' }}>/ {printer.last_parts_per_plate}</span>
             </div>
           )}
-          <button
-            onClick={() => onSetReady(printer.id, printer.last_parts_per_plate != null ? parseInt(confirmedQty, 10) : null)}
-            style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-          >
-            ✓ Set Ready
-          </button>
-          <button onClick={() => onBadPrint(printer.id)} style={{ background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            ✗ Bad Print
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => onSetReady(printer.id, printer.last_parts_per_plate != null ? parseInt(confirmedQty, 10) : null)}
+              style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            >
+              ✓ Set Ready
+            </button>
+            <button onClick={() => onBadPrint(printer.id)} style={{ flex: 1, background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              ✗ Bad Print
+            </button>
+          </div>
         </div>
       )}
 
@@ -200,13 +202,13 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               onClick={() => onSetReady(printer.id, null)}
-              style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✓ Job OK
             </button>
             <button
               onClick={() => onBadPrint(printer.id)}
-              style={{ background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✗ Job Failed
             </button>
@@ -222,13 +224,13 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               onClick={() => onSetReady(printer.id, null)}
-              style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✓ Job Running
             </button>
             <button
               onClick={() => onUploadFailed(printer.id)}
-              style={{ background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✗ Upload Failed
             </button>
@@ -236,11 +238,13 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
         </div>
       )}
 
-      <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 2 }}>
-        <button onClick={() => onDecommission(printer.id)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}>
-          Decommission
-        </button>
-      </div>
+      {!isPrinting && (
+        <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 2 }}>
+          <button onClick={() => onDecommission(printer.id)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}>
+            Decommission
+          </button>
+        </div>
+      )}
     </div>
   );
 }

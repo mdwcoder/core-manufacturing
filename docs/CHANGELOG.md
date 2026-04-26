@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-04-26 — Fleet card UX improvements
+
+Four targeted improvements to the printer card in the Fleet view to reduce accidental taps.
+
+**Whole card is the selection toggle.** When a printer is awaiting confirmation (FINISHED or held-IDLE), clicking anywhere on the card now toggles it in/out of the batch Set Ready selection. The selected state is shown with a brighter green border (2px, `#22c55e`). Previously the checkbox was a small target next to the green Set Ready button, making accidental button presses easy.
+
+**Inline checkbox removed.** The "Include" checkbox label inside the confirmation area is gone — the card itself is the toggle now.
+
+**Green/red buttons equal width.** Set Ready and Bad Print (and their equivalents in the offline/upload-stalled flows) now each take 50% of the card width via `flex: 1`, eliminating the size mismatch.
+
+**Decommission hidden while printing.** The Decommission button is only rendered when `isPrinting` is false. It is not meaningful during an active print and was unnecessary visual noise on printing cards.
+
+### Changes
+
+**`client/src/pages/Fleet.jsx`**
+- `PrinterCard`: `cardBorder()` helper drives border color (idle green / selected bright green / amber / default)
+- Card `onClick` switches between `onToggleSelect` (when `needsConfirmation`) and `inspectPrinter` (all other states)
+- Removed `<label>/<input type="checkbox">` from `needsConfirmation` block
+- All three confirmation button pairs (`needsConfirmation`, `needsOfflineConfirmation`, `needsUploadConfirmation`) wrapped in `flex` row with `flex: 1` on each button
+- Decommission div gated on `!isPrinting`
+
+---
+
 ## 2026-04-20 — Klipper (Moonraker) driver — Phase 6C
 
 Adds support for Klipper-firmware printers (Voron, etc.) via the Moonraker REST API. No new dependencies — Moonraker is plain HTTP on port 7125 using `axios` and `form-data`, both already present.
