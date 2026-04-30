@@ -52,8 +52,8 @@ export default function App() {
         {/* Sidebar (desktop) */}
         <nav id="sidebar">
           <div style={{ padding: '0 6px 16px', borderBottom: '1px solid #1e2433', marginBottom: 8 }}>
-            <div style={{ fontWeight: 800, fontSize: 15, color: '#e2e8f0', lineHeight: 1.3 }}>Print Farm</div>
-            <div style={{ fontWeight: 400, fontSize: 11, color: '#475569' }}>Manager</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: '#e2e8f0', lineHeight: 1.3 }}>3DPN</div>
+            <div style={{ fontWeight: 400, fontSize: 11, color: '#475569' }}>Print Farm Manager</div>
           </div>
           {NAV_ITEMS.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.to === '/' || !!item.end} style={navLinkStyle}>
@@ -64,7 +64,7 @@ export default function App() {
 
         {/* Top nav bar (mobile) */}
         <nav id="topbar">
-          <span style={{ fontWeight: 800, fontSize: 14, color: '#e2e8f0', marginRight: 8 }}>Print Farm</span>
+          <span style={{ fontWeight: 800, fontSize: 14, color: '#e2e8f0', marginRight: 8 }}>3DPN</span>
           {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
