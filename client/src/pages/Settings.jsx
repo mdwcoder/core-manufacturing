@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useToast } from '../useToast';
 
 const inputStyle = {
   background: '#0f172a',
@@ -27,6 +28,7 @@ const CONNECTOR_LABEL = {
 const NO_API_KEY_TYPES = new Set(['elegoo-centauri', 'klipper']);
 
 export default function Settings() {
+  const [showToast, toastEl] = useToast();
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -94,6 +96,7 @@ export default function Settings() {
       if (!res.ok) throw new Error(data.error || 'Failed to add model');
       setModelForm({ model_id: '', label: '', connector: 'prusa' });
       fetchModels();
+      showToast('Model added');
     } catch (err) {
       setModelFormError(err.message);
     }
@@ -113,7 +116,6 @@ export default function Settings() {
 
   // Dispatch batch size setting
   const [batchSize, setBatchSize] = useState('');
-  const [batchSizeSaved, setBatchSizeSaved] = useState(false);
   const [batchSizeError, setBatchSizeError] = useState(null);
 
   useEffect(() => {
@@ -126,7 +128,6 @@ export default function Settings() {
   }, []);
 
   async function handleSaveBatchSize() {
-    setBatchSizeSaved(false);
     setBatchSizeError(null);
     try {
       const res = await fetch('/api/settings/dispatch_batch_size', {
@@ -136,8 +137,7 @@ export default function Settings() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
-      setBatchSizeSaved(true);
-      setTimeout(() => setBatchSizeSaved(false), 3000);
+      showToast('Saved');
     } catch (err) {
       setBatchSizeError(err.message);
     }
@@ -264,6 +264,7 @@ export default function Settings() {
 
   return (
     <div>
+      {toastEl}
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 20 }}>Settings</h1>
 
       {/* Server Alerts */}
@@ -672,9 +673,6 @@ export default function Settings() {
           >
             Save
           </button>
-          {batchSizeSaved && (
-            <span style={{ color: '#4ade80', fontSize: 13, alignSelf: 'flex-end', paddingBottom: 2 }}>Saved</span>
-          )}
         </div>
         {batchSizeError && (
           <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 13 }}>{batchSizeError}</div>

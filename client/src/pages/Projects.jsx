@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useToast } from '../useToast';
 
 // Model options are loaded from /api/models at runtime — no hardcoded list here.
 
@@ -256,7 +257,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
   );
 }
 
-function PartDetailsPanel({ part, gcodes, onRefresh }) {
+function PartDetailsPanel({ part, gcodes, onRefresh, onSaved }) {
   const [have, setHave] = useState(String(part.completed_qty));
   const [need, setNeed] = useState(String(part.target_qty));
   const [saving, setSaving] = useState(false);
@@ -282,6 +283,7 @@ function PartDetailsPanel({ part, gcodes, onRefresh }) {
       body: JSON.stringify({ name: trimmed }),
     });
     onRefresh();
+    onSaved?.('Saved');
   }
 
   async function saveQtys() {
@@ -308,6 +310,7 @@ function PartDetailsPanel({ part, gcodes, onRefresh }) {
     setSaving(false);
     if (res.ok) {
       onRefresh();
+      onSaved?.('Saved');
     } else {
       const d = await res.json();
       setQtyError(d.error || 'Save failed.');
@@ -445,6 +448,7 @@ function PartDetailsPanel({ part, gcodes, onRefresh }) {
 }
 
 export default function Projects() {
+  const [showToast, toastEl]              = useToast();
   const [projects, setProjects]           = useState([]);
   const [loading, setLoading]             = useState(true);
 
@@ -534,6 +538,7 @@ export default function Projects() {
     if (res.ok) {
       setNewName(''); setNewDesc(''); setShowNewForm(false);
       await fetchProjects();
+      showToast('Project created');
     }
   }
 
@@ -622,6 +627,7 @@ export default function Projects() {
     setNewPartName(''); setNewPartQty('');
     setAddingPart(false);
     await fetchDetail(selectedId);
+    showToast('Part added');
   }
 
   function togglePanel(partId) {
@@ -648,6 +654,7 @@ export default function Projects() {
       body: JSON.stringify({ name: trimmed }),
     });
     await Promise.all([fetchDetail(detailProject.id), fetchProjects()]);
+    showToast('Saved');
   }
 
 
@@ -655,6 +662,7 @@ export default function Projects() {
   if (selectedId == null) {
     return (
       <div>
+        {toastEl}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Projects</h1>
           <button
@@ -774,6 +782,7 @@ export default function Projects() {
 
   return (
     <div>
+      {toastEl}
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <button
@@ -942,6 +951,7 @@ export default function Projects() {
                 part={part}
                 gcodes={partGs}
                 onRefresh={() => fetchDetail(selectedId)}
+                onSaved={showToast}
               />
             )}
           </div>
