@@ -10,7 +10,7 @@ const klipper = require('../drivers/klipper');
 
 const GCODE_DIR = path.join(__dirname, '..', 'gcode');
 
-const fakePrinter = { id: 1, name: 'Joelbot24', ip: '192.168.1.26', model: 'v24-350', type: 'klipper' };
+const fakePrinter = { id: 1, name: 'Voron_01', ip: '192.168.1.250', model: 'voron-24', type: 'klipper' };
 
 const filesToClean = [];
 
@@ -131,7 +131,7 @@ describe('getStatus', () => {
     axios.get.mockResolvedValueOnce(moonrakerResponse('standby'));
     await klipper.getStatus(fakePrinter);
     expect(axios.get).toHaveBeenCalledWith(
-      'http://192.168.1.26:7125/printer/objects/query',
+      'http://192.168.1.250:7125/printer/objects/query',
       expect.objectContaining({
         params: { print_stats: '', virtual_sdcard: '', webhooks: '' },
       })
@@ -139,11 +139,11 @@ describe('getStatus', () => {
   });
 
   test('strips http:// prefix from ip field when building URL', async () => {
-    const messyPrinter = { ...fakePrinter, ip: 'http://192.168.1.26/' };
+    const messyPrinter = { ...fakePrinter, ip: 'http://192.168.1.250/' };
     axios.get.mockResolvedValueOnce(moonrakerResponse('standby'));
     await klipper.getStatus(messyPrinter);
     expect(axios.get).toHaveBeenCalledWith(
-      'http://192.168.1.26:7125/printer/objects/query',
+      'http://192.168.1.250:7125/printer/objects/query',
       expect.anything()
     );
   });
@@ -163,7 +163,7 @@ describe('uploadAndPrint', () => {
     await klipper.uploadAndPrint(fakePrinter, fullPath, filename);
 
     const [url, , config] = axios.post.mock.calls[0];
-    expect(url).toBe('http://192.168.1.26:7125/server/files/upload');
+    expect(url).toBe('http://192.168.1.250:7125/server/files/upload');
 
     // print must be a form field — query params are silently ignored by Moonraker
     const appendedFields = appendSpy.mock.calls.map(([name, value]) => ({ name, value }));

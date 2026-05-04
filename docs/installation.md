@@ -72,20 +72,33 @@ brew install git
 
 ---
 
+### What You Will Need From Each Printer
+
+Before adding printers to the app, gather the following credentials. The app will ask for these during setup.
+
+| Brand | What the app needs | Where to find it |
+|---|---|---|
+| **Prusa** | IP address + API key | Printer touchscreen: **Settings → Network** shows the IP. PrusaLink web UI (open the IP in a browser) → **Settings → API Key** shows the key. |
+| **Bambu Lab** | IP address + serial number + access code | On the printer: **Settings → Network → LAN Mode** — enable it, then the serial number and access code are shown on the same screen. The access code changes every time LAN Mode is toggled. |
+| **Elegoo Centauri** | IP address only | Printer touchscreen: **Settings → Network**. No API key required. |
+| **Klipper (Voron, etc.)** | IP address of the Klipper host | The IP of the machine running Moonraker (same machine as Klipper). Port 7125 is used automatically. No API key required. |
+
+---
+
 ## Getting the Code
 
 ### Option A — Git clone (recommended)
 
 **Windows** — open Command Prompt or PowerShell in the folder where you want to install (e.g. `C:\PrintFarm`):
 ```
-git clone https://github.com/YOUR-ORG/print-farm-manager.git
+git clone https://github.com/joeltelling/print-farm-manager.git
 cd print-farm-manager
 ```
 
 **macOS** — open Terminal and navigate to your preferred location (e.g. `~/PrintFarm`):
 ```
 mkdir -p ~/PrintFarm && cd ~/PrintFarm
-git clone https://github.com/YOUR-ORG/print-farm-manager.git
+git clone https://github.com/joeltelling/print-farm-manager.git
 cd print-farm-manager
 ```
 
@@ -194,6 +207,47 @@ You should see:
 To stop the server, press `Ctrl + C` in the terminal.
 
 > **Development mode:** If you are actively developing the app, `npm run dev` starts both the Express server and the Vite dev server with hot reload. This is not needed for normal farm operation.
+
+---
+
+## First Run: Adding Your First Printer
+
+When you open the app for the first time, the Fleet view will be empty. This is expected — no printers have been configured yet. Follow these steps:
+
+### Step 1 — Add a Printer Model
+
+Go to **Settings → Printer Models** and add a model entry for each type of printer you have. A model entry links a display name (e.g. "MK4S") to a brand connector (Prusa, Bambu, Elegoo, Klipper).
+
+Built-in model IDs: `mk4s`, `c1`, `xl` (Prusa) · `centauri-carbon` (Elegoo) · `x1c`, `p1s`, `p1p`, `a1`, `a1-mini` (Bambu)
+
+For Klipper printers, choose a descriptive model ID (e.g. `voron-24`) — the ID is only used internally.
+
+### Step 2 — Add a Printer
+
+Still in **Settings**, click **Add Printer**. Fill in:
+
+- **Name** — a short identifier (e.g. `MK4S_01`). Used throughout the UI.
+- **IP Address** — the local IP of the printer (see credential table above).
+- **API Key / Serial Number** — see credential table above. Leave blank for Elegoo and Klipper.
+- **Serial Number** — Bambu printers only.
+- **Group** — optional, for organizing multiple printers (e.g. `MK4S Farm`).
+- **Model** — select from the models you added in Step 1.
+
+Click **Save**. The printer will appear in the Fleet view within 15 seconds as the poller makes its first contact.
+
+### Step 3 — Verify the Connection
+
+Open the **Fleet** page. If the printer is reachable, its status will change from `UNKNOWN` to its actual state (e.g. `IDLE` or `PRINTING`) within one poll cycle (15 seconds).
+
+If the printer stays `OFFLINE` or `UNKNOWN`:
+- Confirm the IP address is correct by opening `http://<printer-ip>` in a browser on the same machine.
+- For Prusa: confirm the API key matches what PrusaLink shows.
+- For Bambu: confirm LAN Mode is enabled and the access code matches.
+- Check that the farm machine and the printer are on the same network subnet.
+
+### Step 4 — Import a Large Fleet via CSV
+
+For farms with many printers, use the **CSV Import** on the Settings page instead of adding them one by one. See the [CSV Import Format](../README.md#csv-import-format) section in the README for the required column names.
 
 ---
 

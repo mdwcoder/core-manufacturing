@@ -5,3 +5,5 @@ server/data/
 dist/
 .env
 *.csv
+.claude/
+*.docx

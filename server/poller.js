@@ -24,6 +24,11 @@ class PrinterPoller extends EventEmitter {
   }
 
   async _tick() {
+    if (process.env.DEMO_MODE === 'true') {
+      this.emit('pollComplete');
+      return;
+    }
+
     const printers = this.db
       .prepare('SELECT * FROM printers WHERE is_active = 1')
       .all();

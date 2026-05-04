@@ -2,6 +2,31 @@
 
 ---
 
+## 2026-05-04 — Open-source release prep: LICENSE, demo seed, install docs, video outline
+
+Prepared the project for open-source release and YouTube video production.
+
+**MIT license** — Added `LICENSE` file. The README already stated MIT; now there is an actual license file for GitHub and package managers to pick up.
+
+**Demo seed script** (`server/seed-demo.js`) — Seeds a fresh install with 12 fictional printers across all four brands (Prusa, Elegoo, Bambu, Klipper), 3 projects, 6 parts, 6 G-code files, and a realistic spread of job history. Printers are seeded in various states: 5 PRINTING at different progress levels, 1 FINISHED awaiting operator confirmation, 2 IDLE, 1 ERROR, 1 OFFLINE. Requires `--confirm` flag to prevent accidental data loss on a live install.
+
+**DEMO_MODE** — Added `process.env.DEMO_MODE === 'true'` check in `server/poller.js`. When set, the poller skips all network calls and emits `pollComplete` without touching the DB — seeded statuses are preserved for filming without real hardware. Start with `DEMO_MODE=true npm start`.
+
+**Installation docs** (`docs/installation.md`) — Fixed `YOUR-ORG` placeholder clone URLs → `joeltelling`. Added "What You Will Need From Each Printer" credential table (Prusa API key, Bambu LAN Mode / access code, Elegoo/Klipper IP-only). Added "First Run" walkthrough section covering printer model setup, adding the first printer, verifying connection, and CSV import.
+
+**Video outline** (`docs/video-outline.md`) — Full YouTube filming outline with timestamps, talking points, and filming notes for each section.
+
+### Changes
+
+**`LICENSE`** — new file  
+**`server/seed-demo.js`** — new file  
+**`server/poller.js`** — DEMO_MODE skip in `_tick()`  
+**`docs/installation.md`** — credential table, First Run section, URL fixes  
+**`docs/video-outline.md`** — new file  
+**`docs/README.md`** — updated documentation index
+
+---
+
 ## 2026-04-30 — Decommission flow: "print good" vs "print bad" choice
 
 Decommissioning a printer no longer assumes the last print was bad. The operator is now asked whether the print was successful before the machine goes offline.
