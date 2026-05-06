@@ -16,7 +16,7 @@ Two related bugs triggered when an operator manually stops a print on the printe
 
 ### Changes
 
-**`server/routes/printers.js`** — updated `last_parts_per_plate` subquery  
+**`server/routes/printers.js`** — updated `last_parts_per_plate` subquery; added `cancelled` fallback in `mark-job-failure` so the job is properly marked `failed` instead of hitting the "no tracked job" path  
 **`server/index.js`** — added `cancelled` fallback in set-ready handler
 
 ---

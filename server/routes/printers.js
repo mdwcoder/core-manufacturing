@@ -224,6 +224,7 @@ module.exports = (db) => {
     //
     //   printing  — active or stale; completed_qty was never credited
     //   uploading — upload stalled; completed_qty was never credited
+    //   cancelled — operator stopped on printer screen; completed_qty was never credited
     //   finished  — fallback: _handleFinished already credited completed_qty; operator
     //               is confirming the print was bad
     //
@@ -235,6 +236,12 @@ module.exports = (db) => {
       SELECT * FROM jobs WHERE printer_id = ? AND status IN ('printing', 'uploading')
       ORDER BY started_at DESC LIMIT 1
     `).get(printer.id);
+    if (!job) {
+      job = db.prepare(`
+        SELECT * FROM jobs WHERE printer_id = ? AND status = 'cancelled'
+        ORDER BY finished_at DESC LIMIT 1
+      `).get(printer.id);
+    }
     if (!job) {
       job = db.prepare(`
         SELECT * FROM jobs j
@@ -283,8 +290,8 @@ module.exports = (db) => {
         }
       }
     }
-    // printing (missed-finish) and uploading (upload stalled) cases: completed_qty was never
-    // incremented, so there is nothing to undo. Just mark failed and decommission below.
+    // printing (missed-finish), uploading (upload stalled), and cancelled (stopped on printer
+    // screen) cases: completed_qty was never incremented, so there is nothing to undo.
 
     // Decommission the printer — a failed print requires investigation before it can run again.
     // The operator must explicitly recommission it when the machine is confirmed safe.
