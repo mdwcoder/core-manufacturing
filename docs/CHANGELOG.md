@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-05-06 — Fix: cancelled/failed jobs not used for last_parts_per_plate
+
+**Bug:** When an operator manually stopped a print on the printer screen, the Fleet UI showed the wrong quantity (e.g. "1/1" instead of "25/25") on the green/red confirmation buttons.
+
+**Root cause:** `_handlePrinterStopped` marks the in-progress job as `'cancelled'`. The `last_parts_per_plate` subquery in `GET /api/printers` only looked at jobs with status `'finished'` or `'printing'`, so it skipped the cancelled job entirely and fell back to an older unrelated job with a different `parts_per_plate`.
+
+**Fix:** Replaced the two-part COALESCE with a single subquery covering all terminal and active statuses (`finished`, `printing`, `failed`, `cancelled`), ordered by `COALESCE(finished_at, started_at) DESC` to always surface the most recent job.
+
+### Changes
+
+**`server/routes/printers.js`** — updated `last_parts_per_plate` subquery
+
+---
+
 ## 2026-05-04 — Open-source release prep: LICENSE, demo seed, install docs, video outline
 
 Prepared the project for open-source release and YouTube video production.

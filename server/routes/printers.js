@@ -33,16 +33,16 @@ function resolveModel(rawModel, name) {
 
 module.exports = (db) => {
   // GET /api/printers — list active printers only
-  // Includes last_parts_per_plate from the most recent finished job, used by the
-  // Fleet UI to pre-fill the confirmed-qty input on held printers.
+  // Includes last_parts_per_plate from the most recent job (finished/printing/failed/cancelled),
+  // used by the Fleet UI to pre-fill the confirmed-qty input on held printers.
   // Includes has_active_job — true when an uploading/printing job exists, used to
   // distinguish a held OFFLINE printer whose job is still running from one with no job.
   router.get('/', (req, res) => {
     const printers = db.prepare(`
       SELECT p.*,
-        COALESCE(
-          (SELECT j.parts_per_plate FROM jobs j WHERE j.printer_id = p.id AND j.status = 'finished' ORDER BY j.finished_at DESC LIMIT 1),
-          (SELECT j.parts_per_plate FROM jobs j WHERE j.printer_id = p.id AND j.status = 'printing' ORDER BY j.started_at DESC LIMIT 1)
+        (SELECT j.parts_per_plate FROM jobs j
+          WHERE j.printer_id = p.id AND j.status IN ('finished', 'printing', 'failed', 'cancelled')
+          ORDER BY COALESCE(j.finished_at, j.started_at) DESC LIMIT 1
         ) AS last_parts_per_plate,
         EXISTS(
           SELECT 1 FROM jobs j WHERE j.printer_id = p.id AND j.status IN ('uploading', 'printing')
