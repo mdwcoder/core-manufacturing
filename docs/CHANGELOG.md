@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-05-07 — Security: clear all npm audit vulnerabilities for open-source release
+
+`npm audit` reported 4 vulnerabilities (2 high, 2 moderate) on the server and 3 moderate on the client. All have been resolved so a fresh install reports `found 0 vulnerabilities` on both sides.
+
+**Server (non-breaking transitive bumps via `npm audit fix`):**
+- `axios` 1.14.0 → 1.16.0 (multiple SSRF, prototype pollution, header injection advisories)
+- `basic-ftp` 5.2.1 → 5.3.1 (CRLF injection in MKD/credentials, DoS in `Client.list()`)
+- `follow-redirects` 1.15.11 → 1.16.0 (auth header leakage on cross-domain redirect)
+- `ip-address` 10.1.0 → 10.2.0 (XSS in `Address6` HTML emitters — transitive via mqtt → socks)
+
+**Client (Vite major upgrade):**
+- `vite` 5.4.21 → 7.3.3 and `@vitejs/plugin-react` 4.3.1 → 5.2.0 — fixes the dev-server `esbuild` advisory (any website could send requests to the dev server). Vite 7 was chosen over Vite 8 as a more conservative jump; the existing `vite.config.js` works unchanged.
+- `postcss` bumped to 8.5.10 via `npm audit fix` (XSS via unescaped `</style>`).
+
+### Verification
+- `npm audit` → 0 vulnerabilities (server and client)
+- `npm test` → 263/263 passing
+- `npm run build` → succeeds on Vite 7
+- `npm run dev` → Vite 7 dev server starts and serves index.html with HTTP 200
+
+### Changes
+**`client/package.json`** — bumped `vite` and `@vitejs/plugin-react` to current major versions.  
+**`package-lock.json`** and **`client/package-lock.json`** — regenerated.  
+No application source code changes were required.
+
+---
+
 ## 2026-05-06 — Fix: cancelled jobs not credited or displayed correctly on Set Ready
 
 Two related bugs triggered when an operator manually stops a print on the printer screen (`_handlePrinterStopped` marks the job `'cancelled'`):
