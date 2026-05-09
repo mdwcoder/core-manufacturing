@@ -377,15 +377,15 @@ export default function Dashboard() {
                             }}>
                               <span style={{ fontSize: 12, color: '#94a3b8' }}>{part.name}</span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontSize: 11, color: '#475569', fontVariantNumeric: 'tabular-nums' }}>
+                                <span style={{ fontSize: 12, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
                                   {part.completed_qty.toLocaleString()}
                                   {activeQty > 0 && (
-                                    <span style={{ color: '#3b82f6' }}> +{activeQty.toLocaleString()}</span>
+                                    <span style={{ color: '#60a5fa' }}> +{activeQty.toLocaleString()}</span>
                                   )}
                                   {' / '}
                                   {part.target_qty.toLocaleString()}
                                 </span>
-                                <span style={{ fontSize: 11, fontWeight: 700, color: part.status === 'closed' ? '#22c55e' : '#3b82f6', minWidth: 30, textAlign: 'right' }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: part.status === 'closed' ? '#4ade80' : '#60a5fa', minWidth: 34, textAlign: 'right' }}>
                                   {pct}%
                                 </span>
                                 {part.status === 'closed' && (
@@ -399,7 +399,7 @@ export default function Dashboard() {
                                 )}
                               </div>
                             </div>
-                            <div style={{ position: 'relative', background: '#0f172a', borderRadius: 3, height: 5 }}>
+                            <div style={{ position: 'relative', background: '#0f172a', borderRadius: 3, height: 7 }}>
                               {/* Completed segment */}
                               <div style={{
                                 position: 'absolute', left: 0, top: 0, height: '100%',

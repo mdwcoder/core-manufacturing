@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '../useToast';
+import { useConfirm } from '../useConfirm';
 
 // Model options are loaded from /api/models at runtime — no hardcoded list here.
 
@@ -109,7 +110,7 @@ const PART_STATUS = {
 const inputSx = {
   background: '#0f172a',
   border: '1px solid #2d3748',
-  borderRadius: 4,
+  borderRadius: 6,
   padding: '5px 10px',
   color: '#e2e8f0',
   fontSize: 13,
@@ -257,7 +258,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
   );
 }
 
-function PartDetailsPanel({ part, gcodes, onRefresh, onSaved }) {
+function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm }) {
   const [have, setHave] = useState(String(part.completed_qty));
   const [need, setNeed] = useState(String(part.target_qty));
   const [saving, setSaving] = useState(false);
@@ -295,9 +296,20 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved }) {
 
     const wouldClose = newHave >= newNeed;
     if (wouldClose && part.status === 'open') {
-      if (!window.confirm('This will close the part and stop dispatching. Confirm?')) return;
+      const ok = await onConfirm({
+        title: 'Close Part',
+        message: 'This will close the part and stop dispatching.',
+        confirmLabel: 'Close Part',
+        danger: true,
+      });
+      if (!ok) return;
     } else if (!wouldClose && part.status === 'closed') {
-      if (!window.confirm('This will reopen the part and resume dispatching. Confirm?')) return;
+      const ok = await onConfirm({
+        title: 'Reopen Part',
+        message: 'This will reopen the part and resume dispatching.',
+        confirmLabel: 'Reopen Part',
+      });
+      if (!ok) return;
     }
 
     setSaving(true);
@@ -318,7 +330,13 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved }) {
   }
 
   async function deleteGcode(gcodeId) {
-    if (!window.confirm('Delete this G-code file?')) return;
+    const ok = await onConfirm({
+      title: 'Delete G-code',
+      message: 'Delete this G-code file?',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     await fetch(`/api/gcodes/${gcodeId}`, { method: 'DELETE' });
     onRefresh();
   }
@@ -449,6 +467,7 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved }) {
 
 export default function Projects() {
   const [showToast, toastEl]              = useToast();
+  const [confirm, confirmModal]           = useConfirm();
   const [projects, setProjects]           = useState([]);
   const [loading, setLoading]             = useState(true);
 
@@ -548,9 +567,15 @@ export default function Projects() {
     if (action === 'complete') {
       const partCount = parts.filter(p => p.status === 'open').length;
       const msg = partCount > 0
-        ? `Mark "${detailProject.name}" complete? ${partCount} open part(s) will be closed and any queued jobs cancelled.`
-        : `Mark "${detailProject.name}" complete?`;
-      if (!window.confirm(msg)) return;
+        ? `${partCount} open part(s) will be closed and any queued jobs cancelled.`
+        : undefined;
+      const ok = await confirm({
+        title: `Mark "${detailProject.name}" Complete`,
+        message: msg,
+        confirmLabel: 'Mark Complete',
+        danger: true,
+      });
+      if (!ok) return;
 
       await fetch(`/api/projects/${id}/complete`, { method: 'POST' });
       await Promise.all([fetchDetail(id), fetchProjects()]);
@@ -558,18 +583,18 @@ export default function Projects() {
     }
 
     if (action === 'reactivate') {
-      if (!window.confirm(
-        `Re-activate "${detailProject.name}"? Parts with remaining qty will be reopened and dispatch will resume.`
-      )) return;
+      const ok = await confirm({
+        title: `Re-activate "${detailProject.name}"`,
+        message: 'Parts with remaining qty will be reopened and dispatch will resume.',
+        confirmLabel: 'Re-activate',
+      });
+      if (!ok) return;
 
       const res  = await fetch(`/api/projects/${id}/reactivate`, { method: 'POST' });
       const data = await res.json();
 
       if (data.nothing_to_reopen) {
-        alert(
-          'All parts are already at their target qty — nothing to dispatch.\n\n' +
-          'Adjust part quantities first, then re-activate.'
-        );
+        showToast('All parts are at target qty — adjust quantities first.', 'warning');
         return;
       }
 
@@ -606,11 +631,17 @@ export default function Projects() {
   }
 
   async function deletePart(partId, partName) {
-    if (!window.confirm(`Delete part "${partName}"? This will also delete its G-code files and cannot be undone.`)) return;
+    const ok = await confirm({
+      title: 'Delete Part',
+      message: `Delete "${partName}"? This will also delete its G-code files and cannot be undone.`,
+      confirmLabel: 'Delete Part',
+      danger: true,
+    });
+    if (!ok) return;
     const res = await fetch(`/api/parts/${partId}`, { method: 'DELETE' });
     if (!res.ok) {
       const d = await res.json();
-      alert(d.error || 'Delete failed.');
+      showToast(d.error || 'Delete failed.', 'error');
       return;
     }
     await fetchDetail(selectedId);
@@ -663,6 +694,7 @@ export default function Projects() {
     return (
       <div>
         {toastEl}
+        {confirmModal}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Projects</h1>
           <button
@@ -783,6 +815,7 @@ export default function Projects() {
   return (
     <div>
       {toastEl}
+      {confirmModal}
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <button
@@ -882,7 +915,7 @@ export default function Projects() {
                   </span>
                   <span>{pct}%</span>
                 </div>
-                <div style={{ position: 'relative', background: '#0f172a', borderRadius: 3, height: 6 }}>
+                <div style={{ position: 'relative', background: '#0f172a', borderRadius: 4, height: 8 }}>
                   {/* Completed segment */}
                   <div style={{
                     position: 'absolute', left: 0, top: 0, height: '100%',
@@ -952,6 +985,7 @@ export default function Projects() {
                 gcodes={partGs}
                 onRefresh={() => fetchDetail(selectedId)}
                 onSaved={showToast}
+                onConfirm={confirm}
               />
             )}
           </div>

@@ -1,0 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #0a0f1a;
+  color: #e2e8f0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code, .mono {
+  font-family: 'Fira Code', 'Fira Mono', monospace;
+}
+
+/* ── Global button interaction ───────────────────────────────── */
+button {
+  transition: filter 0.15s ease;
+}
+button:not(:disabled):hover {
+  filter: brightness(1.12);
+}
+button:not(:disabled):active {
+  filter: brightness(0.92);
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* ── Table row hover ─────────────────────────────────────────── */
+tbody tr:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+/* ── Skeleton shimmer ────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #1e2433 25%, #263044 50%, #1e2433 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+  border-radius: 8px;
+}
+
+/* ── Confirm modal entrance ──────────────────────────────────── */
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}

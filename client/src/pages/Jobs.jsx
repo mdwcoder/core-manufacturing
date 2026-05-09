@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useConfirm } from '../useConfirm';
 
 const JOB_STATUS = {
   queued:    { bg: '#1f2937', text: '#9ca3af', label: 'Queued' },
@@ -37,6 +38,7 @@ const selectSx = {
 };
 
 export default function Jobs() {
+  const [confirm, confirmModal]   = useConfirm();
   const [jobs, setJobs]           = useState([]);
   const [loading, setLoading]     = useState(true);
   const [projects, setProjects]   = useState([]);
@@ -76,13 +78,20 @@ export default function Jobs() {
   }, [fetchJobs]);
 
   async function cancelJob(jobId) {
-    if (!window.confirm('Cancel this job?')) return;
+    const ok = await confirm({
+      title: 'Cancel Job',
+      message: 'Remove this job from the queue?',
+      confirmLabel: 'Cancel Job',
+      danger: true,
+    });
+    if (!ok) return;
     await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
     fetchJobs();
   }
 
   return (
     <div>
+      {confirmModal}
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Job Queue</h1>
 
       {/* Filters */}

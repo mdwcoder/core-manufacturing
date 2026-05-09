@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useToast } from '../useToast';
+import { useConfirm } from '../useConfirm';
 
 const inputStyle = {
   background: '#0f172a',
@@ -29,6 +30,7 @@ const NO_API_KEY_TYPES = new Set(['elegoo-centauri', 'klipper']);
 
 export default function Settings() {
   const [showToast, toastEl] = useToast();
+  const [confirm, confirmModal] = useConfirm();
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -175,7 +177,13 @@ export default function Settings() {
     e.preventDefault();
     const file = restoreFileRef.current?.files[0];
     if (!file) return;
-    if (!window.confirm('This will replace ALL current farm data with the backup. Continue?')) return;
+    const ok = await confirm({
+      title: 'Restore Farm Data',
+      message: 'This will replace ALL current farm data with the backup. This cannot be undone.',
+      confirmLabel: 'Restore',
+      danger: true,
+    });
+    if (!ok) return;
 
     setRestoring(true);
     setRestoreResult(null);
@@ -250,21 +258,21 @@ export default function Settings() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
-      alert(`Printer "${row.name}" saved as ${selectedModel}.`);
-      // Remove from flagged list
+      showToast(`"${row.name}" saved as ${selectedModel}`);
       setResult((prev) => ({
         ...prev,
         flagged: prev.flagged.filter((f) => f !== flaggedItem),
         imported: prev.imported + 1,
       }));
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      showToast(`Error: ${err.message}`, 'error');
     }
   }
 
   return (
     <div>
       {toastEl}
+      {confirmModal}
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 20 }}>Settings</h1>
 
       {/* Server Alerts */}

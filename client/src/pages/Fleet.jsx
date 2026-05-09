@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import PollTimer from '../components/PollTimer';
+import { useConfirm } from '../useConfirm';
+import { useToast } from '../useToast';
 
 const STATUS_COLORS = {
   PRINTING:   { bg: '#1e3a5f', text: '#60a5fa', label: 'Printing' },
@@ -113,7 +115,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
         <span style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {printer.name}
         </span>
-        <span style={{ background: style.bg, color: style.text, borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+        <span style={{ background: style.bg, color: style.text, borderRadius: 4, padding: '2px 8px', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
           {style.label}
         </span>
       </div>
@@ -138,7 +140,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
               {printer.job_name}
             </div>
           )}
-          <div style={{ background: '#0f172a', borderRadius: 3, height: 6, overflow: 'hidden', marginBottom: 4 }}>
+          <div style={{ background: '#0f172a', borderRadius: 3, height: 8, overflow: 'hidden', marginBottom: 4 }}>
             <div style={{
               background: '#3b82f6',
               height: '100%',
@@ -183,11 +185,11 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               onClick={() => onSetReady(printer.id, printer.last_parts_per_plate != null ? parseInt(confirmedQty, 10) : null)}
-              style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✓ Set Ready
             </button>
-            <button onClick={() => onBadPrint(printer.id)} style={{ flex: 1, background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            <button onClick={() => onBadPrint(printer.id)} style={{ flex: 1, background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               ✗ Bad Print
             </button>
           </div>
@@ -202,13 +204,13 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               onClick={() => onSetReady(printer.id, null)}
-              style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✓ Job OK
             </button>
             <button
               onClick={() => onBadPrint(printer.id)}
-              style={{ flex: 1, background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✗ Job Failed
             </button>
@@ -224,13 +226,13 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               onClick={() => onSetReady(printer.id, null)}
-              style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✓ Job Running
             </button>
             <button
               onClick={() => onUploadFailed(printer.id)}
-              style={{ flex: 1, background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, background: '#7f1d1d', color: '#f87171', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✗ Upload Failed
             </button>
@@ -240,7 +242,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
 
       {!isPrinting && (
         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 2 }}>
-          <button onClick={() => onDecommission(printer.id)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}>
+          <button onClick={() => onDecommission(printer.id)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 6, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}>
             Decommission
           </button>
         </div>
@@ -250,6 +252,8 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
 }
 
 export default function Fleet() {
+  const [confirm, confirmModal]               = useConfirm();
+  const [showToast, toastEl]                  = useToast();
   const [printers, setPrinters]               = useState([]);
   const [loading, setLoading]                 = useState(true);
   const [error, setError]                     = useState(null);
@@ -327,54 +331,49 @@ export default function Fleet() {
 
   async function decommission(printerId) {
     const printer = printers.find(p => p.id === printerId);
+    const choice = await confirm({
+      title: `Decommission ${printer?.name}`,
+      message: 'Was the last print successful?\n\nThis machine will be removed from the active fleet and will require a manual recommission before running again.',
+      cancelLabel: 'Cancel',
+      actions: [
+        { label: 'Print succeeded — credit & decommission', value: 'success', variant: 'success' },
+        { label: 'Print failed — discard & decommission',   value: 'failure', variant: 'danger'  },
+      ],
+    });
+    if (!choice) return;
 
-    let goodPrint = false;
-
-    // Step 1 — if not mid-print, ask about the last print's outcome before anything else.
-    if (printer?.status !== 'PRINTING') {
-      const printSucceeded = window.confirm(
-        `Before decommissioning ${printer?.name} — was the last print successful?\n\n` +
-        `OK     → Yes, it succeeded — credit the count and decommission\n` +
-        `Cancel → No / unknown — mark as failed and decommission`
-      );
-
-      if (!printSucceeded) {
-        // Print bad/unknown — mark-job-failure handles decommission internally.
-        const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          alert(`Failed: ${body.error || res.status}`);
-        }
-        fetchPrinters();
-        return;
+    if (choice === 'failure') {
+      const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showToast(`Failed: ${body.error || res.status}`, 'error');
       }
-
-      goodPrint = true;
+      fetchPrinters();
+      return;
     }
 
-    // Step 2 — confirm the decommission itself.
-    if (!window.confirm(
-      `Decommission ${printer?.name}?\n\n` +
-      `This machine will be removed from the active fleet, will no longer receive jobs, ` +
-      `and will require a manual recommission before it can run again.`
-    )) return;
-
-    const endpoint = goodPrint ? 'complete-and-decommission' : 'decommission';
-    const decommRes = await fetch(`/api/printers/${printerId}/${endpoint}`, { method: 'POST' });
-    if (!decommRes.ok) {
-      const body = await decommRes.json().catch(() => ({}));
-      alert(`Decommission failed: ${body.error || decommRes.status}`);
+    // choice === 'success'
+    const res = await fetch(`/api/printers/${printerId}/complete-and-decommission`, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      showToast(`Decommission failed: ${body.error || res.status}`, 'error');
     }
     fetchPrinters();
   }
 
   async function badPrint(printerId) {
     const printer = printers.find(p => p.id === printerId);
-    if (!window.confirm(`Mark the last finished job on ${printer?.name} as a failure?\n\nThis will undo the completed quantity, reopen the part if it was closed, and DECOMMISSION the printer pending investigation.\n\nRecommission the printer manually once you have confirmed it is safe to run.`)) return;
+    const ok = await confirm({
+      title: `Mark Bad Print — ${printer?.name}`,
+      message: 'This will undo the completed quantity, reopen the part if it was closed, and decommission the printer pending investigation.\n\nRecommission the printer manually once you have confirmed it is safe to run.',
+      confirmLabel: 'Mark as Failed',
+      danger: true,
+    });
+    if (!ok) return;
     const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      alert(`Failed to mark bad print: ${body.error || res.status}`);
+      showToast(`Failed to mark bad print: ${body.error || res.status}`, 'error');
     } else {
       setSelectedForReady(prev => { const next = new Set(prev); next.delete(printerId); return next; });
     }
@@ -383,11 +382,17 @@ export default function Fleet() {
 
   async function uploadFailed(printerId) {
     const printer = printers.find(p => p.id === printerId);
-    if (!window.confirm(`Confirm upload failure for ${printer?.name}?\n\nThis confirms the print never started. No completed quantity will be deducted. The printer will be DECOMMISSIONED pending investigation.\n\nRecommission the printer manually when it is ready to run again.`)) return;
+    const ok = await confirm({
+      title: `Confirm Upload Failure — ${printer?.name}`,
+      message: 'This confirms the print never started. No completed quantity will be deducted. The printer will be decommissioned pending investigation.\n\nRecommission the printer manually when it is ready to run again.',
+      confirmLabel: 'Confirm Upload Failed',
+      danger: true,
+    });
+    if (!ok) return;
     const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      alert(`Failed to mark upload failure: ${body.error || res.status}`);
+      showToast(`Failed to mark upload failure: ${body.error || res.status}`, 'error');
     }
     fetchPrinters();
   }
@@ -429,6 +434,8 @@ export default function Fleet() {
 
   return (
     <div>
+      {confirmModal}
+      {toastEl}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Fleet</h1>
@@ -540,14 +547,15 @@ export default function Fleet() {
             key={key}
             onClick={() => setFilter(key)}
             style={{
-              background: filter === key ? '#1e40af' : '#1e2433',
+              background: filter === key ? '#1d4ed8' : '#1e2433',
               color: filter === key ? '#fff' : color,
-              border: `1px solid ${filter === key ? '#3b82f6' : '#2d3748'}`,
+              border: `1px solid ${filter === key ? '#60a5fa' : '#2d3748'}`,
               borderRadius: 20,
               padding: '4px 12px',
               fontSize: 13,
               cursor: 'pointer',
               fontWeight: filter === key ? 700 : 400,
+              boxShadow: filter === key ? '0 0 0 1px #3b82f630' : 'none',
             }}
           >
             {label}
@@ -572,7 +580,17 @@ export default function Fleet() {
         />
       </div>
 
-      {loading && <p style={{ color: '#64748b' }}>Loading printers…</p>}
+      {loading && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+          gap: 10,
+        }}>
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="skeleton" style={{ height: 100 }} />
+          ))}
+        </div>
+      )}
       {error && <p style={{ color: '#f87171' }}>Error: {error}</p>}
       {!loading && printers.length === 0 && (
         <p style={{ color: '#64748b' }}>
