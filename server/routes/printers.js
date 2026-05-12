@@ -49,7 +49,10 @@ module.exports = (db) => {
         ) AS has_active_job,
         EXISTS(
           SELECT 1 FROM jobs j WHERE j.printer_id = p.id AND j.status = 'uploading'
-        ) AS has_uploading_job
+        ) AS has_uploading_job,
+        EXISTS(
+          SELECT 1 FROM jobs j WHERE j.printer_id = p.id AND j.status = 'printing'
+        ) AS has_printing_job
       FROM printers p
       WHERE p.is_active = 1
       ORDER BY p.name

@@ -240,7 +240,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
         </div>
       )}
 
-      {isPrinting && printer.has_active_job === 0 && (
+      {isPrinting && printer.has_printing_job === 0 && (
         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 2 }}>
           <button
             onClick={() => onLinkJob(printer.id, false)}
@@ -348,9 +348,9 @@ export default function Fleet() {
     const res = await fetch(`/api/printers/${printerId}/linkable-jobs`);
     const jobs = await res.json();
 
-    // For the upload-stall case, pre-select this printer's own stalled uploading job.
-    // Otherwise pre-select the most recent job if there's only one candidate.
-    const ownStalled = isHeld ? jobs.find(j => j.original_printer_id === printerId && j.status === 'uploading') : null;
+    // Pre-select this printer's own stalled uploading job if present, otherwise
+    // fall back to the only candidate if there's just one.
+    const ownStalled = jobs.find(j => j.original_printer_id === printerId && j.status === 'uploading');
     const preselect = ownStalled ? ownStalled.id : (jobs.length === 1 ? jobs[0].id : null);
 
     setLinkJobModal({
