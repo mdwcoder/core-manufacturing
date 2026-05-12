@@ -50,7 +50,7 @@ function formatTimeRemaining(secs) {
   return '< 1m left';
 }
 
-function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onUploadFailed, onDecommission }) {
+function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onUploadFailed, onDecommission, onLinkJob }) {
   const style = statusStyle(printer.status);
 
   // Confirmed-qty input — pre-filled from the last finished job's parts_per_plate.
@@ -225,7 +225,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
-              onClick={() => onSetReady(printer.id, null)}
+              onClick={() => onLinkJob(printer.id, true)}
               style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
               ✓ Job Running
@@ -237,6 +237,18 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
               ✗ Upload Failed
             </button>
           </div>
+        </div>
+      )}
+
+      {isPrinting && printer.has_active_job === 0 && (
+        <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 2 }}>
+          <button
+            onClick={() => onLinkJob(printer.id, false)}
+            title="Associate a failed or stalled job with this printer for record keeping"
+            style={{ background: 'none', color: '#60a5fa', border: '1px solid #1e3a5f', borderRadius: 6, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}
+          >
+            Link Job
+          </button>
         </div>
       )}
 
@@ -262,6 +274,8 @@ export default function Fleet() {
   const [selectedForReady, setSelectedForReady] = useState(new Set());
   const [lastPolled, setLastPolled]           = useState(null);
   const [allModels, setAllModels]             = useState([]);
+  // { printerId, printerName, jobs, selectedJobId, isHeld }
+  const [linkJobModal, setLinkJobModal]       = useState(null);
 
   useEffect(() => {
     fetch('/api/models').then(r => r.json()).then(setAllModels).catch(() => {});
@@ -326,6 +340,51 @@ export default function Fleet() {
       body: JSON.stringify({ ids: [...selectedForReady] }),
     });
     setSelectedForReady(new Set());
+    fetchPrinters();
+  }
+
+  async function openLinkJobModal(printerId, isHeld) {
+    const printer = printers.find(p => p.id === printerId);
+    const res = await fetch(`/api/printers/${printerId}/linkable-jobs`);
+    const jobs = await res.json();
+
+    // For the upload-stall case, pre-select this printer's own stalled uploading job.
+    // Otherwise pre-select the most recent job if there's only one candidate.
+    const ownStalled = isHeld ? jobs.find(j => j.original_printer_id === printerId && j.status === 'uploading') : null;
+    const preselect = ownStalled ? ownStalled.id : (jobs.length === 1 ? jobs[0].id : null);
+
+    setLinkJobModal({
+      printerId,
+      printerName: printer?.name ?? `Printer ${printerId}`,
+      jobs,
+      selectedJobId: preselect,
+      isHeld,
+    });
+  }
+
+  async function submitLinkJob() {
+    const { printerId, selectedJobId, isHeld } = linkJobModal;
+    setLinkJobModal(null);
+
+    if (selectedJobId) {
+      const res = await fetch(`/api/printers/${printerId}/link-job`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: selectedJobId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showToast(`Failed to link job: ${body.error || res.status}`, 'error');
+      }
+    } else if (isHeld) {
+      // No job selected — just release the hold
+      await fetch(`/api/printers/${printerId}/set-ready`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+    }
+
     fetchPrinters();
   }
 
@@ -436,6 +495,77 @@ export default function Fleet() {
     <div>
       {confirmModal}
       {toastEl}
+
+      {linkJobModal && (
+        <div
+          onClick={() => setLinkJobModal(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#1e2433', border: '1px solid #2d3748', borderRadius: 8, padding: 24, width: 480, maxWidth: '90vw', maxHeight: '80vh', overflow: 'auto' }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Link Job — {linkJobModal.printerName}</div>
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+              Select the job currently running on this machine.
+            </div>
+
+            {linkJobModal.jobs.length === 0 ? (
+              <div style={{ fontSize: 13, color: '#94a3b8', padding: '12px 0' }}>
+                No failed or stalled jobs found for this printer's model.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {linkJobModal.jobs.map(job => (
+                  <div
+                    key={job.id}
+                    onClick={() => setLinkJobModal(m => ({ ...m, selectedJobId: job.id }))}
+                    style={{
+                      background: linkJobModal.selectedJobId === job.id ? '#1e3a5f' : '#0f172a',
+                      border: `1px solid ${linkJobModal.selectedJobId === job.id ? '#3b82f6' : '#2d3748'}`,
+                      borderRadius: 6,
+                      padding: '10px 12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{job.part_name}</div>
+                    <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', marginBottom: 4 }}>{job.gcode_filename}</div>
+                    <div style={{ fontSize: 11, color: '#475569' }}>
+                      Job #{job.id} · {job.status}
+                      {job.original_printer_name ? ` · was on ${job.original_printer_name}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+              <button
+                onClick={() => setLinkJobModal(null)}
+                style={{ background: '#1e2433', color: '#94a3b8', border: '1px solid #2d3748', borderRadius: 6, padding: '6px 16px', fontSize: 13, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              {linkJobModal.isHeld && !linkJobModal.selectedJobId && (
+                <button
+                  onClick={submitLinkJob}
+                  style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 6, padding: '6px 16px', fontSize: 13, cursor: 'pointer' }}
+                >
+                  Release Hold
+                </button>
+              )}
+              {linkJobModal.selectedJobId && (
+                <button
+                  onClick={submitLinkJob}
+                  style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Link Job
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Fleet</h1>
@@ -618,6 +748,7 @@ export default function Fleet() {
                 onBadPrint={badPrint}
                 onUploadFailed={uploadFailed}
                 onDecommission={decommission}
+                onLinkJob={openLinkJobModal}
               />
             ))}
           </div>

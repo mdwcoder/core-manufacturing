@@ -160,6 +160,22 @@ If no tracked job matches any of the above, the printer is still decommissioned 
 
 Returns `{ "success": true, "job_id": N }` (or `job_id: null` when no job was found). Returns `404` only if the printer itself does not exist.
 
+### `GET /api/printers/:id/linkable-jobs`
+
+Returns jobs in `failed` or `uploading` status whose G-code was sliced for this printer's model. Used by the Fleet UI job-link picker. Returns up to 20 results, newest first.
+
+Each job includes `part_name`, `gcode_filename`, `original_printer_name` (the printer it was originally dispatched to), and `original_printer_id`.
+
+### `POST /api/printers/:id/link-job`
+
+Manually associates a failed or stalled job with this printer — for record keeping when a job was dispatched but the upload appeared to fail while the printer actually started printing.
+
+**Body:** `{ "job_id": N }`
+
+Sets `jobs.status` to `'printing'`, updates `jobs.printer_id` to this printer, sets `jobs.started_at` if not already set, and releases the printer's hold (`is_held = 0`).
+
+Returns `409` if the job is not in `failed` or `uploading` status. Returns `404` if the printer or job does not exist.
+
 ### `GET /api/printers/:id/events`
 
 Returns all events for a printer, newest first.

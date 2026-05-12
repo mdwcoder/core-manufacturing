@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-05-12 — Feature: manual job linking for orphaned printers
+
+When an upload appears to fail but the printer actually started printing, the job could end up in `failed` or `uploading` status while the printer shows `PRINTING` with no DB job associated — breaking part-count record keeping.
+
+**Two new ways to link a job:**
+
+1. **"Job Running" button now opens a job picker.** When an upload-stalled printer is confirmed as printing, a modal shows eligible jobs (failed/uploading, filtered to this printer's model). The printer's own stalled upload job is pre-selected. Confirming links that job to the printer and flips it to `printing` so the normal finish flow credits parts correctly. If no job is selected, the original "release hold" behaviour is preserved.
+
+2. **"Link Job" recovery button on PRINTING cards with no active job.** For printers already in this orphaned state, a blue "Link Job" button appears on the card. Clicking it opens the same picker.
+
+**New endpoints:**
+- `GET /api/printers/:id/linkable-jobs` — returns failed/uploading jobs matching the printer's model.
+- `POST /api/printers/:id/link-job` — sets job to `printing`, updates `printer_id`, releases hold.
+
+### Changes
+**`server/routes/printers.js`** — added `GET /:id/linkable-jobs` and `POST /:id/link-job`.  
+**`client/src/pages/Fleet.jsx`** — `linkJobModal` state + `openLinkJobModal` / `submitLinkJob` functions + picker modal + "Link Job" card button + "Job Running" opens picker instead of calling set-ready directly.  
+**`docs/api.md`** — documented both new endpoints.
+
+---
+
 ## 2026-05-07 — UX: friendly startup error when client hasn't been built
 
 A first-time installer who skipped `npm run build` and went straight to `npm start` saw a confusing in-browser `ENOENT: no such file or directory ... client\dist\index.html` only after opening localhost:3000. The server itself appeared to be running fine, so the cause was non-obvious.

@@ -391,6 +391,56 @@ module.exports = (db) => {
     res.json(summary);
   });
 
+  // GET /api/printers/:id/linkable-jobs — failed/uploading jobs whose gcode model matches this printer.
+  // Used by the Fleet UI job-link picker.
+  router.get('/:id/linkable-jobs', (req, res) => {
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+
+    const jobs = db.prepare(`
+      SELECT j.id, j.printer_id AS original_printer_id, j.part_id, j.gcode_id,
+             j.parts_per_plate, j.status, j.started_at, j.created_at,
+             p.name AS part_name,
+             g.filename AS gcode_filename,
+             orig.name AS original_printer_name
+      FROM jobs j
+      JOIN gcodes g ON g.id = j.gcode_id
+      JOIN parts p ON p.id = j.part_id
+      LEFT JOIN printers orig ON orig.id = j.printer_id
+      WHERE j.status IN ('failed', 'uploading')
+        AND g.printer_model = ?
+      ORDER BY j.created_at DESC
+      LIMIT 20
+    `).all(printer.model);
+
+    res.json(jobs);
+  });
+
+  // POST /api/printers/:id/link-job — manually associate a failed/uploading job with this printer.
+  // Sets job to 'printing', updates printer_id, sets started_at if not already set, releases hold.
+  router.post('/:id/link-job', (req, res) => {
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+
+    const { job_id } = req.body || {};
+    if (!job_id) return res.status(400).json({ error: 'job_id is required' });
+
+    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(job_id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!['failed', 'uploading'].includes(job.status)) {
+      return res.status(409).json({ error: `Job is in '${job.status}' status and cannot be linked` });
+    }
+
+    const now = Date.now();
+    db.prepare(`
+      UPDATE jobs SET status = 'printing', printer_id = ?, started_at = COALESCE(started_at, ?) WHERE id = ?
+    `).run(printer.id, now, job.id);
+    db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
+
+    console.log(`[printers] Job ${job.id} manually linked to ${printer.name} by operator`);
+    res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id));
+  });
+
   // Mount events sub-router — GET/POST /api/printers/:id/events
   router.use('/:id/events', require('./events')(db));
 
