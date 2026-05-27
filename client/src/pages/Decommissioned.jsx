@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useConfirm } from '../useConfirm';
+import { useToast } from '../useToast';
 
 function formatTimestamp(ms) {
   if (!ms) return 'Unknown';
@@ -11,57 +13,80 @@ function formatTimestamp(ms) {
 
 export default function Decommissioned() {
   const navigate = useNavigate();
+  const [confirm, confirmModal] = useConfirm();
+  const [showToast, toastEl]    = useToast();
+
   const [printers, setPrinters] = useState([]);
   const [loading, setLoading]   = useState(true);
-  const [notes, setNotes]       = useState({});   // { [id]: string }
-  const [dirty, setDirty]       = useState(new Set());
-  const [saving, setSaving]     = useState(new Set());
+  const [editingId, setEditingId] = useState(null);
+  const [draftNote, setDraftNote] = useState('');
+  const [saving, setSaving]       = useState(false);
 
   const fetchPrinters = useCallback(async () => {
     const res  = await fetch('/api/printers/decommissioned');
     const data = await res.json();
     setPrinters(data);
-    // Seed note state for any printer not already being edited
-    setNotes(prev => {
-      const next = { ...prev };
-      data.forEach(p => {
-        if (!(p.id in next)) next[p.id] = p.decommission_note || '';
-      });
-      return next;
-    });
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchPrinters(); }, [fetchPrinters]);
 
-  function handleNoteChange(id, value) {
-    setNotes(prev => ({ ...prev, [id]: value }));
-    setDirty(prev => new Set(prev).add(id));
+  function beginEdit(printer) {
+    setEditingId(printer.id);
+    setDraftNote(printer.decommission_note || '');
   }
 
-  async function saveNote(id) {
-    setSaving(prev => new Set(prev).add(id));
-    await Promise.all([
-      fetch(`/api/printers/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decommission_note: notes[id] }),
-      }),
-      notes[id]?.trim() && fetch(`/api/printers/${id}/events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: notes[id].trim() }),
-      }),
-    ]);
-    setSaving(prev => { const next = new Set(prev); next.delete(id); return next; });
-    setDirty(prev => { const next = new Set(prev); next.delete(id); return next; });
+  function cancelEdit() {
+    setEditingId(null);
+    setDraftNote('');
+  }
+
+  async function saveNote() {
+    if (editingId == null) return;
+    const id = editingId;
+    const printer = printers.find(p => p.id === id);
+    const trimmed = draftNote.trim();
+    // No-op if the draft is unchanged — avoids spurious event-log entries on blur.
+    if (printer && draftNote === (printer.decommission_note || '')) {
+      setEditingId(null);
+      setDraftNote('');
+      return;
+    }
+    setSaving(true);
+    try {
+      await Promise.all([
+        fetch(`/api/printers/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decommission_note: draftNote }),
+        }),
+        trimmed && fetch(`/api/printers/${id}/events`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note: trimmed }),
+        }),
+      ]);
+      // Reflect saved note locally without refetch
+      setPrinters(ps => ps.map(p => p.id === id ? { ...p, decommission_note: draftNote } : p));
+      setEditingId(null);
+      setDraftNote('');
+      showToast('Note saved', 'success');
+    } catch (err) {
+      showToast('Failed to save note', 'error');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function recommission(printer) {
-    if (!window.confirm(
-      `Recommission ${printer.name}?\n\nOnly proceed if the machine has been fully inspected and confirmed safe to run. It will return to the active fleet and be eligible to receive jobs immediately.`
-    )) return;
+    const ok = await confirm({
+      title: `Recommission ${printer.name}?`,
+      message: 'Only proceed if the machine has been fully inspected and confirmed safe to run. It will return to the active fleet and be eligible to receive jobs immediately.',
+      confirmLabel: 'Recommission',
+    });
+    if (!ok) return;
     await fetch(`/api/printers/${printer.id}/recommission`, { method: 'POST' });
+    showToast(`${printer.name} recommissioned`, 'success');
     fetchPrinters();
   }
 
@@ -78,115 +103,195 @@ export default function Decommissioned() {
         <p style={{ color: '#475569', fontSize: 14 }}>No decommissioned printers.</p>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+        gap: 12,
+      }}>
         {printers.map(printer => (
-          <div key={printer.id} style={{
-            background: '#131720',
-            border: '1px solid #1e2433',
-            borderRadius: 8,
-            padding: '14px 18px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-          }}>
-            {/* Header row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 700, fontSize: 15, color: '#e2e8f0' }}>{printer.name}</span>
-              <span style={{ background: '#0f172a', borderRadius: 3, padding: '1px 7px', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>
-                {printer.model}
-              </span>
-              <span style={{ fontSize: 12, color: '#475569' }}>{printer.ip}</span>
-              {printer.group_name && (
-                <span style={{ fontSize: 12, color: '#475569' }}>{printer.group_name}</span>
-              )}
-            </div>
-
-            {/* Decommission timestamp */}
-            <div style={{ fontSize: 12, color: '#64748b' }}>
-              Decommissioned: <span style={{ color: '#94a3b8' }}>{formatTimestamp(printer.decommissioned_at)}</span>
-            </div>
-
-            {/* Note field */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: 12, color: '#64748b' }}>Investigation note</label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <textarea
-                  value={notes[printer.id] ?? ''}
-                  onChange={e => handleNoteChange(printer.id, e.target.value)}
-                  placeholder="Describe the issue, what was inspected, and any findings…"
-                  rows={2}
-                  style={{
-                    flex: 1,
-                    background: '#1e2433',
-                    border: `1px solid ${dirty.has(printer.id) ? '#3b82f6' : '#2d3748'}`,
-                    borderRadius: 5,
-                    color: '#e2e8f0',
-                    fontSize: 13,
-                    padding: '6px 10px',
-                    resize: 'vertical',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-                {dirty.has(printer.id) && (
-                  <button
-                    onClick={() => saveNote(printer.id)}
-                    disabled={saving.has(printer.id)}
-                    style={{
-                      background: '#1e40af',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 5,
-                      padding: '6px 14px',
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: saving.has(printer.id) ? 'not-allowed' : 'pointer',
-                      opacity: saving.has(printer.id) ? 0.6 : 1,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {saving.has(printer.id) ? 'Saving…' : 'Save'}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                onClick={() => recommission(printer)}
-                style={{
-                  background: 'none',
-                  color: '#60a5fa',
-                  border: '1px solid #1e3a5f',
-                  borderRadius: 5,
-                  padding: '4px 14px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                ↩ Recommission
-              </button>
-              <button
-                onClick={() => navigate(`/printers/${printer.id}`)}
-                style={{
-                  background: 'none',
-                  color: '#94a3b8',
-                  border: '1px solid #2d3748',
-                  borderRadius: 5,
-                  padding: '4px 14px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                View History
-              </button>
-            </div>
-          </div>
+          <DecomCard
+            key={printer.id}
+            printer={printer}
+            isEditing={editingId === printer.id}
+            draftNote={draftNote}
+            saving={saving && editingId === printer.id}
+            onBeginEdit={() => beginEdit(printer)}
+            onCancelEdit={cancelEdit}
+            onChangeDraft={setDraftNote}
+            onSave={saveNote}
+            onRecommission={() => recommission(printer)}
+            onViewHistory={() => navigate(`/printers/${printer.id}`)}
+          />
         ))}
       </div>
+
+      {confirmModal}
+      {toastEl}
     </div>
   );
+}
+
+function DecomCard({
+  printer, isEditing, draftNote, saving,
+  onBeginEdit, onCancelEdit, onChangeDraft, onSave,
+  onRecommission, onViewHistory,
+}) {
+  const note = printer.decommission_note || '';
+  const textareaRef = useRef(null);
+
+  // Auto-focus + place cursor at end when entering edit mode
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      const ta = textareaRef.current;
+      ta.focus();
+      const len = ta.value.length;
+      ta.setSelectionRange(len, len);
+    }
+  }, [isEditing]);
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      onSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancelEdit();
+    }
+  }
+
+  return (
+    <div style={{
+      background: '#131720',
+      border: '1px solid #1e2433',
+      borderRadius: 8,
+      padding: '12px 14px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+      position: 'relative',
+    }}>
+      {/* Header — name + model + actions */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontWeight: 700, fontSize: 14, color: '#e2e8f0',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {printer.name}
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginTop: 3,
+            flexWrap: 'wrap',
+          }}>
+            <span style={{
+              background: '#0f172a', borderRadius: 3, padding: '1px 6px',
+              fontFamily: 'monospace', fontSize: 11, color: '#64748b',
+            }}>
+              {printer.model}
+            </span>
+            <span style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace' }}>{printer.ip}</span>
+            {printer.group_name && (
+              <span style={{ fontSize: 11, color: '#475569' }}>{printer.group_name}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Icon-style action buttons */}
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+          <button
+            onClick={onRecommission}
+            title="Recommission"
+            style={iconBtn('#60a5fa', '#1e3a5f')}
+          >
+            ↩
+          </button>
+          <button
+            onClick={onViewHistory}
+            title="View history"
+            style={iconBtn('#94a3b8', '#2d3748')}
+          >
+            ⋯
+          </button>
+        </div>
+      </div>
+
+      {/* Decommission timestamp */}
+      <div style={{ fontSize: 11, color: '#475569' }}>
+        Removed {formatTimestamp(printer.decommissioned_at)}
+      </div>
+
+      {/* Note — view or edit */}
+      {isEditing ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <textarea
+            ref={textareaRef}
+            value={draftNote}
+            onChange={e => onChangeDraft(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={onSave}
+            placeholder="Describe the issue, what was inspected, and any findings…"
+            rows={3}
+            style={{
+              background: '#1e2433',
+              border: '1px solid #3b82f6',
+              borderRadius: 5,
+              color: '#e2e8f0',
+              fontSize: 13,
+              padding: '6px 10px',
+              resize: 'vertical',
+              outline: 'none',
+              fontFamily: 'inherit',
+              lineHeight: 1.5,
+            }}
+          />
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            fontSize: 10, color: '#475569',
+          }}>
+            <span>Enter saves · Shift+Enter newline · Esc cancels</span>
+            {saving && <span style={{ color: '#60a5fa' }}>Saving…</span>}
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={onBeginEdit}
+          title="Click to edit note"
+          style={{
+            background: 'transparent',
+            border: '1px dashed #1e2433',
+            borderRadius: 5,
+            padding: '8px 10px',
+            color: note ? '#cbd5e1' : '#475569',
+            fontSize: 13,
+            lineHeight: 1.5,
+            cursor: 'text',
+            textAlign: 'left',
+            fontFamily: 'inherit',
+            minHeight: 38,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+          onMouseEnter={e => e.currentTarget.style.borderColor = '#334155'}
+          onMouseLeave={e => e.currentTarget.style.borderColor = '#1e2433'}
+        >
+          {note || 'Add investigation note…'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function iconBtn(color, border) {
+  return {
+    background: 'none',
+    color,
+    border: `1px solid ${border}`,
+    borderRadius: 5,
+    width: 28, height: 28,
+    fontSize: 14, fontWeight: 700,
+    cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    lineHeight: 1,
+    padding: 0,
+  };
 }

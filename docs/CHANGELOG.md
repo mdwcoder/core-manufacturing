@@ -2,6 +2,48 @@
 
 ---
 
+## 2026-05-27 — UI/UX fit-and-finish: Printers grouping, Dashboard panels, Decommissioned grid
+
+Open-source-release polish pass on three high-traffic screens.
+
+### Printers page — collapsible model groups
+
+The flat printer list was fine at 12 printers but won't scale to hundreds. Reworked into a grouped, collapsible layout.
+
+- Printers grouped by model with collapsible section headers; header shows count and per-status summary pills (e.g. `5 printing · 2 idle · 1 offline`).
+- New toolbar: **Expand all / Collapse all** buttons and a **Show decommissioned** checkbox (hidden by default — decommissioned printers no longer pollute the active list).
+- Collapse state persisted to `localStorage` (`printers.collapsedGroups`, `printers.showDecommissioned`).
+- Search auto-expands groups with matches, hides empty groups, and shows a "N of M match" hint.
+- "Model" column dropped from the per-row grid (redundant given the header), reclaiming horizontal space.
+
+### Dashboard — replaced Recent Activity with two actionable panels
+
+Recent Activity duplicated information already on the Jobs page and wasn't useful for a worker walking the floor. Bottom row is now a 3-column grid with two new panels.
+
+- **Needs Attention** — every printer requiring a human, sorted by priority (AWAITING → ERROR → STOPPED → PAUSED → OFFLINE), then longest-waiting first. Each row: reason badge, printer name, wait time. Empty state renders a green "✓ All clear" badge — itself a status worth seeing on a TV.
+- **Finishing Soon** — up to 10 currently-printing printers sorted by `job_time_remaining` ascending, with job filename, remaining time, and a mini progress bar. Lets workers pre-stage the next plate before a printer lands.
+- Recent Activity removed from the dashboard UI (the `recent_activity` field is still in the `/api/dashboard` payload for compatibility).
+
+### Decommissioned page — denser layout + Enter-to-save
+
+Full-width cards wasted space and the note field required clicking a Save button to commit.
+
+- Responsive grid of compact cards (`repeat(auto-fill, minmax(360px, 1fr))`) — 2-3 columns depending on viewport.
+- Inline note area: click to edit; **Enter saves**, Shift+Enter newline, Esc cancels, blur auto-saves as backstop. Saves no-op when unchanged.
+- Recommission and View History are now small icon buttons in the card's top-right.
+- Recommission confirm now uses the styled `useConfirm` modal instead of `window.confirm`, matching the rest of the polish pass; success shows a toast.
+
+### Changes
+
+**`server/routes/dashboard.js`** — added `last_event_at` subquery per printer so the Needs Attention panel can compute waiting time without a second query.
+**`client/src/pages/Printers.jsx`** — full rewrite: grouped sections, `GroupSection` subcomponent, localStorage-backed collapse state, show-decommissioned toggle, search-driven auto-expand.
+**`client/src/pages/Dashboard.jsx`** — 3-column bottom row; added `NeedsAttention` and `FinishingSoon` panel components plus `formatRemaining` / `formatWait` helpers; removed Recent Activity render.
+**`client/src/pages/Decommissioned.jsx`** — full rewrite: grid layout, `DecomCard` subcomponent, click-to-edit / Enter-saves note flow, `useConfirm` + `useToast` integration.
+**`docs/web-app.md`** — updated Dashboard, Printers sections and added a Decommissioned Page section.
+**`docs/api.md`** — documented `last_event_at` on `/api/dashboard` printers.
+
+---
+
 ## 2026-05-12 — Feature: manual job linking for orphaned printers
 
 When an upload appears to fail but the printer actually started printing, the job could end up in `failed` or `uploading` status while the printer shows `PRINTING` with no DB job associated — breaking part-count record keeping.

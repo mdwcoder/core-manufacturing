@@ -8,12 +8,16 @@ module.exports = (db) => {
     const now    = Date.now();
     const since  = now - 24 * 60 * 60 * 1000; // rolling 24-hour window
 
-    // ── Printers (same query as GET /api/printers, with last_parts_per_plate) ──
+    // ── Printers (same query as GET /api/printers, with last_parts_per_plate
+    //    and last_event_at — most recent printer_events timestamp, used by the
+    //    "Needs Attention" panel to show how long a printer has been waiting) ──
     const printers = db.prepare(`
       SELECT p.*,
         (SELECT j.parts_per_plate FROM jobs j
          WHERE j.printer_id = p.id AND j.status = 'finished'
-         ORDER BY j.finished_at DESC LIMIT 1) AS last_parts_per_plate
+         ORDER BY j.finished_at DESC LIMIT 1) AS last_parts_per_plate,
+        (SELECT MAX(e.created_at) FROM printer_events e
+         WHERE e.printer_id = p.id) AS last_event_at
       FROM printers p
       WHERE p.is_active = 1
       ORDER BY p.name

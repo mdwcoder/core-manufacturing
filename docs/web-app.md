@@ -4,7 +4,7 @@
 
 The React single-page application served by Vite. In development, Vite runs on port 5173 and proxies all `/api/*` requests to the Express server on port 3000. The app provides:
 
-- **Dashboard** — TV-optimized command center: fleet utilization, stat cards, printer grid, active project progress, recent activity
+- **Dashboard** — TV-optimized command center: fleet utilization, stat cards, printer grid, active project progress, needs-attention panel, and finishing-soon panel
 - **Fleet page** — live grid of all active printers with status, filterable and searchable
 - **Printers page** — searchable directory of all printers (active and decommissioned); click any row to open the detail view
 - **Printer detail view** — per-machine event timeline, inline note form, printer header
@@ -70,7 +70,10 @@ TV-optimized command center intended to be shown full-screen on a large monitor 
 | Hero stat cards | Printing, Idle, Awaiting sign-off, Parts Today (rolling 24h) — large tabular numerals |
 | Fleet grid | All active printers as color-coded 54×44px cells, grouped by model row with per-row status summary badges and a color legend |
 | Active Projects | All active projects with **all parts** listed — per-part 3-segment progress bars (green = completed, blue = printing, dark = remaining), completion counts with `+N printing` annotation, and DONE badges on closed parts. No truncation. |
-| Recent Activity | Last 12 finished/failed jobs — ✓/✗ icon, part name, qty, printer name, relative time |
+| Needs Attention | Every printer requiring a human, sorted by priority: AWAITING → ERROR → STOPPED → PAUSED → OFFLINE, then longest-waiting first. Each row shows a reason badge, printer name, and wait time derived from `last_event_at`. Empty state renders a green "✓ All clear" badge. |
+| Finishing Soon | Up to 10 currently-printing printers sorted by `job_time_remaining` ascending — printer name, job filename, remaining time, and a mini progress bar. Answers "what's about to land?" so workers can pre-stage. |
+
+The bottom row is a 3-column grid (`1.2fr 1fr 1fr`): Active Projects | Needs Attention | Finishing Soon. Recent Activity is no longer rendered on the dashboard — finished/failed jobs are listed in detail on the Jobs page.
 
 **Fleet cell colors:**
 
@@ -130,11 +133,18 @@ If the printer recovers and transitions back to `PRINTING` on its own, the sched
 
 `client/src/pages/Printers.jsx`
 
-Searchable directory of every printer registered in the farm — both active and decommissioned. Sorted active-first, then alphabetically within each group. Decommissioned printers are visually dimmed.
+Searchable directory of every active printer registered in the farm, grouped by model. Each model is a collapsible section with a header showing the count and compact status-summary pills (e.g. `5 printing · 2 idle · 1 offline`). Designed to scale to hundreds of printers.
 
-**Columns:** Name (with "decommissioned" label if applicable), Model, Group, IP, Status badge.
+**Toolbar:**
+- Search box — filters by name, model, group, or IP (case-insensitive)
+- **Expand all / Collapse all** buttons
+- **Show decommissioned** checkbox — hidden by default; when enabled, decommissioned printers appear in a dimmed "Decommissioned" group at the bottom
 
-**Search:** filters by name, model, group, or IP (case-insensitive).
+**Collapse state** is persisted to `localStorage` (`printers.collapsedGroups`, `printers.showDecommissioned`) so the operator's view sticks across reloads.
+
+**Search behavior:** when a query is active, collapse state is overridden — groups with matches expand, groups with zero matches are hidden, and a "N of M match" hint appears above the list.
+
+**Columns within a group:** Name, Group, IP, Status badge. (Model is implied by the group header.)
 
 Click any row to navigate to `/printers/:id` (the Printer Detail view).
 
@@ -156,6 +166,23 @@ Per-machine history and annotation screen. Reached by clicking a row in the Prin
 - Formatted timestamp
 
 **← All Printers** back button returns to the Printers list.
+
+## Decommissioned Page
+
+`client/src/pages/Decommissioned.jsx`
+
+Responsive grid of decommissioned printers — printers that have been pulled from the active fleet for inspection. Cards auto-fill into 2 or 3 columns depending on viewport width (`repeat(auto-fill, minmax(360px, 1fr))`).
+
+**Each card shows:** printer name, model + IP + group metadata, removal timestamp, an investigation note area, and compact icon-style action buttons (↩ Recommission, ⋯ View History) in the top-right.
+
+**Note editing:**
+- Click the note area to enter edit mode (the dashed-border placeholder becomes a focused textarea)
+- **Enter saves** · Shift+Enter inserts a newline · Esc cancels
+- Blur auto-saves as a backstop
+- Save no-ops if the draft is unchanged, to avoid spurious `printer_events` entries
+- Saving the note also appends a note event to the printer's timeline (`POST /api/printers/:id/events`)
+
+**Recommission** uses the styled `useConfirm` modal — the worker must confirm that the machine has been fully inspected and is safe to run before it returns to the active fleet. On confirm: `POST /api/printers/:id/recommission` and a success toast.
 
 ## Settings Page
 
