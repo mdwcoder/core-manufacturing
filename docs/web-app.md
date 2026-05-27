@@ -4,7 +4,7 @@
 
 The React single-page application served by Vite. In development, Vite runs on port 5173 and proxies all `/api/*` requests to the Express server on port 3000. The app provides:
 
-- **Dashboard** — TV-optimized command center: fleet utilization, stat cards, printer grid, active project progress, needs-attention panel, and finishing-soon panel
+- **Dashboard** — TV-optimized command center: fleet utilization, stat cards, printer grid, active project progress, and a needs-attention panel
 - **Fleet page** — live grid of all active printers with status, filterable and searchable
 - **Printers page** — searchable directory of all printers (active and decommissioned); click any row to open the detail view
 - **Printer detail view** — per-machine event timeline, inline note form, printer header
@@ -71,9 +71,8 @@ TV-optimized command center intended to be shown full-screen on a large monitor 
 | Fleet grid | All active printers as color-coded 54×44px cells, grouped by model row with per-row status summary badges and a color legend |
 | Active Projects | All active projects with **all parts** listed — per-part 3-segment progress bars (green = completed, blue = printing, dark = remaining), completion counts with `+N printing` annotation, and DONE badges on closed parts. No truncation. |
 | Needs Attention | Every printer requiring a human, sorted by priority: AWAITING → ERROR → STOPPED → PAUSED → OFFLINE, then longest-waiting first. Each row shows a reason badge, printer name, and wait time derived from `last_event_at`. Empty state renders a green "✓ All clear" badge. |
-| Finishing Soon | Up to 10 currently-printing printers sorted by `job_time_remaining` ascending — printer name, job filename, remaining time, and a mini progress bar. Answers "what's about to land?" so workers can pre-stage. |
 
-The bottom row is a 3-column grid (`1.2fr 1fr 1fr`): Active Projects | Needs Attention | Finishing Soon. Recent Activity is no longer rendered on the dashboard — finished/failed jobs are listed in detail on the Jobs page.
+The bottom row is a 2-column grid (`2fr 1fr`): Active Projects takes two-thirds, Needs Attention takes one-third on the right. Recent Activity is no longer rendered on the dashboard — finished/failed jobs are listed in detail on the Jobs page.
 
 **Fleet cell colors:**
 

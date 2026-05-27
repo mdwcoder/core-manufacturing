@@ -60,16 +60,6 @@ function timeAgo(ts) {
   return m > 0 ? `${h}h ${m}m ago` : `${h}h ago`;
 }
 
-function formatRemaining(seconds) {
-  if (seconds == null || seconds < 0) return '—';
-  const m = Math.floor(seconds / 60);
-  if (m < 1)  return '<1m';
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
-}
-
 function formatWait(ts) {
   if (!ts) return '';
   const mins = Math.floor((Date.now() - ts) / 60000);
@@ -347,7 +337,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── BOTTOM ROW ──────────────────────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
 
           {/* Active Projects */}
           <div style={{ background: '#111827', borderRadius: 10, padding: '16px 20px' }}>
@@ -460,9 +450,6 @@ export default function Dashboard() {
 
           {/* Needs Attention — anything requiring a human, sorted by urgency */}
           <NeedsAttention printers={printers} />
-
-          {/* Finishing Soon — currently-printing jobs sorted by ETA ascending */}
-          <FinishingSoon printers={printers} />
         </div>
       </div>
     </div>
@@ -582,73 +569,3 @@ function NeedsAttention({ printers }) {
   );
 }
 
-function FinishingSoon({ printers }) {
-  // PRINTING printers, sorted by remaining time ascending. Missing remaining is treated as last.
-  const items = printers
-    .filter(p => p.status === 'PRINTING')
-    .sort((a, b) => {
-      const ar = a.job_time_remaining ?? Infinity;
-      const br = b.job_time_remaining ?? Infinity;
-      return ar - br;
-    })
-    .slice(0, 10);
-
-  return (
-    <PanelShell title="Finishing Soon" count={items.length || null}>
-      {items.length === 0 ? (
-        <p style={{ color: '#374151', fontSize: 13, margin: 0 }}>No active prints.</p>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 360, overflowY: 'auto' }}>
-          {items.map(printer => {
-            const remaining = printer.job_time_remaining;
-            const progress  = Math.max(0, Math.min(1, printer.job_progress ?? 0));
-            const pct       = Math.round(progress * 100);
-            return (
-              <div
-                key={printer.id}
-                style={{
-                  padding: '8px 10px', borderRadius: 6,
-                  background: '#1a2030',
-                  borderLeft: '3px solid #3b82f6',
-                }}
-              >
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5,
-                }}>
-                  <span style={{
-                    fontSize: 13, color: '#e2e8f0', fontWeight: 600,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    flexShrink: 0, maxWidth: '50%',
-                  }}>
-                    {printer.name}
-                  </span>
-                  <span style={{
-                    flex: 1, fontSize: 11, color: '#64748b',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {printer.job_name || '—'}
-                  </span>
-                  <span style={{
-                    fontSize: 12, color: '#60a5fa', fontWeight: 700,
-                    fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 50, textAlign: 'right',
-                  }}>
-                    {formatRemaining(remaining)}
-                  </span>
-                </div>
-                <div style={{
-                  position: 'relative', height: 4, background: '#0f172a', borderRadius: 2,
-                }}>
-                  <div style={{
-                    position: 'absolute', left: 0, top: 0, height: '100%',
-                    width: `${pct}%`, background: '#3b82f6',
-                    borderRadius: 2, transition: 'width 0.5s',
-                  }} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </PanelShell>
-  );
-}
