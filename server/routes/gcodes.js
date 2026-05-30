@@ -51,6 +51,44 @@ function parseFilename(filename) {
   return { parts_per_plate, printer_model, est_print_secs, part_name_hint: match[2] };
 }
 
+// Extract material grams from any filename — flexible pattern matching.
+// kg before g to avoid "1.2kg" matching "2" with /g/.
+function extractMaterialGramsFromFilename(filename) {
+  const kg = filename.match(/(?:^|[_\s\-\.])(\d+(?:\.\d+)?)\s*kg(?:[_\s\-\.\(]|$)/i);
+  if (kg) return parseFloat(kg[1]) * 1000;
+  const g = filename.match(/(?:^|[_\s\-\.])(\d+(?:\.\d+)?)\s*g(?:[_\s\-\.\(]|$)/i);
+  if (g) return parseFloat(g[1]);
+  return null;
+}
+
+// Accepts: bare integer (seconds), HH:MM:SS, H:MM, or component form (2h15m, 1h 30m, etc.)
+function normalizePrintTime(raw) {
+  if (!raw && raw !== 0) return null;
+  const s = String(raw).trim();
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  let m = s.match(/^(\d{1,3}):(\d{2}):(\d{2})$/);
+  if (m) return +m[1] * 3600 + +m[2] * 60 + +m[3];
+  m = s.match(/^(\d{1,3}):(\d{2})$/);
+  if (m) return +m[1] * 3600 + +m[2] * 60;
+  let total = 0, found = false;
+  m = s.match(/(\d+)\s*h/i); if (m) { total += +m[1] * 3600; found = true; }
+  m = s.match(/(\d+)\s*m/i); if (m) { total += +m[1] * 60;   found = true; }
+  m = s.match(/(\d+)\s*s/i); if (m) { total += +m[1];        found = true; }
+  return found ? total : null;
+}
+
+// Accepts: bare number (grams), "45g", "45.5 grams", "1.2kg", "1.2 kilograms"
+function normalizeMaterialGrams(raw) {
+  if (!raw && raw !== 0) return null;
+  const s = String(raw).trim();
+  if (/^\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+  let m = s.match(/^(\d+(?:\.\d+)?)\s*kg(?:ilograms?)?$/i);
+  if (m) return parseFloat(m[1]) * 1000;
+  m = s.match(/^(\d+(?:\.\d+)?)\s*g(?:rams?)?$/i);
+  if (m) return parseFloat(m[1]);
+  return null;
+}
+
 module.exports = (db) => {
   // GET /api/gcodes — list, optionally filtered by part_id
   router.get('/', (req, res) => {
@@ -66,10 +104,11 @@ module.exports = (db) => {
     const { filename } = req.body;
     if (!filename) return res.status(400).json({ error: 'filename is required' });
     const parsed = parseFilename(filename);
+    const material_grams = extractMaterialGramsFromFilename(filename);
     if (!parsed) {
-      return res.json({ parse_failed: true });
+      return res.json({ parse_failed: true, material_grams });
     }
-    res.json({ parse_failed: false, ...parsed });
+    res.json({ parse_failed: false, ...parsed, material_grams });
   });
 
   // POST /api/gcodes/upload — upload G-code file and create DB record
@@ -82,7 +121,7 @@ module.exports = (db) => {
 
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const { part_id, parts_per_plate, printer_model, est_print_secs, ams_slot } = req.body;
+    const { part_id, parts_per_plate, printer_model, est_print_secs, ams_slot, material_grams } = req.body;
 
     if (!part_id || !parts_per_plate || !printer_model) {
       fs.unlinkSync(req.file.path);
@@ -108,9 +147,11 @@ module.exports = (db) => {
     // ams_slot: -1 = external spool, 0–N = AMS slot, null = not applicable (non-Bambu)
     const parsedAmsSlot = ams_slot !== undefined && ams_slot !== '' ? parseInt(ams_slot, 10) : null;
 
+    const parsedMaterialGrams = material_grams ? parseFloat(material_grams) : null;
+
     const gcode = db.prepare(`
-      INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, ams_slot, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, material_grams, ams_slot, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       part_id,
       printer_model,
@@ -118,11 +159,48 @@ module.exports = (db) => {
       req.file.filename,
       parseInt(parts_per_plate, 10),
       est_print_secs ? parseInt(est_print_secs, 10) : null,
+      parsedMaterialGrams,
       parsedAmsSlot,
       Date.now()
     );
 
     res.status(201).json(db.prepare('SELECT * FROM gcodes WHERE id = ?').get(gcode.lastInsertRowid));
+  });
+
+  // PUT /api/gcodes/:id — update est_print_secs and/or material_grams
+  // Accepts human-readable strings ("2h15m", "45g") or raw numbers; omitting a field leaves it unchanged.
+  router.put('/:id', (req, res) => {
+    const gcode = db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id);
+    if (!gcode) return res.status(404).json({ error: 'G-code not found' });
+
+    let estPrintSecs = gcode.est_print_secs;
+    if ('print_time' in req.body) {
+      if (!req.body.print_time) {
+        estPrintSecs = null;
+      } else {
+        estPrintSecs = normalizePrintTime(req.body.print_time);
+        if (estPrintSecs === null) {
+          return res.status(400).json({ error: 'Cannot parse print time. Use formats like "2h15m", "90m", or "1:30:00".' });
+        }
+      }
+    }
+
+    let materialGrams = gcode.material_grams;
+    if ('material_grams' in req.body) {
+      if (!req.body.material_grams) {
+        materialGrams = null;
+      } else {
+        materialGrams = normalizeMaterialGrams(req.body.material_grams);
+        if (materialGrams === null) {
+          return res.status(400).json({ error: 'Cannot parse material. Use formats like "45g", "45.5g", or "1.2kg".' });
+        }
+      }
+    }
+
+    db.prepare('UPDATE gcodes SET est_print_secs = ?, material_grams = ? WHERE id = ?')
+      .run(estPrintSecs, materialGrams, req.params.id);
+
+    res.json(db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id));
   });
 
   // DELETE /api/gcodes/:id

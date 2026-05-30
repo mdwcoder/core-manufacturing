@@ -159,11 +159,16 @@ function GcodeUploadPanel({ part, onUploaded }) {
       .catch(() => { setAmsSlots([]); setAmsSlot(''); });
   }, [model]);
 
+  const [parsedEstPrintSecs, setParsedEstPrintSecs] = useState(null);
+  const [parsedMaterialGrams, setParsedMaterialGrams] = useState(null);
+
   async function handleFileChange(e) {
     const f = e.target.files[0];
     if (!f) return;
     setFile(f);
     setError(null);
+    setParsedEstPrintSecs(null);
+    setParsedMaterialGrams(null);
     try {
       const res = await fetch('/api/gcodes/parse-filename', {
         method: 'POST',
@@ -174,7 +179,9 @@ function GcodeUploadPanel({ part, onUploaded }) {
       if (!data.parse_failed) {
         setPPP(String(data.parts_per_plate));
         if (data.printer_model) setModel(data.printer_model);
+        if (data.est_print_secs != null) setParsedEstPrintSecs(data.est_print_secs);
       }
+      if (data.material_grams != null) setParsedMaterialGrams(data.material_grams);
     } catch (_) {}
   }
 
@@ -195,6 +202,8 @@ function GcodeUploadPanel({ part, onUploaded }) {
     fd.append('parts_per_plate', partsPerPlate);
     fd.append('printer_model', model);
     if (amsSlots.length > 0) fd.append('ams_slot', amsSlot);
+    if (parsedEstPrintSecs != null) fd.append('est_print_secs', String(parsedEstPrintSecs));
+    if (parsedMaterialGrams != null) fd.append('material_grams', String(parsedMaterialGrams));
 
     try {
       const res  = await fetch('/api/gcodes/upload', { method: 'POST', body: fd });
@@ -203,6 +212,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
         setError(data.error || 'Upload failed.');
       } else {
         setFile(null); setPPP(''); setModel(''); setAmsSlot(''); setAmsSlots([]);
+        setParsedEstPrintSecs(null); setParsedMaterialGrams(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
         onUploaded();
       }
@@ -275,6 +285,132 @@ function GcodeUploadPanel({ part, onUploaded }) {
   );
 }
 
+function GcodeEstimateRow({ gc, onDelete, onSaved }) {
+  const [timeDraft, setTimeDraft]         = useState(formatDurationForInput(gc.est_print_secs));
+  const [materialDraft, setMaterialDraft] = useState(formatMaterialForInput(gc.material_grams));
+  const [parsing, setParsing]             = useState(false);
+  const [saving, setSaving]               = useState(false);
+  const [error, setError]                 = useState(null);
+
+  useEffect(() => {
+    setTimeDraft(formatDurationForInput(gc.est_print_secs));
+    setMaterialDraft(formatMaterialForInput(gc.material_grams));
+  }, [gc.est_print_secs, gc.material_grams]);
+
+  async function parseFromFilename() {
+    setParsing(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/gcodes/parse-filename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: gc.filename }),
+      });
+      const data = await res.json();
+      if (data.est_print_secs != null) setTimeDraft(formatDurationForInput(data.est_print_secs));
+      if (data.material_grams != null) setMaterialDraft(formatMaterialForInput(data.material_grams));
+      if (data.est_print_secs == null && data.material_grams == null) {
+        setError('No time or material data found in filename.');
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+    setParsing(false);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    const res = await fetch(`/api/gcodes/${gc.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        print_time:     timeDraft.trim()     || null,
+        material_grams: materialDraft.trim() || null,
+      }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      onSaved?.('Estimate saved');
+    } else {
+      const d = await res.json();
+      setError(d.error || 'Save failed.');
+    }
+  }
+
+  return (
+    <div style={{ background: '#0f172a', borderRadius: 4, padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{
+          fontFamily: 'monospace', fontSize: 12, color: '#e2e8f0',
+          flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {gc.filename}
+        </span>
+        <span style={{
+          background: '#1e3a5f', color: '#60a5fa', borderRadius: 3,
+          padding: '1px 6px', fontSize: 11, fontWeight: 700, flexShrink: 0,
+        }}>
+          {gc.printer_model}
+        </span>
+        <button
+          onClick={onDelete}
+          title="Delete G-code"
+          style={{
+            background: 'none', border: 'none', color: '#ef4444',
+            cursor: 'pointer', padding: '0 2px', fontSize: 16, lineHeight: 1, flexShrink: 0,
+          }}
+        >×</button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ color: '#475569', fontSize: 11, width: 70, flexShrink: 0 }}>per plate:</span>
+        <input
+          type="text"
+          placeholder="time e.g. 2h15m"
+          value={timeDraft}
+          onChange={e => setTimeDraft(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && save()}
+          style={{ ...inputSx, width: 110, fontSize: 12 }}
+        />
+        <input
+          type="text"
+          placeholder="material e.g. 45g"
+          value={materialDraft}
+          onChange={e => setMaterialDraft(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && save()}
+          style={{ ...inputSx, width: 110, fontSize: 12 }}
+        />
+        <button
+          onClick={parseFromFilename}
+          disabled={parsing}
+          title="Auto-fill from filename"
+          style={{
+            background: '#1f2937', color: '#94a3b8',
+            border: '1px solid #2d3748', borderRadius: 4,
+            padding: '4px 10px', fontSize: 11, cursor: parsing ? 'not-allowed' : 'pointer',
+            opacity: parsing ? 0.7 : 1, flexShrink: 0,
+          }}
+        >
+          {parsing ? 'Parsing…' : 'Parse'}
+        </button>
+        <button
+          onClick={save}
+          disabled={saving}
+          style={{
+            background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: 4,
+            padding: '4px 10px', fontSize: 11, fontWeight: 600,
+            cursor: saving ? 'not-allowed' : 'pointer',
+            opacity: saving ? 0.7 : 1, flexShrink: 0,
+          }}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      {error && <p style={{ color: '#f87171', fontSize: 11, margin: 0 }}>{error}</p>}
+    </div>
+  );
+}
+
 function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm }) {
   const [have, setHave] = useState(String(part.completed_qty));
   const [need, setNeed] = useState(String(part.target_qty));
@@ -285,21 +421,10 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm }) {
   const [nameDraft, setNameDraft]     = useState('');
   const nameEscapedRef = useRef(false);
 
-  const [printTimeDraft, setPrintTimeDraft] = useState(formatDurationForInput(part.print_time_seconds));
-  const [materialDraft, setMaterialDraft]   = useState(formatMaterialForInput(part.material_grams));
-  const [estimateError, setEstimateError]   = useState(null);
-  const [savingEstimate, setSavingEstimate] = useState(false);
-  const [parsing, setParsing]               = useState(false);
-
   useEffect(() => {
     setHave(String(part.completed_qty));
     setNeed(String(part.target_qty));
   }, [part.completed_qty, part.target_qty]);
-
-  useEffect(() => {
-    setPrintTimeDraft(formatDurationForInput(part.print_time_seconds));
-    setMaterialDraft(formatMaterialForInput(part.material_grams));
-  }, [part.print_time_seconds, part.material_grams]);
 
   async function saveName() {
     if (nameEscapedRef.current) { nameEscapedRef.current = false; return; }
@@ -313,59 +438,6 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm }) {
     });
     onRefresh();
     onSaved?.('Saved');
-  }
-
-  async function parseFromGcode() {
-    if (gcodes.length === 0) return;
-    setParsing(true);
-    setEstimateError(null);
-    try {
-      const res = await fetch(`/api/parts/${part.id}/parse-gcode`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gcode_id: gcodes[0].id }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setEstimateError(data.error || 'Parse failed.');
-      } else if (data.nothing_found) {
-        setEstimateError(`No time or material data found in "${data.source}".`);
-      } else {
-        if (data.print_time_seconds != null) setPrintTimeDraft(formatDurationForInput(data.print_time_seconds));
-        if (data.material_grams     != null) setMaterialDraft(formatMaterialForInput(data.material_grams));
-        if (data.print_time_seconds == null || data.material_grams == null) {
-          setEstimateError(
-            `Partial parse from "${data.source}" — ` +
-            [data.print_time_seconds == null && 'time not found', data.material_grams == null && 'material not found']
-              .filter(Boolean).join(', ') + '.'
-          );
-        }
-      }
-    } catch (err) {
-      setEstimateError(err.message);
-    }
-    setParsing(false);
-  }
-
-  async function saveEstimate() {
-    setSavingEstimate(true);
-    setEstimateError(null);
-    const res = await fetch(`/api/parts/${part.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        print_time: printTimeDraft.trim() || null,
-        material:   materialDraft.trim()  || null,
-      }),
-    });
-    setSavingEstimate(false);
-    if (res.ok) {
-      onRefresh();
-      onSaved?.('Estimate saved');
-    } else {
-      const d = await res.json();
-      setEstimateError(d.error || 'Save failed.');
-    }
   }
 
   async function saveQtys() {
@@ -497,101 +569,20 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm }) {
         {qtyError && <p style={{ color: '#f87171', fontSize: 12, margin: '6px 0 0' }}>{qtyError}</p>}
       </div>
 
-      {/* Print Estimate */}
-      <div>
-        <div style={sectionLabel}>Print Estimate (per part)</div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ color: '#64748b', fontSize: 12 }}>Print time</label>
-            <input
-              type="text"
-              placeholder='e.g. 2h15m, 90m, 1:30:00'
-              value={printTimeDraft}
-              onChange={e => setPrintTimeDraft(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && saveEstimate()}
-              style={{ ...inputSx, width: 150 }}
-            />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ color: '#64748b', fontSize: 12 }}>Material</label>
-            <input
-              type="text"
-              placeholder='e.g. 45g, 1.2kg'
-              value={materialDraft}
-              onChange={e => setMaterialDraft(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && saveEstimate()}
-              style={{ ...inputSx, width: 120 }}
-            />
-          </div>
-          {gcodes.length > 0 && (
-            <button
-              onClick={parseFromGcode}
-              disabled={parsing}
-              title={`Parse from ${gcodes[0].filename}`}
-              style={{
-                background: '#1f2937', color: '#94a3b8',
-                border: '1px solid #2d3748', borderRadius: 4,
-                padding: '5px 12px', fontSize: 12, cursor: parsing ? 'not-allowed' : 'pointer',
-                opacity: parsing ? 0.7 : 1,
-              }}
-            >
-              {parsing ? 'Parsing…' : 'Parse from file'}
-            </button>
-          )}
-          <button
-            onClick={saveEstimate}
-            disabled={savingEstimate}
-            style={{
-              background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: 4,
-              padding: '5px 14px', fontSize: 12, fontWeight: 600,
-              cursor: savingEstimate ? 'not-allowed' : 'pointer',
-              opacity: savingEstimate ? 0.7 : 1,
-            }}
-          >
-            {savingEstimate ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-        {estimateError && (
-          <p style={{ color: '#f87171', fontSize: 12, margin: '6px 0 0' }}>{estimateError}</p>
-        )}
-      </div>
-
-      {/* G-code files */}
+      {/* G-code files with per-gcode estimates */}
       <div>
         <div style={sectionLabel}>G-code Files</div>
         {gcodes.length === 0 && (
           <p style={{ color: '#475569', fontSize: 12, margin: 0 }}>No G-code files uploaded yet.</p>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {gcodes.map(gc => (
-            <div
+            <GcodeEstimateRow
               key={gc.id}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                background: '#0f172a', borderRadius: 4, padding: '5px 10px',
-              }}
-            >
-              <span style={{
-                fontFamily: 'monospace', fontSize: 12, color: '#e2e8f0',
-                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {gc.filename}
-              </span>
-              <span style={{
-                background: '#1e3a5f', color: '#60a5fa', borderRadius: 3,
-                padding: '1px 6px', fontSize: 11, fontWeight: 700, flexShrink: 0,
-              }}>
-                {gc.printer_model}
-              </span>
-              <button
-                onClick={() => deleteGcode(gc.id)}
-                title="Delete G-code"
-                style={{
-                  background: 'none', border: 'none', color: '#ef4444',
-                  cursor: 'pointer', padding: '0 2px', fontSize: 16, lineHeight: 1, flexShrink: 0,
-                }}
-              >×</button>
-            </div>
+              gc={gc}
+              onDelete={() => deleteGcode(gc.id)}
+              onSaved={onSaved}
+            />
           ))}
         </div>
       </div>

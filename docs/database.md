@@ -84,8 +84,8 @@ CREATE TABLE IF NOT EXISTS parts (
   completed_qty       INTEGER DEFAULT 0,
   status              TEXT DEFAULT 'open',   -- open | closed
   sort_order          INTEGER NOT NULL DEFAULT 0,
-  print_time_seconds  INTEGER,               -- nullable; per-part print time in seconds
-  material_grams      REAL,                  -- nullable; per-part filament usage in grams
+  print_time_seconds  INTEGER,               -- legacy; superseded by gcodes.est_print_secs
+  material_grams      REAL,                  -- legacy; superseded by gcodes.material_grams
   created_at          INTEGER NOT NULL,
   updated_at          INTEGER NOT NULL
 );
@@ -95,7 +95,7 @@ A Part is **open** while `completed_qty < target_qty`. It transitions to **close
 
 `sort_order` controls dispatch priority within a project — the scheduler picks the lowest `sort_order` part first. Set via `PUT /api/parts/reorder`. New parts default to `0` and fall back to `created_at` as a tiebreaker.
 
-`print_time_seconds` and `material_grams` are optional operator-supplied estimates for a single part. The dashboard uses these to project remaining time and material across each project. Both can be set manually via `PUT /api/parts/:id` (the server normalizes human-readable input like `"2h15m"` or `"45g"`) or populated via `POST /api/parts/:id/parse-gcode`, which attempts to extract the values from a gcode filename.
+`print_time_seconds` and `material_grams` on parts are legacy columns retained for schema compatibility but no longer written to. Time and material estimates are now stored per-gcode (see below) so they can vary by printer model.
 
 ### gcodes
 
@@ -109,13 +109,16 @@ CREATE TABLE IF NOT EXISTS gcodes (
   filename         TEXT NOT NULL,
   filepath         TEXT NOT NULL,      -- absolute path under server/gcode/
   parts_per_plate  INTEGER NOT NULL,
-  est_print_secs   INTEGER,            -- nullable; parsed from filename
+  est_print_secs   INTEGER,            -- nullable; per-plate print time in seconds
+  material_grams   REAL,              -- nullable; per-plate filament weight in grams
   ams_slot         INTEGER,            -- Bambu only: -1=external spool, 0–N=AMS slot, NULL=non-Bambu
   created_at       INTEGER NOT NULL
 );
 ```
 
 **Uniqueness on `(part_id, printer_model)`** is enforced at the application layer, not as a DB constraint, so the error message shown to the operator is clear and specific.
+
+`est_print_secs` and `material_grams` are **per-plate** values (i.e., covering all parts on one plate, not one part). They are auto-populated from the filename on upload when the Bambu-style naming convention is detected, and can be edited later via `PUT /api/gcodes/:id`. Since each gcode belongs to one `printer_model`, the stats system can break down elapsed time and material used by model across a project's completed jobs.
 
 ### jobs
 

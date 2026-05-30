@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-05-29 — Per-gcode material + time estimates; actual elapsed stats on dashboard
+
+### Feature: time and material estimates moved from parts to gcodes
+
+Material and print time estimates now live on each G-code file, not on the part. Since a part can have one gcode per printer model, estimates can now vary by model and are tied to the exact gcode that ran each job.
+
+**Why:** With multiple gcodes per part, a single `material_grams` value on the part is ambiguous — it can only represent one model. Moving the estimate to the gcode enables accurate per-job accounting: `job → gcode → material_grams` gives exact material used for each plate, broken down by printer model.
+
+**Data model:** `gcodes.material_grams REAL` (new column, per-plate grams). `gcodes.est_print_secs` (existing column, per-plate seconds) is now also operator-editable. `parts.print_time_seconds` and `parts.material_grams` are retained for schema compatibility but are no longer written to.
+
+**Projects UI:** The per-part "Print Estimate" section is removed. Each G-code row now shows inline time + material inputs with a "Parse" button that auto-fills from the filename, and a "Save" button that calls `PUT /api/gcodes/:id`. Values are per-plate (matching what the gcode actually prints). On file upload, `est_print_secs` and `material_grams` are auto-populated from the filename parse if detected.
+
+**Dashboard:** Active Projects footer row now shows actual elapsed print time and material used (from completed jobs), not remaining estimates. Elapsed time = sum of `finished_at − started_at` for finished jobs plus `now − started_at` for any printing job. Material = sum of `gcode.material_grams / gcode.parts_per_plate * job.parts_per_plate` for finished jobs with a gcode that has `material_grams` set. If multiple printer models ran jobs, their IDs are listed.
+
+### Changes
+
+**`server/db.js`** — `ALTER TABLE gcodes ADD COLUMN material_grams REAL` migration.
+
+**`server/routes/gcodes.js`** — `extractMaterialGramsFromFilename()`, `normalizePrintTime()`, `normalizeMaterialGrams()` helpers; `POST /parse-filename` now also returns `material_grams`; `POST /upload` accepts and stores `est_print_secs` and `material_grams`; new `PUT /:id` endpoint to update both fields (accepts human-readable strings).
+
+**`server/routes/parts.js`** — Removed `parse-gcode` endpoint and `print_time`/`material` fields from `PUT /:id`. Removed all normalizer helper functions (now live in gcodes.js).
+
+**`server/routes/dashboard.js`** — Per-project stats: `elapsed_secs` (wall-clock print time), `material_used_grams` (from gcode estimates × job quantities), `model_breakdown` (per-printer-model summary).
+
+**`client/src/pages/Projects.jsx`** — Removed per-part estimate section from `PartDetailsPanel`. Added `GcodeEstimateRow` component with inline time/material inputs per gcode. Upload panel now captures and forwards `est_print_secs` and `material_grams` from filename parse.
+
+**`client/src/pages/Dashboard.jsx`** — Active Projects footer replaced "total remaining" with "so far" showing elapsed time, material used, and contributing printer models.
+
+---
+
 ## 2026-05-29 — Part print estimates; full-width Active Projects dashboard
 
 ### Feature: per-part print time and material estimates

@@ -52,8 +52,19 @@ function formatDate(d) {
 
 function formatDuration(secs) {
   if (!secs) return null;
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
+  const MINUTE = 60, HOUR = 3600, DAY = 86400, WEEK = 604800;
+  if (secs >= WEEK) {
+    const w = Math.floor(secs / WEEK);
+    const d = Math.floor((secs % WEEK) / DAY);
+    return d > 0 ? `${w}wk ${d}d` : `${w}wk`;
+  }
+  if (secs >= DAY) {
+    const d = Math.floor(secs / DAY);
+    const h = Math.floor((secs % DAY) / HOUR);
+    return h > 0 ? `${d}d ${h}h` : `${d}d`;
+  }
+  const h = Math.floor(secs / HOUR);
+  const m = Math.floor((secs % HOUR) / MINUTE);
   if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
   return `${m}m`;
 }
@@ -346,16 +357,7 @@ export default function Dashboard() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {active_projects.map(proj => {
-                // Project-level totals for parts that have estimate data and are not closed
-                let projTimeSecs = 0, projMaterialG = 0;
-                proj.parts.forEach(part => {
-                  const rem = Math.max(0, part.target_qty - part.completed_qty);
-                  if (part.status !== 'closed' && rem > 0) {
-                    if (part.print_time_seconds) projTimeSecs  += rem * part.print_time_seconds;
-                    if (part.material_grams)     projMaterialG += rem * part.material_grams;
-                  }
-                });
-                const hasProjectEstimate = projTimeSecs > 0 || projMaterialG > 0;
+                const hasStats = (proj.elapsed_secs > 0) || (proj.material_used_grams > 0);
 
                 return (
                   <div key={proj.id} style={{
@@ -383,36 +385,13 @@ export default function Dashboard() {
                         const pct = part.target_qty > 0
                           ? Math.round((part.completed_qty / part.target_qty) * 100)
                           : 0;
-                        const remaining = Math.max(0, part.target_qty - part.completed_qty);
-                        const timeLabel     = part.print_time_seconds && remaining > 0
-                          ? formatDuration(remaining * part.print_time_seconds)
-                          : null;
-                        const materialLabel = part.material_grams && remaining > 0
-                          ? formatMaterial(remaining * part.material_grams)
-                          : null;
                         return (
                           <div key={part.id}>
                             <div style={{
                               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                               marginBottom: 4,
                             }}>
-                              {/* Left: name anchor + dot separator + time + dot + material */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 500 }}>{part.name}</span>
-                                {(timeLabel || materialLabel) && (
-                                  <span style={{ color: '#374151', fontSize: 11 }}>·</span>
-                                )}
-                                {timeLabel && (
-                                  <span style={{ fontSize: 11, color: '#94a3b8' }}>~{timeLabel}</span>
-                                )}
-                                {timeLabel && materialLabel && (
-                                  <span style={{ color: '#374151', fontSize: 11 }}>·</span>
-                                )}
-                                {materialLabel && (
-                                  <span style={{ fontSize: 11, color: '#a78bfa' }}>~{materialLabel}</span>
-                                )}
-                              </div>
-                              {/* Right: completed pops, target muted */}
+                              <span style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 500 }}>{part.name}</span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
                                   <span style={{ color: '#e2e8f0' }}>{part.completed_qty.toLocaleString()}</span>
@@ -466,16 +445,30 @@ export default function Dashboard() {
                       })}
                     </div>
 
-                    {hasProjectEstimate && (
+                    {hasStats && (
                       <div style={{
                         borderTop: '1px solid #1a2030', marginTop: 10, paddingTop: 8,
-                        display: 'flex', alignItems: 'center', gap: 10, fontSize: 11,
+                        display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, flexWrap: 'wrap',
                       }}>
-                        <span style={{ fontWeight: 700, color: '#cbd5e1' }}>Project total remaining</span>
+                        <span style={{ fontWeight: 700, color: '#cbd5e1' }}>So far</span>
                         <span style={{ color: '#374151' }}>·</span>
-                        {projTimeSecs  > 0 && <span style={{ color: '#94a3b8' }}>~{formatDuration(projTimeSecs)}</span>}
-                        {projTimeSecs > 0 && projMaterialG > 0 && <span style={{ color: '#374151' }}>·</span>}
-                        {projMaterialG > 0 && <span style={{ color: '#a78bfa' }}>~{formatMaterial(projMaterialG)}</span>}
+                        {proj.elapsed_secs > 0 && (
+                          <span style={{ color: '#94a3b8' }}>{formatDuration(proj.elapsed_secs)}</span>
+                        )}
+                        {proj.elapsed_secs > 0 && proj.material_used_grams > 0 && (
+                          <span style={{ color: '#374151' }}>·</span>
+                        )}
+                        {proj.material_used_grams > 0 && (
+                          <span style={{ color: '#a78bfa' }}>{formatMaterial(proj.material_used_grams)}</span>
+                        )}
+                        {proj.model_breakdown && proj.model_breakdown.length > 1 && (
+                          <>
+                            <span style={{ color: '#374151' }}>·</span>
+                            <span style={{ color: '#64748b' }}>
+                              {proj.model_breakdown.map(m => m.printer_model).join(', ')}
+                            </span>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

@@ -299,33 +299,9 @@ Required: `project_id`, `name`, `target_qty`.
 
 ### `PUT /api/parts/:id`
 
-Partial update. Accepts: `name`, `target_qty`, `completed_qty`, `status`, `print_time`, `material`.
+Partial update. Accepts: `name`, `target_qty`, `completed_qty`, `status`.
 
 **`completed_qty` auto-status:** when `completed_qty` is included in the request body, `status` is recalculated server-side — `closed` if `completed_qty >= target_qty`, `open` otherwise. An explicit `status` field in the body is ignored when `completed_qty` is also present.
-
-**`print_time`** — optional, sets `print_time_seconds`. Server normalizes human-readable input: `"2h15m"`, `"90m"`, `"5400s"`, `"1:30:00"`, `"2:15"`, bare integer (seconds). Send `null` or `""` to clear. Returns `400` if the string is non-empty but unparseable.
-
-**`material`** — optional, sets `material_grams`. Accepts: `"45g"`, `"45.5g"`, `"1.2kg"`, bare number (grams). Send `null` or `""` to clear. Returns `400` if the string is non-empty but unparseable.
-
-### `POST /api/parts/:id/parse-gcode`
-
-Extracts `print_time_seconds` and `material_grams` (per part) from the filename of a gcode attached to this part, without modifying any records. Useful for populating the estimate fields before confirming.
-
-**Body:** `{ "gcode_id": 12 }` — optional. If omitted, the part's earliest gcode is used.
-
-**Response:**
-```json
-{
-  "print_time_seconds": 8100,
-  "material_grams": 42.5,
-  "source": "1x XRP_Chassis_2h15m_42.5g_PLA_MK4S_4.bgcode",
-  "nothing_found": false
-}
-```
-
-Either `print_time_seconds` or `material_grams` may be `null` if not found in the filename. `nothing_found: true` when both are null.
-
-Returns `404` if no gcode exists for this part (or the specified `gcode_id` doesn't belong to it).
 
 ### `PUT /api/parts/reorder`
 
@@ -365,13 +341,13 @@ Returns `404` if not found.
 
 Optional query param `?part_id=N` to filter by part.
 
-Returns all G-code records. Each record includes `part_id`, `printer_model`, `filename`, `filepath`, `parts_per_plate`, `est_print_secs`, `created_at`.
+Returns all G-code records. Each record includes `part_id`, `printer_model`, `filename`, `filepath`, `parts_per_plate`, `est_print_secs`, `material_grams`, `ams_slot`, `created_at`.
 
 `filepath` stores only the filename (not an absolute path) — the server resolves the full path at runtime using its own `server/gcode/` directory. This makes the DB portable across machines.
 
 ### `POST /api/gcodes/parse-filename`
 
-Parses a G-code filename and returns structured fields without saving anything. Used to pre-fill the upload form.
+Parses a G-code filename and returns structured fields without saving anything. Used to pre-fill the upload form and per-gcode estimate inputs.
 
 **Body:** `{ "filename": "4x Left Bracket_0.20n_0.40mm_MK4S_MK4S_5h11m.bgcode" }`
 
@@ -382,13 +358,14 @@ Parses a G-code filename and returns structured fields without saving anything. 
   "parts_per_plate": 4,
   "printer_model": "mk4s",
   "est_print_secs": 18660,
+  "material_grams": null,
   "part_name_hint": "Left Bracket"
 }
 ```
 
-**Response (no match):** `{ "parse_failed": true }`
+**Response (no match):** `{ "parse_failed": true, "material_grams": null }`
 
-Filename format: `{qty}x {part name}_{layer}_{nozzle}_{material}_{model}_{time}.{bgcode|gcode}`
+`material_grams` is extracted from flexible patterns anywhere in the filename (e.g. `45g`, `1.2kg`) and is returned regardless of whether the strict Bambu-format parse succeeded. Either field may be `null` if not found.
 
 ### `POST /api/gcodes/upload`
 
@@ -397,10 +374,27 @@ Upload a G-code file and create a DB record. `Content-Type: multipart/form-data`
 **Form fields:**
 - `part_id` (required)
 - `parts_per_plate` (required)
-- `printer_model` (required) — must be one of `mk4`, `mk4s`, `c1`, `c1l`, `xl`
-- `est_print_secs` (optional)
+- `printer_model` (required) — must be a registered model ID
+- `est_print_secs` (optional) — per-plate print time in seconds
+- `material_grams` (optional) — per-plate material weight in grams
+- `ams_slot` (optional) — Bambu only
 
 Returns `201` with created G-code record. Returns `409` if a G-code for this `(part_id, printer_model)` combination already exists.
+
+### `PUT /api/gcodes/:id`
+
+Update `est_print_secs` and/or `material_grams` for a G-code. Omitting a field leaves it unchanged; sending `null` or `""` clears it.
+
+**Body:**
+```json
+{ "print_time": "2h15m", "material_grams": "45g" }
+```
+
+`print_time` accepts the same human-readable formats as `PUT /api/parts/:id` did for `print_time`: `"2h15m"`, `"90m"`, `"1:30:00"`, bare integer (seconds). Returns `400` if non-empty and unparseable.
+
+`material_grams` accepts `"45g"`, `"45.5g"`, `"1.2kg"`, bare number. Returns `400` if non-empty and unparseable.
+
+Returns the updated G-code record.
 
 ### `DELETE /api/gcodes/:id`
 
@@ -516,9 +510,11 @@ Single endpoint that returns all data required by the TV dashboard in one call. 
 
 `printers` is the same shape as `GET /api/printers` (includes `last_parts_per_plate`) plus `last_event_at` — the timestamp of the most recent `printer_events` row for that printer.
 
-`active_projects` parts include `print_time_seconds` and `material_grams` when set — the dashboard uses these to project remaining print time and material per part and per project.
+`active_projects` includes only `status = 'active'` projects, each with a nested `parts` array ordered by `sort_order`, plus three computed stats fields:
 
-`active_projects` includes only `status = 'active'` projects, each with a nested `parts` array ordered by `sort_order`.
+- `elapsed_secs` — total wall-clock print time in seconds: sum of `finished_at − started_at` for all `finished` jobs in the project, plus `now − started_at` for any currently `printing` job.
+- `material_used_grams` — total material consumed in grams: sum of `gcode.material_grams / gcode.parts_per_plate * job.parts_per_plate` across all `finished` jobs that have a linked gcode with `material_grams` set. `null` if no jobs have gcode material data.
+- `model_breakdown` — array of per-printer-model summaries for all finished jobs: `{ printer_model, jobs_count, parts_printed, material_grams, elapsed_secs }`, ordered by `parts_printed DESC`.
 
 `recent_activity` is the 12 most recent `finished` or `failed` jobs, each with `part_name` and `printer_name` joined in. (Retained in the payload for compatibility; the dashboard UI no longer renders this list — see [web-app.md](web-app.md).)
 
