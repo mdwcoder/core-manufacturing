@@ -131,7 +131,7 @@ class JobScheduler extends EventEmitter {
       console.log(`[scheduler] ${printer.name} set ready during sweep — deferred to end of sweep`);
       return;
     }
-    this._dispatchToPrinter(printer).catch(err =>
+    this._sweepInBatches([printer]).catch(err =>
       console.error(`[scheduler] Unhandled error dispatching to ${printer.name}:`, err)
     );
   }
