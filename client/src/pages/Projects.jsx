@@ -629,8 +629,9 @@ export default function Projects() {
   const renameEscapedRef = useRef(false);
 
   // Duplicate modal
-  const [dupModal, setDupModal] = useState(null); // null | { id }
-  const [dupName,  setDupName]  = useState('');
+  const [dupModal,      setDupModal]      = useState(null); // null | { id }
+  const [dupName,       setDupName]       = useState('');
+  const [duplicating,   setDuplicating]   = useState(false);
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -698,20 +699,25 @@ export default function Projects() {
   }
 
   async function handleDuplicate() {
-    if (!dupName.trim()) return;
-    const res = await fetch(`/api/projects/${dupModal.id}/duplicate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: dupName.trim() }),
-    });
-    if (!res.ok) {
-      const d = await res.json();
-      showToast(d.error || 'Duplicate failed.', 'error');
-      return;
+    if (!dupName.trim() || duplicating) return;
+    setDuplicating(true);
+    try {
+      const res = await fetch(`/api/projects/${dupModal.id}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: dupName.trim() }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        showToast(d.error || 'Duplicate failed.', 'error');
+        return;
+      }
+      setDupModal(null);
+      await fetchProjects();
+      showToast('Project duplicated');
+    } finally {
+      setDuplicating(false);
     }
-    setDupModal(null);
-    await fetchProjects();
-    showToast('Project duplicated');
   }
 
   async function handleStatusTransition(action) {
@@ -859,7 +865,7 @@ export default function Projects() {
               zIndex: 1000, padding: 20,
               backdropFilter: 'blur(3px)',
             }}
-            onClick={() => setDupModal(null)}
+            onClick={() => { if (!duplicating) setDupModal(null); }}
           >
             <div
               style={{
@@ -882,31 +888,34 @@ export default function Projects() {
                 type="text"
                 value={dupName}
                 onChange={e => setDupName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleDuplicate(); if (e.key === 'Escape') setDupModal(null); }}
+                onKeyDown={e => { if (e.key === 'Enter') handleDuplicate(); if (e.key === 'Escape' && !duplicating) setDupModal(null); }}
                 style={{ ...inputSx, width: '100%', boxSizing: 'border-box', marginBottom: 20 }}
                 autoFocus
               />
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button
-                  onClick={() => setDupModal(null)}
+                  onClick={() => { if (!duplicating) setDupModal(null); }}
+                  disabled={duplicating}
                   style={{
                     background: '#1f2937', color: '#9ca3af', border: '1px solid #374151',
-                    borderRadius: 6, padding: '8px 18px', fontSize: 13, cursor: 'pointer', fontWeight: 500,
+                    borderRadius: 6, padding: '8px 18px', fontSize: 13,
+                    cursor: duplicating ? 'default' : 'pointer', fontWeight: 500,
+                    opacity: duplicating ? 0.4 : 1,
                   }}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDuplicate}
-                  disabled={!dupName.trim()}
+                  disabled={!dupName.trim() || duplicating}
                   style={{
                     background: '#1d4ed8', color: '#fff', border: 'none',
                     borderRadius: 6, padding: '8px 18px', fontSize: 13, fontWeight: 600,
-                    cursor: dupName.trim() ? 'pointer' : 'default',
-                    opacity: dupName.trim() ? 1 : 0.5,
+                    cursor: dupName.trim() && !duplicating ? 'pointer' : 'default',
+                    opacity: dupName.trim() && !duplicating ? 1 : 0.5,
                   }}
                 >
-                  Duplicate
+                  {duplicating ? 'Duplicating…' : 'Duplicate'}
                 </button>
               </div>
             </div>
