@@ -34,7 +34,8 @@ const MODEL_TOKEN_MAP = {
 };
 
 function parseFilename(filename) {
-  const regex = /^(\d+)x\s+(.+?)_(\d+\.\d+n)_(\d+\.\d+mm)_([A-Za-z]+)_([A-Za-z0-9]+)_(\d+h\d+m)\.(bgcode|gcode)$/i;
+  // Allow an optional trailing token (e.g. _37grams, _45g) after the time field before the extension.
+  const regex = /^(\d+)x\s+(.+?)_(\d+\.\d+n)_(\d+\.\d+mm)_([A-Za-z]+)_([A-Za-z0-9]+)_(\d+h\d+m)(?:_[^.]+)?\.(bgcode|gcode)$/i;
   const match = filename.match(regex);
   if (!match) return null;
 
@@ -56,7 +57,7 @@ function parseFilename(filename) {
 function extractMaterialGramsFromFilename(filename) {
   const kg = filename.match(/(?:^|[_\s\-\.])(\d+(?:\.\d+)?)\s*kg(?:[_\s\-\.\(]|$)/i);
   if (kg) return parseFloat(kg[1]) * 1000;
-  const g = filename.match(/(?:^|[_\s\-\.])(\d+(?:\.\d+)?)\s*g(?:[_\s\-\.\(]|$)/i);
+  const g = filename.match(/(?:^|[_\s\-\.])(\d+(?:\.\d+)?)\s*(?:grams?|g)(?:[_\s\-\.\(]|$)/i);
   if (g) return parseFloat(g[1]);
   return null;
 }

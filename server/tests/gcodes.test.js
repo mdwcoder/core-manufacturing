@@ -125,6 +125,35 @@ describe('POST /api/gcodes/parse-filename', () => {
     expect(res.status).toBe(200);
     expect(res.body.parse_failed).toBe(true);
   });
+
+  test('parses filename with trailing _Ngrams material token', async () => {
+    const res = await request(app)
+      .post('/api/gcodes/parse-filename')
+      .send({ filename: '10x XRP Servo Mount_0.4n_0.2mm_PLA_COREONE_1h14m_37grams.bgcode' });
+    expect(res.status).toBe(200);
+    expect(res.body.parse_failed).toBe(false);
+    expect(res.body.parts_per_plate).toBe(10);
+    expect(res.body.est_print_secs).toBe(1 * 3600 + 14 * 60); // 4440
+    expect(res.body.material_grams).toBeCloseTo(37);
+  });
+
+  test('parses material_grams from "Ng" shorthand in filename', async () => {
+    const res = await request(app)
+      .post('/api/gcodes/parse-filename')
+      .send({ filename: '4x Left Bracket_0.20n_0.40mm_PLA_MK4S_5h11m_45g.bgcode' });
+    expect(res.status).toBe(200);
+    expect(res.body.material_grams).toBeCloseTo(45);
+  });
+
+  test('extracts material_grams even when main parse fails', async () => {
+    // Filename does not match the structured pattern but contains a grams token
+    const res = await request(app)
+      .post('/api/gcodes/parse-filename')
+      .send({ filename: 'my_custom_file_37grams.bgcode' });
+    expect(res.status).toBe(200);
+    expect(res.body.parse_failed).toBe(true);
+    expect(res.body.material_grams).toBeCloseTo(37);
+  });
 });
 
 describe('POST /api/gcodes/upload', () => {
