@@ -65,7 +65,29 @@ module.exports = (db, scheduler = null) => {
   router.delete('/:id', (req, res) => {
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+    if (project.status !== 'draft') {
+      return res.status(400).json({ error: 'Only draft projects can be deleted.' });
+    }
+
+    const parts = db.prepare('SELECT id FROM parts WHERE project_id = ?').all(project.id);
+
+    db.transaction(() => {
+      for (const part of parts) {
+        db.prepare('DELETE FROM jobs WHERE part_id = ?').run(part.id);
+
+        const gcodes = db.prepare('SELECT * FROM gcodes WHERE part_id = ?').all(part.id);
+        for (const gcode of gcodes) {
+          const basename = gcode.filepath.split(/[\\/]/).pop();
+          const fullPath = path.join(GCODE_DIR, basename);
+          if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+          db.prepare('DELETE FROM gcodes WHERE id = ?').run(gcode.id);
+        }
+
+        db.prepare('DELETE FROM parts WHERE id = ?').run(part.id);
+      }
+      db.prepare('DELETE FROM projects WHERE id = ?').run(project.id);
+    })();
+
     res.json({ success: true });
   });
 

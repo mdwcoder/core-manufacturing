@@ -32,7 +32,8 @@ const PROJECT_STATUS = {
 // Dropdown options per project status.
 // 'action' is either a status string ('active', 'paused') or a special verb ('complete', 'reactivate').
 const STATUS_MENU = {
-  draft:     [{ label: 'Activate',        action: 'active' }],
+  draft:     [{ label: 'Activate',        action: 'active' },
+              { label: 'Delete project',  action: 'delete', danger: true }],
   active:    [{ label: 'Pause project',   action: 'paused' },
               { label: 'Mark complete',   action: 'complete', danger: true }],
   paused:    [{ label: 'Resume project',  action: 'active' },
@@ -723,6 +724,29 @@ export default function Projects() {
 
   async function handleStatusTransition(action) {
     const id = detailProject.id;
+
+    if (action === 'delete') {
+      const partCount = parts.length;
+      const ok = await confirm({
+        title: `Delete "${detailProject.name}"`,
+        message: partCount > 0
+          ? `This will permanently delete ${partCount} part(s) and all their G-code files. This cannot be undone.`
+          : 'This will permanently delete the project. This cannot be undone.',
+        confirmLabel: 'Delete Project',
+        danger: true,
+      });
+      if (!ok) return;
+      const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const d = await res.json();
+        showToast(d.error || 'Delete failed.', 'error');
+        return;
+      }
+      goBack();
+      await fetchProjects();
+      showToast('Project deleted');
+      return;
+    }
 
     if (action === 'complete') {
       const partCount = parts.filter(p => p.status === 'open').length;
