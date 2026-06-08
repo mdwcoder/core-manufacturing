@@ -89,17 +89,17 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
   const timeLeft = isPrinting ? formatTimeRemaining(printer.job_time_remaining) : null;
 
   function cardBorder() {
-    if (needsConfirmation) return selected ? '#22c55e' : '#15803d';
     if (needsOfflineConfirmation || needsUploadConfirmation) return '#92400e';
+    if (needsConfirmation) return selected ? '#22c55e' : '#15803d';
     return style.bg;
   }
 
   return (
     <div
-      onClick={needsConfirmation ? () => onToggleSelect(printer.id) : () => inspectPrinter(printer)}
-      title={needsConfirmation ? (selected ? 'Click to deselect' : 'Click to select for batch Set Ready') : 'Click to inspect raw printer status in console'}
+      onClick={(needsConfirmation && !needsUploadConfirmation) ? () => onToggleSelect(printer.id) : () => inspectPrinter(printer)}
+      title={(needsConfirmation && !needsUploadConfirmation) ? (selected ? 'Click to deselect' : 'Click to select for batch Set Ready') : 'Click to inspect raw printer status in console'}
       style={{
-        background: needsConfirmation ? '#1c2a1c' : (needsOfflineConfirmation || needsUploadConfirmation) ? '#2a1f0e' : '#1e2433',
+        background: (needsOfflineConfirmation || needsUploadConfirmation) ? '#2a1f0e' : needsConfirmation ? '#1c2a1c' : '#1e2433',
         border: `${selected ? '2px' : '1px'} solid ${cardBorder()}`,
         borderRadius: 8,
         padding: selected ? '11px 13px' : '12px 14px',
@@ -162,7 +162,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
         </div>
       )}
 
-      {needsConfirmation && (
+      {needsConfirmation && !needsUploadConfirmation && (
         <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
           {printer.last_parts_per_plate != null && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -221,14 +221,18 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
       {needsUploadConfirmation && (
         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 4 }}>
           <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 6 }}>
-            Upload failed after retries — check the printer. Is it actually printing?
+            {(printer.status === 'FINISHED' || printer.status === 'IDLE')
+              ? 'Upload failed — but printer shows job complete. Did the print succeed?'
+              : 'Upload failed after retries — check the printer. Is it actually printing?'}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
-              onClick={() => onLinkJob(printer.id, true)}
+              onClick={() => (printer.status === 'FINISHED' || printer.status === 'IDLE')
+                ? onSetReady(printer.id, null)
+                : onLinkJob(printer.id, true)}
               style={{ flex: 1, background: '#166534', color: '#4ade80', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
             >
-              ✓ Job Running
+              {(printer.status === 'FINISHED' || printer.status === 'IDLE') ? '✓ Set Ready' : '✓ Job Running'}
             </button>
             <button
               onClick={() => onUploadFailed(printer.id)}
@@ -303,7 +307,7 @@ export default function Fleet() {
   }, [fetchPrinters]);
 
   // Printers awaiting operator confirmation — excludes those currently printing (hold is pre-set for when they finish)
-  const awaitingConfirmation = printers.filter(p => p.is_held === 1 && (p.status === 'FINISHED' || p.status === 'IDLE'));
+  const awaitingConfirmation = printers.filter(p => p.is_held === 1 && (p.status === 'FINISHED' || p.status === 'IDLE') && p.has_uploading_job === 0);
   const awaitingOfflineReview = printers.filter(p => p.is_held === 1 && p.status === 'OFFLINE' && p.has_active_job === 1);
   const awaitingUploadReview = printers.filter(p => p.is_held === 1 && p.has_uploading_job === 1 && p.status !== 'OFFLINE');
 

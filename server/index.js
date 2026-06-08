@@ -256,16 +256,43 @@ const server = app.listen(PORT, () => {
       } else {
         // Upload-stalled case: no finished/printing/recently-failed job, but there may
         // be a stalled 'uploading' job whose upload failed after exhausting retries.
-        // The operator pressing Job Running is confirming the print is actually running —
-        // change the job to 'printing' so it resolves naturally when _handleFinished fires.
-        // No qty is credited here; that happens at the normal finish confirmation.
         const uploadingJob = db.prepare(
           "SELECT * FROM jobs WHERE printer_id = ? AND status = 'uploading' ORDER BY created_at DESC LIMIT 1"
         ).get(printer.id);
         if (uploadingJob) {
-          db.prepare("UPDATE jobs SET status = 'printing', started_at = ? WHERE id = ?")
-            .run(now, uploadingJob.id);
-          console.log(`[server] ${printer.name} upload-stalled job ${uploadingJob.id} confirmed running by operator — changed to printing`);
+          if (printer.status === 'FINISHED' || printer.status === 'IDLE') {
+            // Printer already reports done — credit qty directly. Transitioning to
+            // 'printing' here would trigger the stale-job auto-fail in _dispatchToPrinter
+            // (printing job + non-PRINTING printer → auto-failed, hold re-set), requiring
+            // a second operator confirmation. Skip that loop and resolve in one click.
+            const creditQty = (confirmed_qty != null && !isNaN(parseInt(confirmed_qty, 10)))
+              ? parseInt(confirmed_qty, 10)
+              : uploadingJob.parts_per_plate;
+            db.prepare("UPDATE jobs SET status = 'finished', finished_at = ?, started_at = COALESCE(started_at, ?) WHERE id = ?")
+              .run(now, now, uploadingJob.id);
+            db.prepare("UPDATE parts SET completed_qty = completed_qty + ?, updated_at = ? WHERE id = ?")
+              .run(creditQty, now, uploadingJob.part_id);
+            const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(uploadingJob.part_id);
+            console.log(`[server] ${printer.name} upload-stalled job ${uploadingJob.id} confirmed finished — Part "${part.name}" ${part.completed_qty}/${part.target_qty}`);
+            if (part.completed_qty >= part.target_qty) {
+              db.prepare(`UPDATE parts SET status = 'closed', updated_at = ? WHERE id = ?`).run(now, part.id);
+              db.prepare(`UPDATE jobs SET status = 'cancelled' WHERE part_id = ? AND status = 'queued'`).run(part.id);
+              console.log(`[server] Part "${part.name}" closed (${part.completed_qty}/${part.target_qty})`);
+              const openCount = db.prepare(
+                `SELECT COUNT(*) AS count FROM parts WHERE project_id = ? AND status = 'open'`
+              ).get(part.project_id).count;
+              if (openCount === 0) {
+                db.prepare(`UPDATE projects SET status = 'completed', updated_at = ? WHERE id = ?`).run(now, part.project_id);
+                console.log(`[server] Project ${part.project_id} completed!`);
+              }
+            }
+          } else {
+            // Printer is still mid-print — transition to 'printing' so _handleFinished
+            // picks it up normally when the print completes.
+            db.prepare("UPDATE jobs SET status = 'printing', started_at = ? WHERE id = ?")
+              .run(now, uploadingJob.id);
+            console.log(`[server] ${printer.name} upload-stalled job ${uploadingJob.id} confirmed running by operator — changed to printing`);
+          }
         }
       }
     }
