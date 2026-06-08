@@ -161,7 +161,17 @@ const server = app.listen(PORT, () => {
     const { confirmed_qty } = req.body || {};
     const now = Date.now();
 
-    const finishedJob = db.prepare(`
+    // Check for an uploading job FIRST — it takes priority over a stale 'finished' job
+    // from a previous print cycle. Without this check, a printer that has both a
+    // previous 'finished' job and a current 'uploading' job (failed upload) would take
+    // the normal-confirmation path, skip the uploading job, then have _dispatchToPrinter
+    // find the stale uploading job, auto-fail it, and re-hold the printer — causing a
+    // spurious second "Set Ready or Bad Print" green panel.
+    const uploadingJobEarly = db.prepare(
+      "SELECT * FROM jobs WHERE printer_id = ? AND status = 'uploading' ORDER BY created_at DESC LIMIT 1"
+    ).get(printer.id);
+
+    const finishedJob = uploadingJobEarly ? null : db.prepare(`
       SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
       ORDER BY finished_at DESC LIMIT 1
     `).get(printer.id);
@@ -256,9 +266,8 @@ const server = app.listen(PORT, () => {
       } else {
         // Upload-stalled case: no finished/printing/recently-failed job, but there may
         // be a stalled 'uploading' job whose upload failed after exhausting retries.
-        const uploadingJob = db.prepare(
-          "SELECT * FROM jobs WHERE printer_id = ? AND status = 'uploading' ORDER BY created_at DESC LIMIT 1"
-        ).get(printer.id);
+        // uploadingJobEarly was already fetched above (and is non-null when finishedJob is null).
+        const uploadingJob = uploadingJobEarly;
         if (uploadingJob) {
           if (printer.status === 'FINISHED' || printer.status === 'IDLE') {
             // Printer already reports done — credit qty directly. Transitioning to

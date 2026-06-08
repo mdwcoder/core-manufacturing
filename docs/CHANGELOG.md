@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-06-07 — Fix spurious second "Set Ready" after upload-failure confirmation
+
+### Bug: printer re-held after operator confirmed upload-stalled job complete
+
+When an upload failed but the printer ran and completed the job, the operator was shown the amber "Upload failed — but printer shows job complete" card and clicked "Set Ready". Instead of resolving cleanly, the printer would flip to a green "Set Ready or Bad Print" card, requiring a second click.
+
+**Root cause:** The `set-ready` handler checked for a `finished` job first. If the printer had a `finished` job from a *previous* print cycle AND the current `uploading` job, the handler took the normal-confirmation path (did nothing since `confirmed_qty` was null), cleared `is_held`, then called `scheduleForPrinter`. Inside `_dispatchToPrinter`, the still-`uploading` stale job was found, auto-failed as a stale job, and `is_held=1` was re-set — producing the spurious green panel.
+
+**Fix:** Check for an `uploading` job first, before the `finished` job query. If an `uploading` job exists it always takes priority (the `finishedJob` query is skipped entirely), routing directly to the upload-stalled handler which marks the uploading job as `finished` and credits qty before `scheduleForPrinter` runs. `_dispatchToPrinter` then finds no stale active job and dispatches normally.
+
+### Changes
+- `server/index.js`: added `uploadingJobEarly` pre-check; `finishedJob` query skipped when an uploading job exists; upload-stalled section reuses the pre-fetched job instead of re-querying.
+
+---
+
 ## 2026-05-29 — Per-gcode material + time estimates; actual elapsed stats on dashboard
 
 ### Feature: time and material estimates moved from parts to gcodes
