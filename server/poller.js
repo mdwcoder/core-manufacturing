@@ -68,19 +68,25 @@ class PrinterPoller extends EventEmitter {
     jobTimeRemaining = result.timeRemaining;
 
     if (newStatus !== previousStatus) {
-      // States considered "in-progress normal" — no hold on entry.
-      // FINISHED and missed-finish (PRINTING→IDLE) always hold.
-      // Other non-safe states (OFFLINE, ERROR, PAUSED, etc.) only hold when there is a
-      // tracked active job — the purpose of the hold is to protect an in-flight job.
-      // Without this gate a recommissioned printer that briefly goes OFFLINE during boot
-      // gets re-held, and the Fleet UI shows stale confirmation buttons after it recovers.
+      // Only hold when there is a tracked active job to protect. This gates all three
+      // hold triggers — FINISHED, missed-finish (PRINTING→IDLE), and non-safe states
+      // (OFFLINE, ERROR, PAUSED, etc.).
+      //
+      // Without this gate a printer that had its job already confirmed (is_held cleared
+      // by Set Ready) can be re-held by a subsequent status transition. The common case
+      // is a Prusa printer that stays in FINISHED state until the display is cleared:
+      // a network blip causes FINISHED→OFFLINE→FINISHED, the FINISHED re-entry sets
+      // is_held=1, and Fleet shows stale confirmation buttons for the already-confirmed job.
+      //
+      // _handleFinished and _handlePrinterUnavailable in the scheduler also set is_held=1
+      // when they find an active job, so this gate is not needed there — they do their
+      // own job lookup before holding.
       const SAFE_STATES = new Set(['IDLE', 'PRINTING', 'FINISHED', 'READY']);
       const missedFinished = newStatus === 'IDLE' && previousStatus === 'PRINTING';
-      const needsActiveJobCheck = !SAFE_STATES.has(newStatus) && !missedFinished;
-      const hasActiveJob = needsActiveJobCheck
-        ? !!this.db.prepare("SELECT id FROM jobs WHERE printer_id = ? AND status IN ('uploading', 'printing') LIMIT 1").get(printer.id)
-        : false;
-      const shouldHold = newStatus === 'FINISHED' || missedFinished || (!SAFE_STATES.has(newStatus) && hasActiveJob);
+      const hasActiveJob = !!this.db.prepare(
+        "SELECT id FROM jobs WHERE printer_id = ? AND status IN ('uploading', 'printing') LIMIT 1"
+      ).get(printer.id);
+      const shouldHold = hasActiveJob && (newStatus === 'FINISHED' || missedFinished || !SAFE_STATES.has(newStatus));
       const holdUpdate = shouldHold ? ', is_held = 1' : '';
       // Clear job fields when leaving PRINTING state
       const clearJob = previousStatus === 'PRINTING' && newStatus !== 'PRINTING'

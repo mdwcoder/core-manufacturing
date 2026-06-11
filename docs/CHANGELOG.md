@@ -10,13 +10,13 @@ Two bugs combined to cause this:
 
 **Bug 1 — `complete-and-decommission` left `is_held = 1`:** When an operator decommissions a printer via "Print succeeded — credit & decommission", the handler set `is_active = 0` but did not clear `is_held`. The flag was cleaned up by the recommission handler, but left the decommissioned record in a dirty state.
 
-**Bug 2 — poller re-held on OFFLINE transition after recommission (root cause):** The poller unconditionally set `is_held = 1` on any transition to a non-safe state (OFFLINE, ERROR, PAUSED, etc.). After recommission the printer briefly appears OFFLINE while the new logic board boots. The poller caught this transition, set `is_held = 1`, and when the printer recovered to IDLE there was nothing to clear the hold. Fleet then showed the green/red confirmation buttons against the already-confirmed job.
+**Bug 2 — poller unconditionally re-held on any concerning status transition (root cause):** The poller set `is_held = 1` on transitions to FINISHED, missed-finish (PRINTING→IDLE), or any non-safe state — regardless of whether a tracked job existed. The specific failure mode: Prusa printers stay in FINISHED state until the display is cleared. A network blip causes FINISHED→OFFLINE→FINISHED; the second FINISHED re-entry re-holds the printer even though the job was already confirmed. An additional path: a recommissioned printer briefly appears OFFLINE during boot, and when it recovers to IDLE `is_held` was never cleared.
 
-**Fix:** The poller now only holds on non-safe state transitions when there is a tracked active job (`uploading` or `printing`). The hold exists to protect in-flight jobs — without one, there is nothing for the operator to confirm. `complete-and-decommission` also now clears `is_held = 0` alongside `is_active = 0`.
+**Fix:** The poller now only holds on any status transition when there is a tracked active (`uploading` or `printing`) job. The hold exists to protect in-flight jobs — without one there is nothing for the operator to confirm. `_handleFinished` and `_handlePrinterUnavailable` in the scheduler do their own job lookups before setting `is_held`, so those paths are unaffected.
 
 ### Changes
 - `server/routes/printers.js`: `complete-and-decommission` now sets `is_held = 0` when writing `is_active = 0`.
-- `server/poller.js`: non-SAFE state transitions (OFFLINE, ERROR, PAUSED, etc.) only set `is_held = 1` when an active `uploading`/`printing` job exists for the printer.
+- `server/poller.js`: all hold triggers (FINISHED, missed-finish, OFFLINE/ERROR/PAUSED) are now gated on the presence of an active `uploading`/`printing` job. Previously only non-safe state transitions were gated (first fix); FINISHED re-entry was still unconditional and hit the Prusa FINISHED-state-persistence case.
 
 ---
 
