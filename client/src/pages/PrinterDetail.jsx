@@ -56,6 +56,20 @@ const STATUS_COLORS = {
   UNKNOWN:  { bg: '#1e2433', text: '#475569' },
 };
 
+const detailLabelStyle = {
+  display: 'flex', flexDirection: 'column', gap: 3,
+  fontSize: 11, fontWeight: 600, color: '#64748b',
+  letterSpacing: '0.04em', textTransform: 'uppercase',
+};
+
+const detailInputStyle = {
+  background: '#1e2433', border: '1px solid #2d3748',
+  borderRadius: 5, color: '#e2e8f0',
+  fontSize: 13, fontWeight: 400,
+  padding: '5px 9px', outline: 'none',
+  fontFamily: 'inherit',
+};
+
 export default function PrinterDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -72,16 +86,23 @@ export default function PrinterDetail() {
   const [nameDraft, setNameDraft]     = useState('');
   const [nameError, setNameError]     = useState(null);
   const [renaming, setRenaming]       = useState(false);
+  const [models, setModels]           = useState([]);
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [detailsDraft, setDetailsDraft]     = useState({});
+  const [detailsError, setDetailsError]     = useState(null);
+  const [savingDetails, setSavingDetails]   = useState(false);
 
   const fetchData = useCallback(async () => {
-    const [printerRes, eventsRes, statsRes] = await Promise.all([
+    const [printerRes, eventsRes, statsRes, modelsRes] = await Promise.all([
       fetch(`/api/printers/${id}`),
       fetch(`/api/printers/${id}/events`),
       fetch(`/api/printers/${id}/jobs/stats`),
+      fetch('/api/models'),
     ]);
     if (printerRes.ok) setPrinter(await printerRes.json());
     if (eventsRes.ok)  setEvents(await eventsRes.json());
     if (statsRes.ok)   setStats(await statsRes.json());
+    if (modelsRes.ok)  setModels(await modelsRes.json());
     setLoading(false);
   }, [id]);
 
@@ -146,6 +167,55 @@ export default function PrinterDetail() {
       setEditingName(false);
     } finally {
       setRenaming(false);
+    }
+  }
+
+  const NO_API_KEY_TYPES = new Set(['elegoo-centauri', 'klipper']);
+
+  function startEditDetails() {
+    setDetailsDraft({
+      ip: printer.ip || '',
+      api_key: printer.api_key || '',
+      serial_number: printer.serial_number || '',
+      group_name: printer.group_name || '',
+      model: printer.model || '',
+    });
+    setDetailsError(null);
+    setEditingDetails(true);
+  }
+
+  function cancelEditDetails() {
+    setEditingDetails(false);
+    setDetailsError(null);
+  }
+
+  async function submitEditDetails(e) {
+    e.preventDefault();
+    const ip = detailsDraft.ip.trim();
+    if (!ip) { setDetailsError('IP address is required'); return; }
+    setSavingDetails(true);
+    setDetailsError(null);
+    try {
+      const res = await fetch(`/api/printers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ip,
+          api_key: detailsDraft.api_key.trim(),
+          serial_number: detailsDraft.serial_number.trim(),
+          group_name: detailsDraft.group_name.trim() || null,
+          model: detailsDraft.model,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setDetailsError(body.error || `Save failed (${res.status})`);
+        return;
+      }
+      setPrinter(await res.json());
+      setEditingDetails(false);
+    } finally {
+      setSavingDetails(false);
     }
   }
 
@@ -255,16 +325,119 @@ export default function PrinterDetail() {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13, color: '#64748b' }}>
-          <span>Model: <span style={{ color: '#94a3b8', fontFamily: 'monospace' }}>{printer.model}</span></span>
-          <span>IP: <span style={{ color: '#94a3b8', fontFamily: 'monospace' }}>{printer.ip}</span></span>
-          {printer.group_name && (
-            <span>Group: <span style={{ color: '#94a3b8' }}>{printer.group_name}</span></span>
-          )}
-          {printer.type && printer.type !== 'prusa' && (
-            <span>Connector: <span style={{ color: '#94a3b8' }}>{printer.type}</span></span>
-          )}
-        </div>
+        {editingDetails ? (
+          <form onSubmit={submitEditDetails} style={{ marginTop: 4 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
+              <label style={detailLabelStyle}>
+                IP Address
+                <input
+                  autoFocus
+                  value={detailsDraft.ip}
+                  onChange={e => setDetailsDraft(d => ({ ...d, ip: e.target.value }))}
+                  disabled={savingDetails}
+                  style={detailInputStyle}
+                />
+              </label>
+              {!NO_API_KEY_TYPES.has(printer.type) && (
+                <label style={detailLabelStyle}>
+                  API Key
+                  <input
+                    value={detailsDraft.api_key}
+                    onChange={e => setDetailsDraft(d => ({ ...d, api_key: e.target.value }))}
+                    disabled={savingDetails}
+                    style={detailInputStyle}
+                  />
+                </label>
+              )}
+              <label style={detailLabelStyle}>
+                Group
+                <input
+                  value={detailsDraft.group_name}
+                  onChange={e => setDetailsDraft(d => ({ ...d, group_name: e.target.value }))}
+                  disabled={savingDetails}
+                  placeholder="optional"
+                  style={detailInputStyle}
+                />
+              </label>
+              <label style={detailLabelStyle}>
+                Serial Number
+                <input
+                  value={detailsDraft.serial_number}
+                  onChange={e => setDetailsDraft(d => ({ ...d, serial_number: e.target.value }))}
+                  disabled={savingDetails}
+                  placeholder="optional"
+                  style={detailInputStyle}
+                />
+              </label>
+              <label style={detailLabelStyle}>
+                Model
+                <select
+                  value={detailsDraft.model}
+                  onChange={e => setDetailsDraft(d => ({ ...d, model: e.target.value }))}
+                  disabled={savingDetails}
+                  style={{ ...detailInputStyle, cursor: 'pointer' }}
+                >
+                  {models.map(m => (
+                    <option key={m.model_id} value={m.model_id}>{m.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {detailsError && (
+              <div style={{ fontSize: 12, color: '#fca5a5', marginTop: 6 }}>{detailsError}</div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button
+                type="submit"
+                disabled={savingDetails || !detailsDraft.ip?.trim()}
+                style={{
+                  background: savingDetails || !detailsDraft.ip?.trim() ? '#1e2433' : '#1e40af',
+                  color: savingDetails || !detailsDraft.ip?.trim() ? '#475569' : '#fff',
+                  border: 'none', borderRadius: 5,
+                  padding: '6px 16px', fontSize: 13, fontWeight: 600,
+                  cursor: savingDetails || !detailsDraft.ip?.trim() ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {savingDetails ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEditDetails}
+                disabled={savingDetails}
+                style={{
+                  background: '#1e2433', color: '#94a3b8',
+                  border: 'none', borderRadius: 5,
+                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                  cursor: savingDetails ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', fontSize: 13, color: '#64748b' }}>
+            <span>Model: <span style={{ color: '#94a3b8', fontFamily: 'monospace' }}>{printer.model}</span></span>
+            <span>IP: <span style={{ color: '#94a3b8', fontFamily: 'monospace' }}>{printer.ip}</span></span>
+            {printer.group_name && (
+              <span>Group: <span style={{ color: '#94a3b8' }}>{printer.group_name}</span></span>
+            )}
+            {printer.type && printer.type !== 'prusa' && (
+              <span>Connector: <span style={{ color: '#94a3b8' }}>{printer.type}</span></span>
+            )}
+            <button
+              onClick={startEditDetails}
+              style={{
+                background: 'none', border: '1px solid #2d3748',
+                color: '#94a3b8', borderRadius: 5,
+                padding: '3px 10px', fontSize: 11, fontWeight: 600,
+                cursor: 'pointer', letterSpacing: '0.04em', marginLeft: 'auto',
+              }}
+            >
+              Edit
+            </button>
+          </div>
+        )}
 
         {printer.decommissioned_at && (
           <div style={{ marginTop: 8, fontSize: 12, color: '#ef4444' }}>

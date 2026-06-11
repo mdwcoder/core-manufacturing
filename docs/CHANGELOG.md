@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-06-11 — Edit printer details (IP, API key, group, serial, model)
+
+### Feature: inline edit form for all printer connection fields
+
+Operators can now edit any printer's connection details directly from the Printer Detail page. Previously only the printer name could be renamed; IP, API key, serial number, group, and model were read-only after creation.
+
+**Why:** Hardware replacement (e.g. logic board swap) gives a printer a new MAC address and therefore a new DHCP IP. The printer's history should stay with the original record; only the IP needs updating.
+
+**UX:** The info row in the printer header card (IP / Model / Group / Connector) gains an "Edit" button. Clicking it expands an inline two-column form pre-filled with the current values. API key field is hidden for printer types that don't use one (Elegoo Centauri, Klipper). Saving calls the existing `PUT /api/printers/:id` endpoint; the poller picks up the new IP on its next cycle automatically.
+
+### Changes
+- `client/src/pages/PrinterDetail.jsx`: added `models`, `editingDetails`, `detailsDraft`, `detailsError`, `savingDetails` state; `startEditDetails` / `cancelEditDetails` / `submitEditDetails` handlers; inline edit form replacing the static info row; `/api/models` fetched alongside existing page data.
+
+---
+
 ## 2026-06-07 — Fix spurious second "Set Ready" after upload-failure confirmation
 
 ### Bug: printer re-held after operator confirmed upload-stalled job complete
