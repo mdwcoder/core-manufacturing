@@ -55,20 +55,33 @@ function getLanIp() {
   return '127.0.0.1';
 }
 
-// Map CC2 print_status codes to canonical driver status strings.
-// Codes observed in the century-link-ts implementation:
-//   0 = IDLE          4 = FINISHED (complete)
-//   1 = PRINTING      3 = FINISHED (stopped by user)
-//   2 = PAUSED
-// Unknown codes map to UNKNOWN (not ERROR) so transient firmware states
-// don't hold printers. Log them so we can add explicit cases as needed.
-function mapPrintStatus(code) {
-  switch (code) {
-    case 0: return 'IDLE';
-    case 1: return 'PRINTING';
-    case 2: return 'PAUSED';
-    case 3: return 'FINISHED'; // user-stopped; operator must confirm
-    case 4: return 'FINISHED'; // print complete
+// Map CC2 status to canonical driver status strings.
+//
+// Real hardware reveals the response structure differs from CC1 (integer codes):
+//   result.machine_status.status  — integer; 1 = IDLE (confirmed), 2+ = active states
+//   result.print_status           — object { enable, state, filename, remaining_time_sec, ... }
+//   result.print_status.enable    — false when not in a print job
+//   result.print_status.state     — string: "" | "printing" | "paused" | "finished" | ...
+//
+// Strategy: use enable+status=1 as the authoritative IDLE gate, then fall back to
+// the state string, then to integer mapping (shifted by 1 vs CC1's 0-based codes).
+function mapPrintStatus(s) {
+  const machineStatus = s.machine_status?.status;
+  const psEnable      = s.print_status?.enable;
+  const psState       = (s.print_status?.state ?? '').toLowerCase();
+
+  if (!psEnable || machineStatus === 1) return 'IDLE';
+
+  if (psState === 'printing')                                            return 'PRINTING';
+  if (psState === 'paused')                                              return 'PAUSED';
+  if (psState === 'finished' || psState === 'complete' || psState === 'done') return 'FINISHED';
+
+  // Integer fallback: CC1 was 0-based; CC2 appears shifted by 1
+  switch (machineStatus) {
+    case 2: return 'PRINTING';
+    case 3: return 'PAUSED';
+    case 4: return 'FINISHED';
+    case 5: return 'FINISHED';
     default: return 'UNKNOWN';
   }
 }
@@ -250,21 +263,18 @@ async function getStatus(printer) {
     const resp = await sendCommand(conn, 1002, {});
     const s = resp.result ?? {};
 
-    const canonical = mapPrintStatus(s.print_status);
+    const canonical = mapPrintStatus(s);
     const isActive  = canonical === 'PRINTING' || canonical === 'PAUSED';
 
     if (canonical === 'UNKNOWN') {
-      console.log(`[elegoo2] ${printer.name} unknown print_status=${s.print_status} (raw: ${JSON.stringify(s)})`);
+      console.log(`[elegoo2] ${printer.name} unknown status — machine_status.status=${s.machine_status?.status}, print_status.state="${s.print_status?.state}", enable=${s.print_status?.enable}`);
     }
 
     return {
       status:        canonical,
-      progress:      isActive ? (s.progress ?? null) : null,
-      // total_time and print_time are elapsed/total in seconds
-      timeRemaining: isActive && s.total_time != null && s.print_time != null
-        ? Math.max(0, s.total_time - s.print_time)
-        : null,
-      currentFile:   isActive ? (s.filename ?? null) : null,
+      progress:      isActive ? (s.machine_status?.progress ?? null) : null,
+      timeRemaining: isActive ? (s.print_status?.remaining_time_sec ?? null) : null,
+      currentFile:   isActive ? (s.print_status?.filename ?? null) : null,
     };
   } catch (_) {
     dropConnection(printer.id);
