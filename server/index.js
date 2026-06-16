@@ -58,6 +58,17 @@ app.delete('/api/notifications/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// G-code file download endpoint — used by the Elegoo CC2 driver.
+// The CC2 pulls files over HTTP rather than accepting a push. The driver constructs
+// a URL pointing here and sends it to the printer via MQTT method 1057 (DOWNLOAD_FILE).
+// path.basename() prevents path traversal; only files in the gcode directory are served.
+app.get('/api/gcode-download/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(__dirname, 'gcode', filename);
+  if (!fs.existsSync(filePath)) return res.status(404).send('Not found');
+  res.sendFile(filePath);
+});
+
 // Serve built React client (production mode)
 const clientDist = path.join(__dirname, '../client/dist');
 if (!fs.existsSync(path.join(clientDist, 'index.html'))) {
