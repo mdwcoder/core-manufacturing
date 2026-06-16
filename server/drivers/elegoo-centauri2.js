@@ -20,6 +20,7 @@
 //   elegoo/{serial}/{clientId}/api_heartbeat      — we publish heartbeats here (every 30s)
 
 const mqtt         = require('mqtt');
+const http         = require('http');
 const crypto       = require('crypto');
 const fs           = require('fs');
 const path         = require('path');
@@ -57,33 +58,27 @@ function getLanIp() {
 
 // Map CC2 status to canonical driver status strings.
 //
-// Real hardware reveals the response structure differs from CC1 (integer codes):
-//   result.machine_status.status  — integer; 1 = IDLE (confirmed), 2+ = active states
-//   result.print_status           — object { enable, state, filename, remaining_time_sec, ... }
-//   result.print_status.enable    — false when not in a print job
-//   result.print_status.state     — string: "" | "printing" | "paused" | "finished" | ...
-//
-// Strategy: use enable+status=1 as the authoritative IDLE gate, then fall back to
-// the state string, then to integer mapping (shifted by 1 vs CC1's 0-based codes).
+// Confirmed from century-link-ts reverse engineering:
+//   machine_status.status  — 1=IDLE, 2=active print (sub_status distinguishes states)
+//   machine_status.sub_status:
+//     2075 = actively printing    2077 = print completed (FINISHED)
+//     2502 = paused               2503 = stopping        2504 = stopped (FINISHED)
+//     2505 = paused (variant)
+//   print_status.enable    — false when no print job active
 function mapPrintStatus(s) {
   const machineStatus = s.machine_status?.status;
+  const subStatus     = s.machine_status?.sub_status;
   const psEnable      = s.print_status?.enable;
-  const psState       = (s.print_status?.state ?? '').toLowerCase();
 
   if (!psEnable || machineStatus === 1) return 'IDLE';
 
-  if (psState === 'printing')                                            return 'PRINTING';
-  if (psState === 'paused')                                              return 'PAUSED';
-  if (psState === 'finished' || psState === 'complete' || psState === 'done') return 'FINISHED';
-
-  // Integer fallback: CC1 was 0-based; CC2 appears shifted by 1
-  switch (machineStatus) {
-    case 2: return 'PRINTING';
-    case 3: return 'PAUSED';
-    case 4: return 'FINISHED';
-    case 5: return 'FINISHED';
-    default: return 'UNKNOWN';
+  if (machineStatus === 2) {
+    if (subStatus === 2077 || subStatus === 2503 || subStatus === 2504) return 'FINISHED';
+    if (subStatus === 2502 || subStatus === 2505)                        return 'PAUSED';
+    return 'PRINTING';
   }
+
+  return 'UNKNOWN';
 }
 
 // ─── Connection management ────────────────────────────────────────────────────
@@ -267,7 +262,7 @@ async function getStatus(printer) {
     const isActive  = canonical === 'PRINTING' || canonical === 'PAUSED';
 
     if (canonical === 'UNKNOWN') {
-      console.log(`[elegoo2] ${printer.name} unknown status — machine_status.status=${s.machine_status?.status}, print_status.state="${s.print_status?.state}", enable=${s.print_status?.enable}`);
+      console.log(`[elegoo2] ${printer.name} unknown status — machine_status.status=${s.machine_status?.status} sub_status=${s.machine_status?.sub_status}, enable=${s.print_status?.enable}`);
     }
 
     return {
@@ -282,68 +277,76 @@ async function getStatus(printer) {
   }
 }
 
-// Serve the G-code to the printer over HTTP (see /api/gcode-download route in server/index.js),
-// then start the print. The CC2 pulls files rather than accepting a push.
+// Upload a G-code file to the CC2 via HTTP PUT, then start the print via MQTT.
 //
-// Upload flow:
-//   1. Compute MD5 of the file
-//   2. Send DOWNLOAD_FILE (1057) with the file URL, filename, and MD5
-//   3. Give the printer a head-start on the download, then retry START_PRINT (1020)
-//      until it returns error_code=0. Non-zero codes during this window mean the file
-//      isn't ready yet (download still in progress). Max 20 attempts × 5s = ~103s.
+// The CC2 has an embedded HTTP server that accepts chunked PUT uploads at /upload.
+// After the upload completes the file is immediately available; no polling needed.
+// Authentication uses the X-Token header (same access code as MQTT password).
+//
+// Upload headers per chunk:
+//   Content-Type:  application/octet-stream
+//   Content-Range: bytes {start}-{end}/{total}
+//   X-File-MD5:    (MD5 of the entire file, sent on every chunk)
+//   X-File-Name:   (destination filename on the printer)
+//   X-Token:       (access code, if set)
 async function uploadAndPrint(printer, gcodeFullPath, filename) {
-  const conn = await getConn(printer);
-
   const fileBuffer = fs.readFileSync(gcodeFullPath);
+  const totalBytes = fileBuffer.length;
   const md5        = crypto.createHash('md5').update(fileBuffer).digest('hex');
+  const accessCode = printer.api_key || '';
+  const CHUNK_SIZE = 1024 * 1024; // 1 MB
 
-  const lanIp  = getLanIp();
-  const port   = process.env.PORT || 3000;
-  const bare   = path.basename(gcodeFullPath);
-  const url    = `http://${lanIp}:${port}/api/gcode-download/${encodeURIComponent(bare)}`;
-  const taskID = `pfm-${Date.now()}`;
+  console.log(`[elegoo2] ${printer.name}: uploading "${filename}" (${(totalBytes / 1048576).toFixed(1)} MB) to http://${printer.ip}/upload`);
 
-  console.log(`[elegoo2] ${printer.name}: requesting download of "${filename}" from ${url}`);
+  for (let offset = 0; offset < totalBytes; offset += CHUNK_SIZE) {
+    const end   = Math.min(offset + CHUNK_SIZE, totalBytes) - 1;
+    const chunk = fileBuffer.slice(offset, end + 1);
 
-  const dlResp = await sendCommand(conn, 1057, { filename, url, md5, taskID }, 15_000);
-  if (dlResp.result?.error_code !== 0) {
-    throw new Error(`DOWNLOAD_FILE rejected by ${printer.name}: error_code=${dlResp.result?.error_code}`);
+    const headers = {
+      'Content-Type':   'application/octet-stream',
+      'Content-Range':  `bytes ${offset}-${end}/${totalBytes}`,
+      'Content-Length': String(chunk.length),
+      'X-File-MD5':     md5,
+      'X-File-Name':    filename,
+    };
+    if (accessCode) headers['X-Token'] = accessCode;
+
+    await new Promise((resolve, reject) => {
+      const req = http.request(
+        { hostname: printer.ip, port: 80, path: '/upload', method: 'PUT', headers },
+        (res) => {
+          res.resume();
+          if (res.statusCode >= 400) {
+            reject(new Error(`Upload chunk failed: HTTP ${res.statusCode}`));
+          } else {
+            resolve();
+          }
+        }
+      );
+      req.on('error', reject);
+      req.write(chunk);
+      req.end();
+    });
   }
 
-  // Give the printer time to start fetching before we try to print
-  await new Promise(r => setTimeout(r, 3_000));
+  console.log(`[elegoo2] ${printer.name}: upload complete — starting print`);
 
-  const MAX_ATTEMPTS = 20;
-  let lastErr = null;
+  const conn      = await getConn(printer);
+  const startResp = await sendCommand(conn, 1020, {
+    filename,
+    storage_location:  'local',
+    auto_bed_leveling: false,
+    heated_bed_type:   0,
+    enable_time_lapse: false,
+    force_bed_level:   false,
+    slot_map:          [],
+  });
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      const startResp = await sendCommand(conn, 1020, {
-        filename,
-        storage_location:  'local',
-        auto_bed_leveling: false,
-        heated_bed_type:   0,
-        enable_time_lapse: false,
-        force_bed_level:   false,
-        slot_map:          [],
-      });
-
-      if (startResp.result?.error_code === 0) {
-        console.log(`[elegoo2] Print started on ${printer.name}`);
-        return;
-      }
-
-      lastErr = new Error(`START_PRINT error_code=${startResp.result?.error_code}`);
-      console.log(`[elegoo2] ${printer.name} start attempt ${attempt}/${MAX_ATTEMPTS}: error_code=${startResp.result?.error_code} — retrying in 5s`);
-    } catch (err) {
-      lastErr = err;
-      console.warn(`[elegoo2] ${printer.name} start attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}`);
-    }
-
-    if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, 5_000));
+  if (startResp.result?.error_code !== 0) {
+    throw new Error(`START_PRINT failed on ${printer.name}: error_code=${startResp.result?.error_code}`);
   }
 
-  throw lastErr ?? new Error('Failed to start print on ${printer.name} after max retries');
+  console.log(`[elegoo2] Print started on ${printer.name}`);
 }
 
 async function cancelJob(printer) {
