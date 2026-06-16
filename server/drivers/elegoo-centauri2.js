@@ -285,8 +285,6 @@ async function getStatus(printer) {
 //   X-File-MD5:     (MD5 of the entire file)
 //   X-File-Name:    (destination filename on the printer)
 //   X-Token:        (access code, if set)
-//
-// A 5-minute socket timeout covers large files over LAN.
 async function uploadAndPrint(printer, gcodeFullPath, filename) {
   const fileBuffer = fs.readFileSync(gcodeFullPath);
   const totalBytes = fileBuffer.length;
@@ -304,21 +302,37 @@ async function uploadAndPrint(printer, gcodeFullPath, filename) {
   if (accessCode) headers['X-Token'] = accessCode;
 
   await new Promise((resolve, reject) => {
+    let settled = false;
+    const done = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      err ? reject(err) : resolve();
+    };
+
+    // Manual deadline — http.request's timeout option only covers TCP connect phase
+    const deadline = setTimeout(() => {
+      req.destroy();
+      done(new Error('Upload timed out after 5 minutes'));
+    }, 300_000);
+
     const req = http.request(
-      { hostname: printer.ip, port: 80, path: '/upload', method: 'PUT', headers, timeout: 300_000 },
+      { hostname: printer.ip, port: 80, path: '/upload', method: 'PUT', headers },
       (res) => {
+        console.log(`[elegoo2] ${printer.name}: upload HTTP ${res.statusCode}`);
         res.resume();
-        if (res.statusCode >= 400) {
-          reject(new Error(`Upload failed: HTTP ${res.statusCode}`));
-        } else {
-          resolve();
-        }
+        res.statusCode >= 400
+          ? done(new Error(`Upload failed: HTTP ${res.statusCode}`))
+          : done();
       }
     );
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Upload timed out')); });
-    req.write(fileBuffer);
-    req.end();
+    req.on('error', (err) => done(err));
+
+    // Stream file body to avoid writing 72 MB all at once
+    const readStream = fs.createReadStream(gcodeFullPath);
+    readStream.on('error', (err) => done(err));
+    readStream.on('end',   ()    => console.log(`[elegoo2] ${printer.name}: upload body sent, awaiting response`));
+    readStream.pipe(req);
   });
 
   console.log(`[elegoo2] ${printer.name}: upload complete — starting print`);
