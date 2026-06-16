@@ -14,16 +14,18 @@ const inputStyle = {
 };
 
 const CONNECTOR_OPTIONS = [
-  { value: 'prusa',           label: 'Prusa (PrusaLink)' },
-  { value: 'elegoo-centauri', label: 'Elegoo (SDCP)' },
-  { value: 'bambu',           label: 'Bambu (MQTT)' },
-  { value: 'klipper',         label: 'Klipper (Moonraker)' },
+  { value: 'prusa',            label: 'Prusa (PrusaLink)' },
+  { value: 'elegoo-centauri',  label: 'Elegoo (SDCP)' },
+  { value: 'elegoo-centauri2', label: 'Elegoo CC2 (MQTT)' },
+  { value: 'bambu',            label: 'Bambu (MQTT)' },
+  { value: 'klipper',          label: 'Klipper (Moonraker)' },
 ];
 const CONNECTOR_LABEL = {
-  'prusa':           'Prusa (PrusaLink)',
-  'elegoo-centauri': 'Elegoo (SDCP)',
-  'bambu':           'Bambu (MQTT)',
-  'klipper':         'Klipper (Moonraker)',
+  'prusa':            'Prusa (PrusaLink)',
+  'elegoo-centauri':  'Elegoo (SDCP)',
+  'elegoo-centauri2': 'Elegoo CC2 (MQTT)',
+  'bambu':            'Bambu (MQTT)',
+  'klipper':          'Klipper (Moonraker)',
 };
 // Connector types that do not use an API key
 const NO_API_KEY_TYPES = new Set(['elegoo-centauri', 'klipper']);
@@ -475,7 +477,7 @@ export default function Settings() {
                 value={addForm.name}
                 onChange={e => setAddForm(p => ({ ...p, name: e.target.value }))}
                 required
-                placeholder={addForm.type === 'elegoo-centauri' ? 'Centauri_01' : addForm.type === 'bambu' ? 'Bambu_X1C_01' : addForm.type === 'klipper' ? 'Voron_01' : 'MK4S_11'}
+                placeholder={addForm.type === 'elegoo-centauri' ? 'Centauri_01' : addForm.type === 'elegoo-centauri2' ? 'CC2_01' : addForm.type === 'bambu' ? 'Bambu_X1C_01' : addForm.type === 'klipper' ? 'Voron_01' : 'MK4S_11'}
                 style={inputStyle}
               />
             </div>
@@ -489,14 +491,14 @@ export default function Settings() {
                 style={inputStyle}
               />
             </div>
-            {addForm.type === 'bambu' && (
+            {(addForm.type === 'bambu' || addForm.type === 'elegoo-centauri2') && (
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Serial Number *</label>
                 <input
                   value={addForm.serial_number}
                   onChange={e => setAddForm(p => ({ ...p, serial_number: e.target.value }))}
                   required
-                  placeholder="00M09C123400789"
+                  placeholder={addForm.type === 'bambu' ? '00M09C123400789' : 'CC2-XXXXXX'}
                   style={inputStyle}
                 />
               </div>
@@ -504,13 +506,13 @@ export default function Settings() {
             {!NO_API_KEY_TYPES.has(addForm.type) && (
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
-                  {addForm.type === 'bambu' ? 'Access Code *' : 'API Key *'}
+                  {addForm.type === 'bambu' || addForm.type === 'elegoo-centauri2' ? 'Access Code *' : 'API Key *'}
                 </label>
                 <input
                   value={addForm.api_key}
                   onChange={e => setAddForm(p => ({ ...p, api_key: e.target.value }))}
                   required
-                  placeholder={addForm.type === 'bambu' ? '12AB34' : 'xxxxxxxxxxxxxxxx'}
+                  placeholder={addForm.type === 'bambu' || addForm.type === 'elegoo-centauri2' ? 'SQdQfo' : 'xxxxxxxxxxxxxxxx'}
                   style={inputStyle}
                 />
               </div>
