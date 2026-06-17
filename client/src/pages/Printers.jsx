@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const STATUS_COLORS = {
@@ -11,7 +11,6 @@ const STATUS_COLORS = {
   UNKNOWN:  { bg: '#1e2433', text: '#475569' },
 };
 
-// Pill colors for the per-group status summary in section headers
 const SUMMARY_PILLS = [
   { key: 'PRINTING', label: 'printing', bg: '#1e3a5f', text: '#60a5fa' },
   { key: 'IDLE',     label: 'idle',     bg: '#1a2030', text: '#94a3b8' },
@@ -49,11 +48,11 @@ function summarize(group) {
 }
 
 export default function Printers() {
-  const [printers, setPrinters] = useState([]);
-  const [models, setModels]     = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [search, setSearch]     = useState('');
-  const [collapsed, setCollapsed] = useState(() => {
+  const [printers, setPrinters]     = useState([]);
+  const [models, setModels]         = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [search, setSearch]         = useState('');
+  const [collapsed, setCollapsed]   = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]')); }
     catch { return new Set(); }
   });
@@ -61,10 +60,18 @@ export default function Printers() {
     try { return JSON.parse(localStorage.getItem(SHOW_DECOM_KEY) || 'false'); }
     catch { return false; }
   });
+
+  // Bulk-selection state
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [filaments, setFilaments]     = useState({ materials: [], colors: [] });
+  const [bulkMaterial, setBulkMaterial] = useState('');
+  const [bulkColor, setBulkColor]       = useState('');
+  const [applying, setApplying]         = useState(false);
+
   const navigate = useNavigate();
 
-  useEffect(() => {
-    Promise.all([
+  const fetchPrinters = useCallback(() => {
+    return Promise.all([
       fetch('/api/printers').then(r => r.json()),
       fetch('/api/printers/decommissioned').then(r => r.json()),
       fetch('/api/models').then(r => r.json()),
@@ -75,12 +82,17 @@ export default function Printers() {
     }).catch(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    fetchPrinters();
+    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
+  }, [fetchPrinters]);
+
   function persistCollapsed(next) {
     setCollapsed(next);
     localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
   }
 
-  function toggleGroup(key) {
+  function toggleGroupCollapse(key) {
     const next = new Set(collapsed);
     if (next.has(key)) next.delete(key); else next.add(key);
     persistCollapsed(next);
@@ -89,6 +101,57 @@ export default function Printers() {
   function toggleShowDecom(v) {
     setShowDecom(v);
     localStorage.setItem(SHOW_DECOM_KEY, JSON.stringify(v));
+  }
+
+  // ── Selection helpers ───────────────────────────────────────────────────────
+
+  function togglePrinter(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function selectGroup(groupPrinters) {
+    const allSelected = groupPrinters.every(p => selectedIds.has(p.id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        groupPrinters.forEach(p => next.delete(p.id));
+      } else {
+        groupPrinters.forEach(p => next.add(p.id));
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setBulkMaterial('');
+    setBulkColor('');
+  }
+
+  async function applyBulk() {
+    const mat = bulkMaterial.trim();
+    const col = bulkColor.trim();
+    if (!mat && !col) return;
+    setApplying(true);
+    const body = {};
+    if (mat) body.loaded_material = mat;
+    if (col) body.loaded_color = col;
+    await Promise.all([...selectedIds].map(id =>
+      fetch(`/api/printers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    ));
+    await fetchPrinters();
+    // Refresh filament suggestions so newly entered values appear next time
+    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
+    setApplying(false);
+    clearSelection();
   }
 
   // ── Filter + group ──────────────────────────────────────────────────────────
@@ -107,7 +170,6 @@ export default function Printers() {
     const activePrinters = printers.filter(p => p.is_active);
     const decomPrinters  = printers.filter(p => !p.is_active);
 
-    // Group by model_id, in the order defined by the models registry
     const orderedModelIds = models.map(m => m.model_id);
     const labels = Object.fromEntries(models.map(m => [m.model_id, m.label]));
 
@@ -148,17 +210,16 @@ export default function Printers() {
   }, [printers, models, search]);
 
   const isSearching = search.trim().length > 0;
-  // When searching, a group is "open" if it has any matches (override collapse)
   const isOpen = (g) => isSearching ? g.matched.length > 0 : !collapsed.has(g.key);
 
-  function expandAll() {
-    persistCollapsed(new Set());
-  }
+  function expandAll() { persistCollapsed(new Set()); }
   function collapseAll() {
     const all = new Set(groups.map(g => g.key));
     if (showDecom && decomGroup.all.length > 0) all.add(decomGroup.key);
     persistCollapsed(all);
   }
+
+  const canApply = (bulkMaterial.trim() || bulkColor.trim()) && selectedIds.size > 0;
 
   return (
     <div>
@@ -170,7 +231,7 @@ export default function Printers() {
       {/* Toolbar */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-        marginBottom: 16,
+        marginBottom: selectedIds.size > 0 ? 8 : 16,
       }}>
         <input
           type="text"
@@ -184,22 +245,10 @@ export default function Printers() {
             padding: '7px 12px', outline: 'none', boxSizing: 'border-box',
           }}
         />
-
         <div style={{ display: 'flex', gap: 6 }}>
-          <button
-            onClick={expandAll}
-            style={toolbarBtn}
-          >
-            Expand all
-          </button>
-          <button
-            onClick={collapseAll}
-            style={toolbarBtn}
-          >
-            Collapse all
-          </button>
+          <button onClick={expandAll} style={toolbarBtn}>Expand all</button>
+          <button onClick={collapseAll} style={toolbarBtn}>Collapse all</button>
         </div>
-
         <label style={{
           display: 'flex', alignItems: 'center', gap: 6,
           fontSize: 12, color: '#94a3b8', cursor: 'pointer',
@@ -215,7 +264,64 @@ export default function Printers() {
         </label>
       </div>
 
-      {/* Search results indicator */}
+      {/* Bulk-edit bar */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          background: '#131c2e', border: '1px solid #1e3a5f',
+          borderRadius: 7, padding: '8px 14px', marginBottom: 12,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', flexShrink: 0 }}>
+            {selectedIds.size} selected
+          </span>
+          <button onClick={clearSelection} style={{ ...toolbarBtn, fontSize: 11, padding: '4px 8px' }}>
+            Clear
+          </button>
+          <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>Set:</span>
+          <div style={{ position: 'relative' }}>
+            <input
+              list="bulk-materials"
+              value={bulkMaterial}
+              onChange={e => setBulkMaterial(e.target.value)}
+              placeholder="Material (e.g. PLA)"
+              style={bulkInputSx}
+            />
+            <datalist id="bulk-materials">
+              {filaments.materials.map(m => <option key={m} value={m} />)}
+            </datalist>
+          </div>
+          <div style={{ position: 'relative' }}>
+            <input
+              list="bulk-colors"
+              value={bulkColor}
+              onChange={e => setBulkColor(e.target.value)}
+              placeholder="Color (e.g. Black)"
+              style={bulkInputSx}
+            />
+            <datalist id="bulk-colors">
+              {filaments.colors.map(c => <option key={c} value={c} />)}
+            </datalist>
+          </div>
+          <button
+            onClick={applyBulk}
+            disabled={!canApply || applying}
+            style={{
+              background: canApply && !applying ? '#1d4ed8' : '#1e2433',
+              color: canApply && !applying ? '#fff' : '#475569',
+              border: 'none', borderRadius: 5,
+              padding: '6px 14px', fontSize: 12, fontWeight: 600,
+              cursor: canApply && !applying ? 'pointer' : 'not-allowed',
+              flexShrink: 0,
+            }}
+          >
+            {applying ? 'Applying…' : 'Apply to selected'}
+          </button>
+          <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>
+            Empty fields are left unchanged
+          </span>
+        </div>
+      )}
+
       {isSearching && (
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
           {totalMatched} of {totalShown} match "{search}"
@@ -235,10 +341,13 @@ export default function Printers() {
               key={g.key}
               group={g}
               open={isOpen(g)}
-              onToggle={() => toggleGroup(g.key)}
+              onToggle={() => toggleGroupCollapse(g.key)}
               onClickPrinter={(p) => navigate(`/printers/${p.id}`)}
               dimmed={false}
               hideEmpty={isSearching}
+              selectedIds={selectedIds}
+              onTogglePrinter={togglePrinter}
+              onSelectGroup={selectGroup}
             />
           ))}
 
@@ -246,10 +355,13 @@ export default function Printers() {
             <GroupSection
               group={decomGroup}
               open={isOpen(decomGroup)}
-              onToggle={() => toggleGroup(decomGroup.key)}
+              onToggle={() => toggleGroupCollapse(decomGroup.key)}
               onClickPrinter={(p) => navigate(`/printers/${p.id}`)}
               dimmed
               hideEmpty={isSearching}
+              selectedIds={selectedIds}
+              onTogglePrinter={togglePrinter}
+              onSelectGroup={selectGroup}
             />
           )}
         </div>
@@ -265,14 +377,24 @@ const toolbarBtn = {
   cursor: 'pointer',
 };
 
-function GroupSection({ group, open, onToggle, onClickPrinter, dimmed, hideEmpty }) {
-  // When searching, skip groups with zero matches
+const bulkInputSx = {
+  background: '#1e2433', border: '1px solid #2d3748',
+  borderRadius: 5, color: '#e2e8f0', fontSize: 12,
+  padding: '5px 10px', outline: 'none', width: 160,
+};
+
+function GroupSection({ group, open, onToggle, onClickPrinter, dimmed, hideEmpty,
+                        selectedIds, onTogglePrinter, onSelectGroup }) {
   if (hideEmpty && group.matched.length === 0) return null;
 
   const summary = summarize(group.all);
   const total   = group.all.length;
   const visible = group.matched.length;
   const isFiltered = visible !== total;
+
+  const visiblePrinters = group.matched;
+  const allVisibleSelected = visiblePrinters.length > 0 && visiblePrinters.every(p => selectedIds.has(p.id));
+  const someVisibleSelected = visiblePrinters.some(p => selectedIds.has(p.id));
 
   return (
     <div style={{
@@ -283,56 +405,76 @@ function GroupSection({ group, open, onToggle, onClickPrinter, dimmed, hideEmpty
       opacity: dimmed && !open ? 0.7 : 1,
     }}>
       {/* Header */}
-      <button
-        onClick={onToggle}
-        style={{
-          width: '100%',
-          display: 'flex', alignItems: 'center', gap: 12,
-          background: open ? '#151c28' : '#131720',
-          border: 'none',
-          borderBottom: open ? '1px solid #1e2433' : 'none',
-          color: '#e2e8f0',
-          padding: '11px 14px',
-          cursor: 'pointer',
-          textAlign: 'left',
-          fontFamily: 'inherit',
-        }}
-      >
-        <span style={{
-          fontSize: 11, color: '#64748b',
-          width: 12, display: 'inline-block',
-          transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
-          transition: 'transform 0.12s',
-        }}>
-          ▶
-        </span>
-        <span style={{ fontWeight: 700, fontSize: 14, color: dimmed ? '#94a3b8' : '#e2e8f0' }}>
-          {group.label}
-        </span>
-        <span style={{ fontSize: 12, color: '#475569' }}>
-          {isFiltered ? `${visible} of ${total}` : `${total}`}
-        </span>
-
-        {/* Status summary pills (compact) */}
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        background: open ? '#151c28' : '#131720',
+        borderBottom: open ? '1px solid #1e2433' : 'none',
+      }}>
+        {/* Group-level select-all checkbox */}
         {!dimmed && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
-            {SUMMARY_PILLS.map(p => {
-              const n = summary[p.key];
-              if (!n) return null;
-              return (
-                <span key={p.key} style={{
-                  background: p.bg, color: p.text,
-                  fontSize: 10, fontWeight: 700,
-                  letterSpacing: '0.03em',
-                  borderRadius: 3, padding: '2px 7px',
-                }}>
-                  {n} {p.label}
-                </span>
-              );
-            })}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ padding: '11px 0 11px 14px', flexShrink: 0 }}
+          >
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              ref={el => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+              onChange={() => onSelectGroup(visiblePrinters)}
+              style={{ accentColor: '#3b82f6', cursor: 'pointer' }}
+              title="Select all in this group"
+            />
           </div>
         )}
-      </button>
+        <button
+          onClick={onToggle}
+          style={{
+            flex: 1,
+            display: 'flex', alignItems: 'center', gap: 12,
+            background: 'transparent',
+            border: 'none',
+            color: '#e2e8f0',
+            padding: dimmed ? '11px 14px' : '11px 14px 11px 10px',
+            cursor: 'pointer',
+            textAlign: 'left',
+            fontFamily: 'inherit',
+          }}
+        >
+          <span style={{
+            fontSize: 11, color: '#64748b',
+            width: 12, display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+            transition: 'transform 0.12s',
+          }}>
+            ▶
+          </span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: dimmed ? '#94a3b8' : '#e2e8f0' }}>
+            {group.label}
+          </span>
+          <span style={{ fontSize: 12, color: '#475569' }}>
+            {isFiltered ? `${visible} of ${total}` : `${total}`}
+          </span>
+
+          {!dimmed && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
+              {SUMMARY_PILLS.map(p => {
+                const n = summary[p.key];
+                if (!n) return null;
+                return (
+                  <span key={p.key} style={{
+                    background: p.bg, color: p.text,
+                    fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.03em',
+                    borderRadius: 3, padding: '2px 7px',
+                  }}>
+                    {n} {p.label}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </button>
+      </div>
 
       {/* Body */}
       {open && (
@@ -340,13 +482,15 @@ function GroupSection({ group, open, onToggle, onClickPrinter, dimmed, hideEmpty
           {/* Column header */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '2fr 1fr 1fr 1fr',
+            gridTemplateColumns: '24px 2fr 1fr 1fr 1fr 1fr',
             padding: '4px 10px',
             fontSize: 10, fontWeight: 700, color: '#475569',
             letterSpacing: '0.06em', textTransform: 'uppercase',
           }}>
+            <span />
             <span>Name</span>
             <span>Group</span>
+            <span>Material</span>
             <span>IP</span>
             <span>Status</span>
           </div>
@@ -357,19 +501,32 @@ function GroupSection({ group, open, onToggle, onClickPrinter, dimmed, hideEmpty
               onClick={() => onClickPrinter(printer)}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                gridTemplateColumns: '24px 2fr 1fr 1fr 1fr 1fr',
                 alignItems: 'center',
-                background: '#131720',
-                border: '1px solid #1e2433',
+                background: selectedIds.has(printer.id) ? '#131c2e' : '#131720',
+                border: `1px solid ${selectedIds.has(printer.id) ? '#1e3a5f' : '#1e2433'}`,
                 borderRadius: 6,
                 padding: '8px 10px',
                 cursor: 'pointer',
                 opacity: dimmed ? 0.7 : 1,
-                transition: 'border-color 0.1s',
+                transition: 'border-color 0.1s, background 0.1s',
               }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = '#3b82f6'}
-              onMouseLeave={e => e.currentTarget.style.borderColor = '#1e2433'}
+              onMouseEnter={e => {
+                if (!selectedIds.has(printer.id)) e.currentTarget.style.borderColor = '#3b82f6';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = selectedIds.has(printer.id) ? '#1e3a5f' : '#1e2433';
+              }}
             >
+              {/* Checkbox — stop propagation so row click still navigates */}
+              <div onClick={e => { e.stopPropagation(); onTogglePrinter(printer.id); }}>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(printer.id)}
+                  onChange={() => {}}
+                  style={{ accentColor: '#3b82f6', cursor: 'pointer' }}
+                />
+              </div>
               <span style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0' }}>
                 {printer.name}
                 {dimmed && (
@@ -379,6 +536,9 @@ function GroupSection({ group, open, onToggle, onClickPrinter, dimmed, hideEmpty
                 )}
               </span>
               <span style={{ fontSize: 13, color: '#64748b' }}>{printer.group_name || '—'}</span>
+              <span style={{ fontSize: 12, color: '#7dd3fc' }}>
+                {[printer.loaded_material, printer.loaded_color].filter(Boolean).join(' · ') || '—'}
+              </span>
               <span style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace' }}>{printer.ip}</span>
               <span>{dimmed
                 ? <span style={{ fontSize: 11, color: '#475569' }}>offline</span>

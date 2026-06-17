@@ -122,7 +122,8 @@ module.exports = (db) => {
 
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const { part_id, parts_per_plate, printer_model, est_print_secs, ams_slot, material_grams } = req.body;
+    const { part_id, parts_per_plate, printer_model, est_print_secs, ams_slot, material_grams,
+            allowed_groups, required_material, required_color } = req.body;
 
     if (!part_id || !parts_per_plate || !printer_model) {
       fs.unlinkSync(req.file.path);
@@ -149,10 +150,14 @@ module.exports = (db) => {
     const parsedAmsSlot = ams_slot !== undefined && ams_slot !== '' ? parseInt(ams_slot, 10) : null;
 
     const parsedMaterialGrams = material_grams ? parseFloat(material_grams) : null;
+    // allowed_groups: JSON array string e.g. '["MK4S Farm","XL Farm"]', or null = all groups
+    const parsedAllowedGroups = allowed_groups && allowed_groups !== '' ? allowed_groups : null;
+    const parsedRequiredMaterial = required_material && required_material !== '' ? required_material.trim() : null;
+    const parsedRequiredColor    = required_color    && required_color    !== '' ? required_color.trim()    : null;
 
     const gcode = db.prepare(`
-      INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, material_grams, ams_slot, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, material_grams, ams_slot, allowed_groups, required_material, required_color, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       part_id,
       printer_model,
@@ -162,6 +167,9 @@ module.exports = (db) => {
       est_print_secs ? parseInt(est_print_secs, 10) : null,
       parsedMaterialGrams,
       parsedAmsSlot,
+      parsedAllowedGroups,
+      parsedRequiredMaterial,
+      parsedRequiredColor,
       Date.now()
     );
 
@@ -198,8 +206,13 @@ module.exports = (db) => {
       }
     }
 
-    db.prepare('UPDATE gcodes SET est_print_secs = ?, material_grams = ? WHERE id = ?')
-      .run(estPrintSecs, materialGrams, req.params.id);
+    // allowed_groups / required_material / required_color: present-in-body wins; absent = keep existing
+    const allowedGroups      = 'allowed_groups'      in req.body ? (req.body.allowed_groups      || null) : gcode.allowed_groups;
+    const requiredMaterial   = 'required_material'   in req.body ? (req.body.required_material   || null) : gcode.required_material;
+    const requiredColor      = 'required_color'      in req.body ? (req.body.required_color       || null) : gcode.required_color;
+
+    db.prepare('UPDATE gcodes SET est_print_secs = ?, material_grams = ?, allowed_groups = ?, required_material = ?, required_color = ? WHERE id = ?')
+      .run(estPrintSecs, materialGrams, allowedGroups, requiredMaterial, requiredColor, req.params.id);
 
     res.json(db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id));
   });

@@ -144,15 +144,27 @@ function GcodeUploadPanel({ part, onUploaded }) {
   const [uploading, setUploading]   = useState(false);
   const fileInputRef                = useRef(null);
   const [modelOptions, setModelOptions] = useState([]);
-  const [amsSlots, setAmsSlots]     = useState([]);   // [] = not a Bambu model
-  const [amsSlot, setAmsSlot]       = useState('');   // '' = not yet chosen
+  const [amsSlots, setAmsSlots]     = useState([]);
+  const [amsSlot, setAmsSlot]       = useState('');
+  const [availableGroups, setAvailableGroups] = useState([]);
+  const [selectedGroups, setSelectedGroups]   = useState([]);  // [] = all groups
+  const [filaments, setFilaments] = useState({ materials: [], colors: [] });
+  const [requiredMaterial, setRequiredMaterial] = useState('');
+  const [requiredColor, setRequiredColor]       = useState('');
 
   useEffect(() => {
     fetch('/api/models').then(r => r.json()).then(setModelOptions).catch(() => {});
+    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
   }, []);
 
-  // Fetch live AMS slots whenever the model changes.
-  // Returns [] for non-Bambu models or when no printer of that model is online.
+  useEffect(() => {
+    if (!model) { setAvailableGroups([]); setSelectedGroups([]); return; }
+    fetch(`/api/printers/groups?model=${encodeURIComponent(model)}`)
+      .then(r => r.json())
+      .then(groups => { setAvailableGroups(groups); setSelectedGroups([]); })
+      .catch(() => {});
+  }, [model]);
+
   useEffect(() => {
     if (!model) { setAmsSlots([]); setAmsSlot(''); return; }
     fetch(`/api/printers/ams?model=${encodeURIComponent(model)}`)
@@ -187,6 +199,12 @@ function GcodeUploadPanel({ part, onUploaded }) {
     } catch (_) {}
   }
 
+  function toggleGroup(g) {
+    setSelectedGroups(prev =>
+      prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]
+    );
+  }
+
   async function handleUpload() {
     if (!file)           { setError('Choose a file first.'); return; }
     if (!partsPerPlate)  { setError('Enter parts per plate.'); return; }
@@ -206,6 +224,9 @@ function GcodeUploadPanel({ part, onUploaded }) {
     if (amsSlots.length > 0) fd.append('ams_slot', amsSlot);
     if (parsedEstPrintSecs != null) fd.append('est_print_secs', String(parsedEstPrintSecs));
     if (parsedMaterialGrams != null) fd.append('material_grams', String(parsedMaterialGrams));
+    if (selectedGroups.length > 0) fd.append('allowed_groups', JSON.stringify(selectedGroups));
+    if (requiredMaterial.trim()) fd.append('required_material', requiredMaterial.trim());
+    if (requiredColor.trim())    fd.append('required_color',    requiredColor.trim());
 
     try {
       const res  = await fetch('/api/gcodes/upload', { method: 'POST', body: fd });
@@ -215,6 +236,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
       } else {
         setFile(null); setPPP(''); setModel(''); setAmsSlot(''); setAmsSlots([]);
         setParsedEstPrintSecs(null); setParsedMaterialGrams(null);
+        setSelectedGroups([]); setRequiredMaterial(''); setRequiredColor('');
         if (fileInputRef.current) fileInputRef.current.value = '';
         onUploaded();
       }
@@ -225,63 +247,110 @@ function GcodeUploadPanel({ part, onUploaded }) {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-      <label style={{ cursor: 'pointer' }}>
-        <input ref={fileInputRef} type="file" accept=".bgcode,.gcode,.3mf" onChange={handleFileChange} style={{ display: 'none' }} />
-        <span style={{
-          ...inputSx,
-          display: 'inline-block',
-          maxWidth: 240,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          cursor: 'pointer',
-          color: file ? '#e2e8f0' : '#475569',
-        }}>
-          {file ? file.name : 'Choose .gcode / .bgcode / .3mf…'}
-        </span>
-      </label>
-      <input
-        type="number"
-        min={1}
-        placeholder="Parts/plate"
-        value={partsPerPlate}
-        onChange={(e) => setPPP(e.target.value)}
-        style={{ ...inputSx, width: 100 }}
-      />
-      <select
-        value={model}
-        onChange={(e) => setModel(e.target.value)}
-        style={{ ...inputSx, width: 90 }}
-      >
-        <option value="">Model…</option>
-        {modelOptions.map(m => <option key={m.model_id} value={m.model_id}>{m.label}</option>)}
-      </select>
-      {amsSlots.length > 0 && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label style={{ cursor: 'pointer' }}>
+          <input ref={fileInputRef} type="file" accept=".bgcode,.gcode,.3mf" onChange={handleFileChange} style={{ display: 'none' }} />
+          <span style={{
+            ...inputSx,
+            display: 'inline-block',
+            maxWidth: 240,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            cursor: 'pointer',
+            color: file ? '#e2e8f0' : '#475569',
+          }}>
+            {file ? file.name : 'Choose .gcode / .bgcode / .3mf…'}
+          </span>
+        </label>
+        <input
+          type="number"
+          min={1}
+          placeholder="Parts/plate"
+          value={partsPerPlate}
+          onChange={(e) => setPPP(e.target.value)}
+          style={{ ...inputSx, width: 100 }}
+        />
         <select
-          value={amsSlot}
-          onChange={(e) => setAmsSlot(e.target.value)}
-          style={{ ...inputSx, width: 160 }}
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          style={{ ...inputSx, width: 90 }}
         >
-          <option value="">AMS slot…</option>
-          {amsSlots.map(s => s.slot === -1
-            ? <option key="ext" value="-1">External Spool{s.type ? ` — ${s.type}` : ''}</option>
-            : <option key={s.slot} value={String(s.slot)}>Slot {s.slot} — {s.type || 'unknown'}</option>
-          )}
+          <option value="">Model…</option>
+          {modelOptions.map(m => <option key={m.model_id} value={m.model_id}>{m.label}</option>)}
         </select>
-      )}
-      <button
-        onClick={handleUpload}
-        disabled={uploading}
-        style={{
-          background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: 4,
-          padding: '5px 14px', fontSize: 12, fontWeight: 600,
-          cursor: uploading ? 'not-allowed' : 'pointer',
-          opacity: uploading ? 0.7 : 1,
-        }}
-      >
-        {uploading ? 'Uploading…' : 'Upload'}
-      </button>
+        {amsSlots.length > 0 && (
+          <select
+            value={amsSlot}
+            onChange={(e) => setAmsSlot(e.target.value)}
+            style={{ ...inputSx, width: 160 }}
+          >
+            <option value="">AMS slot…</option>
+            {amsSlots.map(s => s.slot === -1
+              ? <option key="ext" value="-1">External Spool{s.type ? ` — ${s.type}` : ''}</option>
+              : <option key={s.slot} value={String(s.slot)}>Slot {s.slot} — {s.type || 'unknown'}</option>
+            )}
+          </select>
+        )}
+        <button
+          onClick={handleUpload}
+          disabled={uploading}
+          style={{
+            background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: 4,
+            padding: '5px 14px', fontSize: 12, fontWeight: 600,
+            cursor: uploading ? 'not-allowed' : 'pointer',
+            opacity: uploading ? 0.7 : 1,
+          }}
+        >
+          {uploading ? 'Uploading…' : 'Upload'}
+        </button>
+      </div>
+
+      {/* Targeting — material, color, groups */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>Targeting:</span>
+        {filaments.materials.length > 0 ? (
+          <select
+            value={requiredMaterial}
+            onChange={e => setRequiredMaterial(e.target.value)}
+            style={{ ...inputSx, width: 140, fontSize: 12 }}
+          >
+            <option value="" disabled>Select material</option>
+            {filaments.materials.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        ) : (
+          <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials configured on printers</span>
+        )}
+        {filaments.colors.length > 0 && (
+          <select
+            value={requiredColor}
+            onChange={e => setRequiredColor(e.target.value)}
+            style={{ ...inputSx, width: 130, fontSize: 12 }}
+          >
+            <option value="">Any color</option>
+            {filaments.colors.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
+        {availableGroups.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: '#475569' }}>Groups:</span>
+            {availableGroups.map(g => (
+              <label key={g} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', fontSize: 12, color: selectedGroups.includes(g) ? '#7dd3fc' : '#64748b' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedGroups.includes(g)}
+                  onChange={() => toggleGroup(g)}
+                  style={{ accentColor: '#3b82f6' }}
+                />
+                {g}
+              </label>
+            ))}
+            {selectedGroups.length === 0 && <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>all groups</span>}
+          </div>
+        )}
+      </div>
+
       {error && <p style={{ color: '#f87171', fontSize: 12, margin: 0 }}>{error}</p>}
     </div>
   );
@@ -293,11 +362,31 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
   const [parsing, setParsing]             = useState(false);
   const [saving, setSaving]               = useState(false);
   const [error, setError]                 = useState(null);
+  const [availableGroups, setAvailableGroups] = useState([]);
+  const [selectedGroups, setSelectedGroups]   = useState(() => {
+    try { return gc.allowed_groups ? JSON.parse(gc.allowed_groups) : []; } catch (_) { return []; }
+  });
+  const [filaments, setFilaments] = useState({ materials: [], colors: [] });
+  const [reqMaterial, setReqMaterial] = useState(gc.required_material || '');
+  const [reqColor, setReqColor]       = useState(gc.required_color || '');
 
   useEffect(() => {
     setTimeDraft(formatDurationForInput(gc.est_print_secs));
     setMaterialDraft(formatMaterialForInput(gc.material_grams));
-  }, [gc.est_print_secs, gc.material_grams]);
+    setReqMaterial(gc.required_material || '');
+    setReqColor(gc.required_color || '');
+    try { setSelectedGroups(gc.allowed_groups ? JSON.parse(gc.allowed_groups) : []); } catch (_) { setSelectedGroups([]); }
+  }, [gc.est_print_secs, gc.material_grams, gc.required_material, gc.required_color, gc.allowed_groups]);
+
+  useEffect(() => {
+    fetch(`/api/printers/groups?model=${encodeURIComponent(gc.printer_model)}`)
+      .then(r => r.json()).then(setAvailableGroups).catch(() => {});
+    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
+  }, [gc.printer_model]);
+
+  function toggleGroup(g) {
+    setSelectedGroups(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]);
+  }
 
   async function parseFromFilename() {
     setParsing(true);
@@ -327,13 +416,16 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        print_time:     timeDraft.trim()     || null,
-        material_grams: materialDraft.trim() || null,
+        print_time:       timeDraft.trim()     || null,
+        material_grams:   materialDraft.trim() || null,
+        allowed_groups:   selectedGroups.length > 0 ? JSON.stringify(selectedGroups) : null,
+        required_material: reqMaterial.trim() || null,
+        required_color:    reqColor.trim()    || null,
       }),
     });
     setSaving(false);
     if (res.ok) {
-      onSaved?.('Estimate saved');
+      onSaved?.('Saved');
     } else {
       const d = await res.json();
       setError(d.error || 'Save failed.');
@@ -409,6 +501,51 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
+
+      {/* Targeting row */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>Targeting:</span>
+        {filaments.materials.length > 0 ? (
+          <select
+            value={reqMaterial}
+            onChange={e => setReqMaterial(e.target.value)}
+            style={{ ...inputSx, width: 140, fontSize: 12 }}
+          >
+            <option value="" disabled>Select material</option>
+            {filaments.materials.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        ) : (
+          <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials on printers</span>
+        )}
+        {filaments.colors.length > 0 && (
+          <select
+            value={reqColor}
+            onChange={e => setReqColor(e.target.value)}
+            style={{ ...inputSx, width: 130, fontSize: 12 }}
+          >
+            <option value="">Any color</option>
+            {filaments.colors.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
+        {availableGroups.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: '#475569' }}>Groups:</span>
+            {availableGroups.map(g => (
+              <label key={g} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', fontSize: 12, color: selectedGroups.includes(g) ? '#7dd3fc' : '#64748b' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedGroups.includes(g)}
+                  onChange={() => toggleGroup(g)}
+                  style={{ accentColor: '#3b82f6' }}
+                />
+                {g}
+              </label>
+            ))}
+            {selectedGroups.length === 0 && <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>all groups</span>}
+          </div>
+        )}
+      </div>
+
       {error && <p style={{ color: '#f87171', fontSize: 11, margin: 0 }}>{error}</p>}
     </div>
   );
@@ -635,6 +772,12 @@ export default function Projects() {
   const [dupName,       setDupName]       = useState('');
   const [duplicating,   setDuplicating]   = useState(false);
 
+  // Drag-and-drop reorder state
+  const [projectDragSrc,  setProjectDragSrc]  = useState(null);
+  const [projectDragOver, setProjectDragOver] = useState(null);
+  const [partDragSrc,     setPartDragSrc]     = useState(null);
+  const [partDragOver,    setPartDragOver]    = useState(null);
+
   const fetchProjects = useCallback(async () => {
     try {
       const res = await fetch('/api/projects');
@@ -680,6 +823,23 @@ export default function Projects() {
     setProjects(reordered);
 
     await fetch('/api/projects/reorder', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: reordered.map(p => p.id) }),
+    });
+  }
+
+  function dropProject(targetId) {
+    setProjectDragOver(null);
+    if (!projectDragSrc || projectDragSrc === targetId) { setProjectDragSrc(null); return; }
+    const fromIdx = projects.findIndex(p => p.id === projectDragSrc);
+    const toIdx   = projects.findIndex(p => p.id === targetId);
+    const reordered = [...projects];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    setProjects(reordered);
+    setProjectDragSrc(null);
+    fetch('/api/projects/reorder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: reordered.map(p => p.id) }),
@@ -808,6 +968,23 @@ export default function Projects() {
     setParts(reordered);
 
     await fetch('/api/parts/reorder', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: reordered.map(p => p.id) }),
+    });
+  }
+
+  function dropPart(targetId) {
+    setPartDragOver(null);
+    if (!partDragSrc || partDragSrc === targetId) { setPartDragSrc(null); return; }
+    const fromIdx = parts.findIndex(p => p.id === partDragSrc);
+    const toIdx   = parts.findIndex(p => p.id === targetId);
+    const reordered = [...parts];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    setParts(reordered);
+    setPartDragSrc(null);
+    fetch('/api/parts/reorder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: reordered.map(p => p.id) }),
@@ -1005,38 +1182,31 @@ export default function Projects() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {projects.map(p => {
             const s = PROJECT_STATUS[p.status] || PROJECT_STATUS.draft;
+            const isDragging = projectDragSrc === p.id;
+            const isOver     = projectDragOver === p.id && !isDragging;
             return (
               <div
                 key={p.id}
+                draggable
+                onDragStart={() => setProjectDragSrc(p.id)}
+                onDragOver={e => { e.preventDefault(); if (!isDragging) setProjectDragOver(p.id); }}
+                onDrop={e => { e.preventDefault(); dropProject(p.id); }}
+                onDragEnd={() => { setProjectDragSrc(null); setProjectDragOver(null); }}
                 style={{
-                  background: '#1e2433', border: '1px solid #2d3748', borderRadius: 8,
+                  background: '#1e2433',
+                  border: `1px solid ${isOver ? '#3b82f6' : '#2d3748'}`,
+                  borderRadius: 8,
                   padding: '12px 16px',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+                  opacity: isDragging ? 0.4 : 1,
+                  transition: 'border-color 0.1s, opacity 0.1s',
                 }}
               >
-                {/* Priority arrows — stop propagation so clicks don't open the project */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                  <button
-                    onClick={() => moveProject(p.id, 'up')}
-                    disabled={projects.indexOf(p) === 0}
-                    title="Increase priority"
-                    style={{
-                      background: 'none', border: 'none', padding: 0, fontSize: 10, lineHeight: 1,
-                      color: projects.indexOf(p) === 0 ? '#1f2937' : '#475569',
-                      cursor: projects.indexOf(p) === 0 ? 'default' : 'pointer',
-                    }}
-                  >▲</button>
-                  <button
-                    onClick={() => moveProject(p.id, 'down')}
-                    disabled={projects.indexOf(p) === projects.length - 1}
-                    title="Decrease priority"
-                    style={{
-                      background: 'none', border: 'none', padding: 0, fontSize: 10, lineHeight: 1,
-                      color: projects.indexOf(p) === projects.length - 1 ? '#1f2937' : '#475569',
-                      cursor: projects.indexOf(p) === projects.length - 1 ? 'default' : 'pointer',
-                    }}
-                  >▼</button>
-                </div>
+                {/* Drag handle */}
+                <span
+                  title="Drag to reorder"
+                  style={{ color: '#334155', fontSize: 16, cursor: 'grab', flexShrink: 0, userSelect: 'none', lineHeight: 1 }}
+                >⠿</span>
 
                 {/* Name + description — clicking here navigates */}
                 <div style={{ minWidth: 0, flex: 1, cursor: 'pointer' }} onClick={() => setSelectedId(p.id)}>
@@ -1140,34 +1310,32 @@ export default function Projects() {
         const partSt    = PART_STATUS[part.status] || PART_STATUS.open;
         const panelOpen = openPanels.has(part.id);
 
+        const isPartDragging = partDragSrc === part.id;
+        const isPartOver     = partDragOver === part.id && !isPartDragging;
         return (
-          <div key={part.id} style={{ background: '#1e2433', border: '1px solid #2d3748', borderRadius: 8, padding: '12px 16px', marginBottom: 8 }}>
+          <div
+            key={part.id}
+            draggable
+            onDragStart={() => setPartDragSrc(part.id)}
+            onDragOver={e => { e.preventDefault(); if (!isPartDragging) setPartDragOver(part.id); }}
+            onDrop={e => { e.preventDefault(); dropPart(part.id); }}
+            onDragEnd={() => { setPartDragSrc(null); setPartDragOver(null); }}
+            style={{
+              background: '#1e2433',
+              border: `1px solid ${isPartOver ? '#3b82f6' : '#2d3748'}`,
+              borderRadius: 8, padding: '12px 16px', marginBottom: 8,
+              opacity: isPartDragging ? 0.4 : 1,
+              transition: 'border-color 0.1s, opacity 0.1s',
+            }}
+          >
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
 
-              {/* Name + order buttons */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 200, flexShrink: 0 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <button
-                    onClick={() => movePart(part.id, 'up')}
-                    disabled={parts.indexOf(part) === 0}
-                    title="Move up"
-                    style={{
-                      background: 'none', border: 'none', color: parts.indexOf(part) === 0 ? '#1f2937' : '#475569',
-                      cursor: parts.indexOf(part) === 0 ? 'default' : 'pointer',
-                      padding: 0, fontSize: 10, lineHeight: 1,
-                    }}
-                  >▲</button>
-                  <button
-                    onClick={() => movePart(part.id, 'down')}
-                    disabled={parts.indexOf(part) === parts.length - 1}
-                    title="Move down"
-                    style={{
-                      background: 'none', border: 'none', color: parts.indexOf(part) === parts.length - 1 ? '#1f2937' : '#475569',
-                      cursor: parts.indexOf(part) === parts.length - 1 ? 'default' : 'pointer',
-                      padding: 0, fontSize: 10, lineHeight: 1,
-                    }}
-                  >▼</button>
-                </div>
+              {/* Name + drag handle */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: 200, flexShrink: 0 }}>
+                <span
+                  title="Drag to reorder"
+                  style={{ color: '#334155', fontSize: 16, cursor: 'grab', flexShrink: 0, userSelect: 'none', lineHeight: 1 }}
+                >⠿</span>
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{part.name}</span>
               </div>
 

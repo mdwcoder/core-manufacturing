@@ -56,6 +56,9 @@ beforeAll(() => {
       est_print_secs   INTEGER,
       material_grams   REAL,
       ams_slot         INTEGER,
+      allowed_groups   TEXT,
+      required_material TEXT,
+      required_color   TEXT,
       created_at       INTEGER NOT NULL
     );
   `);

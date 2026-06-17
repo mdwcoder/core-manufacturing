@@ -262,10 +262,15 @@ class JobScheduler extends EventEmitter {
         WHERE parts.status    = 'open'
           AND projects.status = 'active'
           AND gcodes.printer_model = ?
+          AND (gcodes.allowed_groups IS NULL OR EXISTS (
+            SELECT 1 FROM json_each(gcodes.allowed_groups) WHERE value = ?
+          ))
+          AND (gcodes.required_material IS NULL OR gcodes.required_material = ?)
+          AND (gcodes.required_color IS NULL OR gcodes.required_color = ?)
           ${excludeClause}
         ORDER BY projects.priority ASC, projects.created_at ASC, parts.sort_order ASC, parts.created_at ASC
         LIMIT 1
-      `).get(printer.model, ...skippedPartIds);
+      `).get(printer.model, printer.group_name, printer.loaded_material, printer.loaded_color, ...skippedPartIds);
 
       if (!candidate) {
         console.log(`[scheduler] No candidate found for ${printer.name} (model: ${printer.model}) — no open parts with matching G-code in an active project`);

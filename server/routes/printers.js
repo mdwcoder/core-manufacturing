@@ -60,6 +60,30 @@ module.exports = (db) => {
     res.json(printers);
   });
 
+  // GET /api/printers/groups — distinct non-null group names from active printers
+  router.get('/groups', (req, res) => {
+    const { model } = req.query;
+    const groups = model
+      ? db.prepare(
+          "SELECT DISTINCT group_name FROM printers WHERE is_active = 1 AND group_name IS NOT NULL AND model = ? ORDER BY group_name"
+        ).all(model).map(r => r.group_name)
+      : db.prepare(
+          "SELECT DISTINCT group_name FROM printers WHERE is_active = 1 AND group_name IS NOT NULL ORDER BY group_name"
+        ).all().map(r => r.group_name);
+    res.json(groups);
+  });
+
+  // GET /api/printers/filaments — distinct loaded_material and loaded_color values across all printers
+  router.get('/filaments', (req, res) => {
+    const materials = db.prepare(
+      "SELECT DISTINCT loaded_material FROM printers WHERE loaded_material IS NOT NULL AND loaded_material != '' ORDER BY loaded_material"
+    ).all().map(r => r.loaded_material);
+    const colors = db.prepare(
+      "SELECT DISTINCT loaded_color FROM printers WHERE loaded_color IS NOT NULL AND loaded_color != '' ORDER BY loaded_color"
+    ).all().map(r => r.loaded_color);
+    res.json({ materials, colors });
+  });
+
   // GET /api/printers/decommissioned — list decommissioned printers
   router.get('/decommissioned', (req, res) => {
     const printers = db.prepare('SELECT * FROM printers WHERE is_active = 0 ORDER BY decommissioned_at DESC').all();
@@ -103,11 +127,13 @@ module.exports = (db) => {
     if (!normalized || !db.prepare('SELECT 1 FROM printer_models WHERE model_id = ?').get(normalized)) {
       return res.status(400).json({ error: `Unknown model "${model}". Add it in Settings → Printer Models first.` });
     }
+    const { loaded_material, loaded_color } = req.body;
     try {
       const result = db.prepare(`
-        INSERT INTO printers (name, ip, api_key, serial_number, group_name, type, model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(name, ip, api_key || '', serial_number || '', group_name || null, printerType, normalized, Date.now());
+        INSERT INTO printers (name, ip, api_key, serial_number, group_name, type, model, loaded_material, loaded_color, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(name, ip, api_key || '', serial_number || '', group_name || null, printerType, normalized,
+             loaded_material || null, loaded_color || null, Date.now());
       res.status(201).json(db.prepare('SELECT * FROM printers WHERE id = ?').get(result.lastInsertRowid));
     } catch (err) {
       if (err.message.includes('UNIQUE')) {
@@ -122,7 +148,7 @@ module.exports = (db) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
 
-    const { name, ip, api_key, serial_number, group_name, type, model, is_held, decommission_note } = req.body;
+    const { name, ip, api_key, serial_number, group_name, type, model, is_held, decommission_note, loaded_material, loaded_color } = req.body;
     let normalized = undefined;
     if (model !== undefined) {
       normalized = normalizeModel(model);
@@ -130,6 +156,11 @@ module.exports = (db) => {
         return res.status(400).json({ error: `Unknown model "${model}". Add it in Settings → Printer Models first.` });
       }
     }
+
+    // loaded_material / loaded_color: if key is present in body, use the value (even if empty → null to clear)
+    const existing = db.prepare('SELECT loaded_material, loaded_color FROM printers WHERE id = ?').get(req.params.id);
+    const newMaterial = 'loaded_material' in req.body ? (loaded_material || null) : existing.loaded_material;
+    const newColor    = 'loaded_color'    in req.body ? (loaded_color    || null) : existing.loaded_color;
 
     try {
       db.prepare(`
@@ -142,9 +173,12 @@ module.exports = (db) => {
             type = COALESCE(?, type),
             model = COALESCE(?, model),
             is_held = COALESCE(?, is_held),
-            decommission_note = COALESCE(?, decommission_note)
+            decommission_note = COALESCE(?, decommission_note),
+            loaded_material = ?,
+            loaded_color = ?
         WHERE id = ?
-      `).run(name, ip, api_key, serial_number, group_name, type, normalized, is_held, decommission_note ?? null, req.params.id);
+      `).run(name, ip, api_key, serial_number, group_name, type, normalized, is_held, decommission_note ?? null,
+             newMaterial, newColor, req.params.id);
 
       res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id));
     } catch (err) {

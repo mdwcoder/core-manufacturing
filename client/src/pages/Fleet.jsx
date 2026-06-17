@@ -121,11 +121,16 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
       </div>
 
       {/* Model + group */}
-      <div style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <span style={{ background: '#0f172a', borderRadius: 3, padding: '1px 6px', fontFamily: 'monospace', color: '#64748b' }}>
           {printer.model}
         </span>
         {printer.group_name && <span style={{ color: '#475569' }}>{printer.group_name}</span>}
+        {(printer.loaded_material || printer.loaded_color) && (
+          <span style={{ color: '#7dd3fc', fontSize: 11 }}>
+            {[printer.loaded_material, printer.loaded_color].filter(Boolean).join(' · ')}
+          </span>
+        )}
       </div>
 
       {/* Print job info — only when printing */}

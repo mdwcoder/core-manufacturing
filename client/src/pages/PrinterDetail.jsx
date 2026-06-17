@@ -87,22 +87,25 @@ export default function PrinterDetail() {
   const [nameError, setNameError]     = useState(null);
   const [renaming, setRenaming]       = useState(false);
   const [models, setModels]           = useState([]);
+  const [filaments, setFilaments]     = useState({ materials: [], colors: [] });
   const [editingDetails, setEditingDetails] = useState(false);
   const [detailsDraft, setDetailsDraft]     = useState({});
   const [detailsError, setDetailsError]     = useState(null);
   const [savingDetails, setSavingDetails]   = useState(false);
 
   const fetchData = useCallback(async () => {
-    const [printerRes, eventsRes, statsRes, modelsRes] = await Promise.all([
+    const [printerRes, eventsRes, statsRes, modelsRes, filamentsRes] = await Promise.all([
       fetch(`/api/printers/${id}`),
       fetch(`/api/printers/${id}/events`),
       fetch(`/api/printers/${id}/jobs/stats`),
       fetch('/api/models'),
+      fetch('/api/printers/filaments'),
     ]);
-    if (printerRes.ok) setPrinter(await printerRes.json());
-    if (eventsRes.ok)  setEvents(await eventsRes.json());
-    if (statsRes.ok)   setStats(await statsRes.json());
-    if (modelsRes.ok)  setModels(await modelsRes.json());
+    if (printerRes.ok)   setPrinter(await printerRes.json());
+    if (eventsRes.ok)    setEvents(await eventsRes.json());
+    if (statsRes.ok)     setStats(await statsRes.json());
+    if (modelsRes.ok)    setModels(await modelsRes.json());
+    if (filamentsRes.ok) setFilaments(await filamentsRes.json());
     setLoading(false);
   }, [id]);
 
@@ -179,6 +182,8 @@ export default function PrinterDetail() {
       serial_number: printer.serial_number || '',
       group_name: printer.group_name || '',
       model: printer.model || '',
+      loaded_material: printer.loaded_material || '',
+      loaded_color: printer.loaded_color || '',
     });
     setDetailsError(null);
     setEditingDetails(true);
@@ -205,6 +210,8 @@ export default function PrinterDetail() {
           serial_number: detailsDraft.serial_number.trim(),
           group_name: detailsDraft.group_name.trim() || null,
           model: detailsDraft.model,
+          loaded_material: detailsDraft.loaded_material.trim() || null,
+          loaded_color: detailsDraft.loaded_color.trim() || null,
         }),
       });
       if (!res.ok) {
@@ -382,6 +389,34 @@ export default function PrinterDetail() {
                   ))}
                 </select>
               </label>
+              <label style={detailLabelStyle}>
+                Loaded Material
+                <input
+                  list="filament-materials"
+                  value={detailsDraft.loaded_material}
+                  onChange={e => setDetailsDraft(d => ({ ...d, loaded_material: e.target.value }))}
+                  disabled={savingDetails}
+                  placeholder="e.g. PLA"
+                  style={detailInputStyle}
+                />
+                <datalist id="filament-materials">
+                  {filaments.materials.map(m => <option key={m} value={m} />)}
+                </datalist>
+              </label>
+              <label style={detailLabelStyle}>
+                Loaded Color
+                <input
+                  list="filament-colors"
+                  value={detailsDraft.loaded_color}
+                  onChange={e => setDetailsDraft(d => ({ ...d, loaded_color: e.target.value }))}
+                  disabled={savingDetails}
+                  placeholder="e.g. Black"
+                  style={detailInputStyle}
+                />
+                <datalist id="filament-colors">
+                  {filaments.colors.map(c => <option key={c} value={c} />)}
+                </datalist>
+              </label>
             </div>
             {detailsError && (
               <div style={{ fontSize: 12, color: '#fca5a5', marginTop: 6 }}>{detailsError}</div>
@@ -424,6 +459,14 @@ export default function PrinterDetail() {
             )}
             {printer.type && printer.type !== 'prusa' && (
               <span>Connector: <span style={{ color: '#94a3b8' }}>{printer.type}</span></span>
+            )}
+            {(printer.loaded_material || printer.loaded_color) && (
+              <span>
+                Loaded:{' '}
+                <span style={{ color: '#7dd3fc' }}>
+                  {[printer.loaded_material, printer.loaded_color].filter(Boolean).join(' · ')}
+                </span>
+              </span>
             )}
             <button
               onClick={startEditDetails}

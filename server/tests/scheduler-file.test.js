@@ -60,6 +60,7 @@ function makeDb(gcodeFilepath) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL, ip TEXT NOT NULL, api_key TEXT NOT NULL,
       model TEXT NOT NULL, type TEXT DEFAULT 'prusa',
+      group_name TEXT, loaded_material TEXT, loaded_color TEXT,
       status TEXT DEFAULT 'IDLE', is_held INTEGER DEFAULT 0, is_active INTEGER DEFAULT 1,
       created_at INTEGER NOT NULL
     );
@@ -79,7 +80,9 @@ function makeDb(gcodeFilepath) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       part_id INTEGER NOT NULL, printer_model TEXT NOT NULL,
       filename TEXT NOT NULL, filepath TEXT NOT NULL,
-      parts_per_plate INTEGER NOT NULL, ams_slot INTEGER, created_at INTEGER NOT NULL
+      parts_per_plate INTEGER NOT NULL, ams_slot INTEGER,
+      allowed_groups TEXT, required_material TEXT, required_color TEXT,
+      created_at INTEGER NOT NULL
     );
     CREATE TABLE jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

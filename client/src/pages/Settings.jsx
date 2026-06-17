@@ -42,12 +42,14 @@ export default function Settings() {
   // Add single printer
   // Printer models — fetched from DB, used throughout this page
   const [allModels, setAllModels] = useState([]);
+  const [filaments, setFilaments] = useState({ materials: [], colors: [] });
   const fetchModels = useCallback(() => {
     fetch('/api/models').then(r => r.json()).then(setAllModels).catch(() => {});
+    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
   }, []);
   useEffect(() => { fetchModels(); }, [fetchModels]);
 
-  const [addForm, setAddForm] = useState({ name: '', ip: '', api_key: '', serial_number: '', model: '', group_name: '', type: 'prusa' });
+  const [addForm, setAddForm] = useState({ name: '', ip: '', api_key: '', serial_number: '', model: '', group_name: '', type: 'prusa', loaded_material: '', loaded_color: '' });
   const [addResult, setAddResult] = useState(null);
   const [addError, setAddError] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -69,12 +71,14 @@ export default function Settings() {
           model: addForm.model,
           group_name: addForm.group_name.trim() || null,
           type: addForm.type,
+          loaded_material: addForm.loaded_material.trim() || null,
+          loaded_color: addForm.loaded_color.trim() || null,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Add failed');
       setAddResult(data);
-      setAddForm({ name: '', ip: '', api_key: '', serial_number: '', model: 'mk4s', group_name: '', type: 'prusa' });
+      setAddForm({ name: '', ip: '', api_key: '', serial_number: '', model: 'mk4s', group_name: '', type: 'prusa', loaded_material: '', loaded_color: '' });
     } catch (err) {
       setAddError(err.message);
     } finally {
@@ -525,6 +529,32 @@ export default function Settings() {
                 placeholder="Rack A"
                 style={inputStyle}
               />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Loaded Material *</label>
+              <input
+                list="settings-materials"
+                value={addForm.loaded_material}
+                onChange={e => setAddForm(p => ({ ...p, loaded_material: e.target.value }))}
+                placeholder="PLA"
+                style={inputStyle}
+              />
+              <datalist id="settings-materials">
+                {filaments.materials.map(m => <option key={m} value={m} />)}
+              </datalist>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Loaded Color *</label>
+              <input
+                list="settings-colors"
+                value={addForm.loaded_color}
+                onChange={e => setAddForm(p => ({ ...p, loaded_color: e.target.value }))}
+                placeholder="Black"
+                style={inputStyle}
+              />
+              <datalist id="settings-colors">
+                {filaments.colors.map(c => <option key={c} value={c} />)}
+              </datalist>
             </div>
           </div>
           <button
