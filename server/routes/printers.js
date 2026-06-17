@@ -158,9 +158,26 @@ module.exports = (db) => {
     }
 
     // loaded_material / loaded_color: if key is present in body, use the value (even if empty → null to clear)
-    const existing = db.prepare('SELECT loaded_material, loaded_color FROM printers WHERE id = ?').get(req.params.id);
-    const newMaterial = 'loaded_material' in req.body ? (loaded_material || null) : existing.loaded_material;
-    const newColor    = 'loaded_color'    in req.body ? (loaded_color    || null) : existing.loaded_color;
+    const newMaterial = 'loaded_material' in req.body ? (loaded_material || null) : printer.loaded_material;
+    const newColor    = 'loaded_color'    in req.body ? (loaded_color    || null) : printer.loaded_color;
+
+    // Compute effective new values for all tracked fields (COALESCE: body wins, else keep existing)
+    const after = {
+      name:            name          !== undefined ? name          : printer.name,
+      ip:              ip            !== undefined ? ip            : printer.ip,
+      group_name:      group_name    !== undefined ? group_name    : printer.group_name,
+      type:            type          !== undefined ? type          : printer.type,
+      model:           normalized    !== undefined ? normalized    : printer.model,
+      serial_number:   serial_number !== undefined ? serial_number : printer.serial_number,
+      loaded_material: newMaterial,
+      loaded_color:    newColor,
+    };
+
+    const FIELD_LABELS = {
+      name: 'Name', ip: 'IP address', group_name: 'Group', type: 'Connector type',
+      model: 'Model', serial_number: 'Serial number',
+      loaded_material: 'Material', loaded_color: 'Color',
+    };
 
     try {
       db.prepare(`
@@ -179,6 +196,16 @@ module.exports = (db) => {
         WHERE id = ?
       `).run(name, ip, api_key, serial_number, group_name, type, normalized, is_held, decommission_note ?? null,
              newMaterial, newColor, req.params.id);
+
+      // Log one event per changed field
+      for (const [field, label] of Object.entries(FIELD_LABELS)) {
+        const oldVal = printer[field] ?? null;
+        const newVal = after[field]   ?? null;
+        if (oldVal !== newVal) {
+          const fmt = v => (v == null ? '(none)' : v);
+          events.insert(printer.id, 'info_changed', `${label}: ${fmt(oldVal)} → ${fmt(newVal)}`);
+        }
+      }
 
       res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id));
     } catch (err) {

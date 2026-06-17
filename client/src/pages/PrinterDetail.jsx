@@ -25,11 +25,12 @@ function formatHours(ms) {
 }
 
 const EVENT_META = {
-  decommission: { label: 'Decommissioned', bg: '#7f1d1d', color: '#fca5a5' },
+  decommission:  { label: 'Decommissioned', bg: '#7f1d1d', color: '#fca5a5' },
   recommission:  { label: 'Recommissioned', bg: '#14532d', color: '#86efac' },
   job_finished:  { label: 'Job Finished',   bg: '#1e3a5f', color: '#93c5fd' },
   job_failed:    { label: 'Job Failed',      bg: '#78350f', color: '#fcd34d' },
   note:          { label: 'Note',            bg: '#1e2433', color: '#94a3b8' },
+  info_changed:  { label: 'Info Updated',   bg: '#1e2a3a', color: '#7dd3fc' },
 };
 
 function EventBadge({ type }) {
