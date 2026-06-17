@@ -277,63 +277,94 @@ async function getStatus(printer) {
   }
 }
 
-// Upload a G-code file to the CC2 via a single HTTP PUT, then start the print via MQTT.
+// Upload a G-code file to the CC2 via chunked HTTP PUT, then start the print via MQTT.
 //
-// The CC2 expects the entire file in one PUT to /upload with:
-//   Content-Type:   application/octet-stream
-//   Content-Length: (full file size)
-//   X-File-MD5:     (MD5 of the entire file)
-//   X-File-Name:    (destination filename on the printer)
-//   X-Token:        (access code, if set)
+// Protocol confirmed from elegoo-link C++ source (ElegooFdmCC2HttpTransfer):
+//   - 1 MB chunks, each a separate PUT to /upload with Content-Range header
+//   - ALL chunks share ONE keep-alive TCP connection (critical — separate connections → 408)
+//   - Each response is JSON { error_code: 0 } on success, non-zero on failure
+//   - X-Token = access code (printer.api_key)
 async function uploadAndPrint(printer, gcodeFullPath, filename) {
   const fileBuffer = fs.readFileSync(gcodeFullPath);
   const totalBytes = fileBuffer.length;
   const md5        = crypto.createHash('md5').update(fileBuffer).digest('hex');
   const accessCode = printer.api_key || '';
+  const CHUNK_SIZE = 1024 * 1024; // 1 MB — official Elegoo max chunk size
 
-  console.log(`[elegoo2] ${printer.name}: uploading "${filename}" (${(totalBytes / 1048576).toFixed(1)} MB) to http://${printer.ip}/upload`);
+  console.log(`[elegoo2] ${printer.name}: uploading "${filename}" (${(totalBytes / 1048576).toFixed(1)} MB) via chunked PUT to http://${printer.ip}/upload`);
 
-  const headers = {
-    'Content-Type':   'application/octet-stream',
-    'Content-Length': String(totalBytes),
-    'X-File-MD5':     md5,
-    'X-File-Name':    filename,
-  };
-  if (accessCode) headers['X-Token'] = accessCode;
+  // Keep-alive agent: all chunk requests reuse the same TCP connection.
+  // The CC2's embedded HTTP server requires this — it times out (408) on new connections mid-transfer.
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
 
-  await new Promise((resolve, reject) => {
-    let settled = false;
-    const done = (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(deadline);
-      err ? reject(err) : resolve();
-    };
+  try {
+    for (let offset = 0; offset < totalBytes; offset += CHUNK_SIZE) {
+      const end   = Math.min(offset + CHUNK_SIZE, totalBytes) - 1;
+      const chunk = fileBuffer.slice(offset, end + 1);
 
-    // Manual deadline — http.request's timeout option only covers TCP connect phase
-    const deadline = setTimeout(() => {
-      req.destroy();
-      done(new Error('Upload timed out after 5 minutes'));
-    }, 300_000);
+      const headers = {
+        'Content-Type':   'application/octet-stream',
+        'Content-Length': String(chunk.length),
+        'Content-Range':  `bytes ${offset}-${end}/${totalBytes}`,
+        'X-File-Name':    filename,
+        'X-File-MD5':     md5,
+      };
+      if (accessCode) headers['X-Token'] = accessCode;
 
-    const req = http.request(
-      { hostname: printer.ip, port: 80, path: '/upload', method: 'PUT', headers },
-      (res) => {
-        console.log(`[elegoo2] ${printer.name}: upload HTTP ${res.statusCode}`);
-        res.resume();
-        res.statusCode >= 400
-          ? done(new Error(`Upload failed: HTTP ${res.statusCode}`))
-          : done();
+      const body = await new Promise((resolve, reject) => {
+        let settled = false;
+        const done = (err, data) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(deadline);
+          err ? reject(err) : resolve(data);
+        };
+        const deadline = setTimeout(() => {
+          req.destroy();
+          done(new Error('Upload chunk timed out after 3 minutes'));
+        }, 180_000);
+
+        const req = http.request(
+          { hostname: printer.ip, port: 80, path: '/upload', method: 'PUT', headers, agent },
+          (res) => {
+            const parts = [];
+            res.on('data', d => parts.push(d));
+            res.on('end', () => {
+              const text = Buffer.concat(parts).toString();
+              res.statusCode >= 400
+                ? done(new Error(`HTTP ${res.statusCode}: ${text}`))
+                : done(null, text);
+            });
+            res.on('error', done);
+          }
+        );
+        req.on('error', done);
+        req.write(chunk);
+        req.end();
+      });
+
+      // Validate JSON response: printer returns { error_code: 0 } on success
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed.error_code !== 0) {
+          throw new Error(`Chunk at offset ${offset} rejected: error_code=${parsed.error_code}`);
+        }
+      } catch (e) {
+        if (e.message.includes('error_code')) throw e;
+        // Non-JSON but HTTP 2xx — log and continue
+        if (body) console.warn(`[elegoo2] ${printer.name}: non-JSON chunk response: ${body}`);
       }
-    );
-    req.on('error', (err) => done(err));
 
-    // Stream file body to avoid writing 72 MB all at once
-    const readStream = fs.createReadStream(gcodeFullPath);
-    readStream.on('error', (err) => done(err));
-    readStream.on('end',   ()    => console.log(`[elegoo2] ${printer.name}: upload body sent, awaiting response`));
-    readStream.pipe(req);
-  });
+      const pct = Math.round((end + 1) / totalBytes * 100);
+      if (pct % 25 === 0 || end + 1 === totalBytes) {
+        console.log(`[elegoo2] ${printer.name}: upload ${pct}% (${((end + 1) / 1048576).toFixed(0)} MB / ${(totalBytes / 1048576).toFixed(1)} MB)`);
+      }
+
+      if (end + 1 < totalBytes) await new Promise(r => setTimeout(r, 1));
+    }
+  } finally {
+    agent.destroy();
+  }
 
   console.log(`[elegoo2] ${printer.name}: upload complete — starting print`);
 
