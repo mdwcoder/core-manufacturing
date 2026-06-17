@@ -394,6 +394,35 @@ export default function Fleet() {
 
   async function decommission(printerId) {
     const printer = printers.find(p => p.id === printerId);
+
+    if (!printer?.has_active_job) {
+      // No job to resolve — just collect a note and decommission directly
+      const result = await confirm({
+        title: `Decommission ${printer?.name}`,
+        message: 'This machine will be removed from the active fleet and will require a manual recommission before running again.',
+        cancelLabel: 'Cancel',
+        prompt: 'Reason for decommissioning',
+        promptRequired: true,
+        actions: [
+          { label: 'Decommission', value: 'decommission', variant: 'danger' },
+        ],
+      });
+      if (!result) return;
+      const { text: reason } = result;
+      const res = await fetch(`/api/printers/${printerId}/decommission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: reason }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showToast(`Decommission failed: ${body.error || res.status}`, 'error');
+      }
+      fetchPrinters();
+      return;
+    }
+
+    // Printer has an active job — ask operator to resolve it first
     const result = await confirm({
       title: `Decommission ${printer?.name}`,
       message: 'Was the last print successful?\n\nThis machine will be removed from the active fleet and will require a manual recommission before running again.',
