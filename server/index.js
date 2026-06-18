@@ -18,6 +18,7 @@ const PrinterPoller  = require('./poller');
 const JobScheduler   = require('./scheduler');
 const notifications  = require('./notifications');
 const events         = require('./events');
+const backup         = require('./backup');
 
 const printersRouter     = require('./routes/printers')(db);
 const partsRouter        = require('./routes/parts')(db);
@@ -101,6 +102,7 @@ const server = app.listen(PORT, () => {
 
   scheduler.start();
   poller.start();
+  backup.start(db);
 
   // Wait for the first poll to complete before sweeping — ensures DB status reflects
   // live printer state rather than whatever was last persisted before shutdown.

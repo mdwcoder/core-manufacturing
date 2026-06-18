@@ -7,3 +7,4 @@ dist/
 *.csv
 .claude/
 *.docx
+server/data/backups/
