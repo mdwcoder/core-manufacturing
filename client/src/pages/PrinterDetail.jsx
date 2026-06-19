@@ -397,7 +397,7 @@ export default function PrinterDetail() {
                 Loaded Material
                 <select
                   value={detailsDraft.loaded_material}
-                  onChange={e => setDetailsDraft(d => ({ ...d, loaded_material: e.target.value }))}
+                  onChange={e => setDetailsDraft(d => ({ ...d, loaded_material: e.target.value, loaded_color: '' }))}
                   disabled={savingDetails}
                   style={{ ...detailInputStyle, cursor: 'pointer' }}
                 >
@@ -410,11 +410,13 @@ export default function PrinterDetail() {
                 <select
                   value={detailsDraft.loaded_color}
                   onChange={e => setDetailsDraft(d => ({ ...d, loaded_color: e.target.value }))}
-                  disabled={savingDetails}
-                  style={{ ...detailInputStyle, cursor: 'pointer' }}
+                  disabled={savingDetails || !detailsDraft.loaded_material}
+                  style={{ ...detailInputStyle, cursor: detailsDraft.loaded_material ? 'pointer' : 'not-allowed' }}
                 >
                   <option value="">— none —</option>
-                  {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  {filamentColors
+                    .filter(c => c.type_name === detailsDraft.loaded_material)
+                    .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
               </label>
             </div>

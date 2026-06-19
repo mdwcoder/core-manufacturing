@@ -88,7 +88,7 @@ export default function Settings() {
     }
   }
 
-  const [colorForm, setColorForm] = useState({ name: '', hex_color: '' });
+  const [colorForm, setColorForm] = useState({ type_id: '', name: '', hex_color: '' });
   const [colorFormError, setColorFormError] = useState(null);
   const [colorDeleteError, setColorDeleteError] = useState({});
 
@@ -100,13 +100,14 @@ export default function Settings() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          type_id: parseInt(colorForm.type_id, 10),
           name: colorForm.name,
           hex_color: colorForm.hex_color || null,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add color');
-      setColorForm({ name: '', hex_color: '' });
+      setColorForm({ type_id: '', name: '', hex_color: '' });
       fetchModels();
       showToast('Filament color added');
     } catch (err) {
@@ -612,7 +613,7 @@ export default function Settings() {
               <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Loaded Material</label>
               <select
                 value={addForm.loaded_material}
-                onChange={e => setAddForm(p => ({ ...p, loaded_material: e.target.value }))}
+                onChange={e => setAddForm(p => ({ ...p, loaded_material: e.target.value, loaded_color: '' }))}
                 style={inputStyle}
               >
                 <option value="">— none —</option>
@@ -624,10 +625,13 @@ export default function Settings() {
               <select
                 value={addForm.loaded_color}
                 onChange={e => setAddForm(p => ({ ...p, loaded_color: e.target.value }))}
+                disabled={!addForm.loaded_material}
                 style={inputStyle}
               >
                 <option value="">— none —</option>
-                {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                {filamentColors
+                  .filter(c => c.type_name === addForm.loaded_material)
+                  .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
               </select>
             </div>
           </div>
@@ -815,6 +819,7 @@ export default function Settings() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
             <thead>
               <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #334155' }}>
+                <th style={{ padding: '4px 8px' }}>Type</th>
                 <th style={{ padding: '4px 8px' }}>Color</th>
                 <th style={{ padding: '4px 8px' }}>Name</th>
                 <th style={{ padding: '4px 8px' }}></th>
@@ -823,6 +828,7 @@ export default function Settings() {
             <tbody>
               {filamentColors.map(c => (
                 <tr key={c.id} style={{ borderBottom: '1px solid #1a2030' }}>
+                  <td style={{ padding: '6px 8px', color: '#64748b', fontSize: 12 }}>{c.type_name}</td>
                   <td style={{ padding: '6px 8px' }}>
                     <span style={{
                       display: 'inline-block', width: 16, height: 16, borderRadius: '50%',
@@ -854,7 +860,19 @@ export default function Settings() {
         {filamentColors.length === 0 && (
           <p style={{ color: '#475569', fontSize: 13, marginBottom: 12 }}>No colors yet. Add your first below.</p>
         )}
-        <form onSubmit={handleAddColor} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'flex-end' }}>
+        <form onSubmit={handleAddColor} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto', gap: 8, alignItems: 'flex-end' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Type *</label>
+            <select
+              value={colorForm.type_id}
+              onChange={e => setColorForm(p => ({ ...p, type_id: e.target.value }))}
+              required
+              style={inputStyle}
+            >
+              <option value="">Select type…</option>
+              {filamentTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
           <div>
             <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Color name *</label>
             <input

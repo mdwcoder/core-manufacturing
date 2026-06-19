@@ -315,7 +315,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
         {filamentTypes.length > 0 ? (
           <select
             value={requiredMaterial}
-            onChange={e => setRequiredMaterial(e.target.value)}
+            onChange={e => { setRequiredMaterial(e.target.value); setRequiredColor(''); }}
             style={{ ...inputSx, width: 140, fontSize: 12 }}
           >
             <option value="">Any material</option>
@@ -324,14 +324,16 @@ function GcodeUploadPanel({ part, onUploaded }) {
         ) : (
           <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials in library</span>
         )}
-        {filamentColors.length > 0 && (
+        {requiredMaterial && filamentColors.filter(c => c.type_name === requiredMaterial).length > 0 && (
           <select
             value={requiredColor}
             onChange={e => setRequiredColor(e.target.value)}
             style={{ ...inputSx, width: 130, fontSize: 12 }}
           >
             <option value="">Any color</option>
-            {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            {filamentColors
+              .filter(c => c.type_name === requiredMaterial)
+              .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
         )}
         {availableGroups.length > 0 && (
@@ -512,7 +514,7 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
         {filamentTypes.length > 0 ? (
           <select
             value={reqMaterial}
-            onChange={e => setReqMaterial(e.target.value)}
+            onChange={e => { setReqMaterial(e.target.value); setReqColor(''); }}
             style={{ ...inputSx, width: 140, fontSize: 12 }}
           >
             <option value="">Any material</option>
@@ -521,14 +523,16 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
         ) : (
           <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials in library</span>
         )}
-        {filamentColors.length > 0 && (
+        {reqMaterial && filamentColors.filter(c => c.type_name === reqMaterial).length > 0 && (
           <select
             value={reqColor}
             onChange={e => setReqColor(e.target.value)}
             style={{ ...inputSx, width: 130, fontSize: 12 }}
           >
             <option value="">Any color</option>
-            {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            {filamentColors
+              .filter(c => c.type_name === reqMaterial)
+              .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
         )}
         {availableGroups.length > 0 && (

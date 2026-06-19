@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-06-19 — Filament Library: colors are tied to their filament type
+
+Colors now belong to a specific filament type. When a printer's loaded material is set to PLA, only PLA colors appear in the color dropdown. The color picker is disabled until a material type is chosen. Attempting to delete a type that still has colors assigned is blocked with an error.
+
+### Changes
+- `server/db.js`: `filament_colors` rebuilt with `type_id INTEGER NOT NULL` and `UNIQUE(type_id, name)` — existing rows cleared (migration logs a notice). New installs create the table with the correct schema.
+- `server/routes/filaments.js`: `POST /api/filaments/colors` now requires `type_id`; `GET /api/filaments/colors` JOINs `filament_types` to include `type_name`; `DELETE /api/filaments/types/:id` blocked with 409 if colors belong to the type.
+- `client/src/pages/Settings.jsx`: color add form requires selecting a type first; color table shows a Type column; add-printer form color picker filters by selected material and resets on material change.
+- `client/src/pages/Printers.jsx`: bulk-edit color select filters by selected material, resets on material change.
+- `client/src/pages/PrinterDetail.jsx`: same filter + reset; color select disabled when no material selected.
+- `client/src/pages/Projects.jsx`: both `GcodeUploadPanel` and `GcodeEstimateRow` filter color options by selected material and reset color on material change. Color picker hidden entirely if no colors exist for the selected material.
+
+---
+
 ## 2026-06-19 — Filament Library: admin-managed types and colors
 
 ### Feature: canonical filament type and color lists with swatch support

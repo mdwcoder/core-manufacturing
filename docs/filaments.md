@@ -16,7 +16,8 @@ Administrator-managed canonical lists of filament types and filament colors. The
 | Column      | Type    | Notes |
 |-------------|---------|-------|
 | `id`        | INTEGER | PK, autoincrement |
-| `name`      | TEXT    | Unique, e.g. "Black", "Galaxy Red", "Hedgehog Make Galaxy Red" |
+| `type_id`   | INTEGER | FK → `filament_types.id` (NOT NULL). A color belongs to exactly one type. |
+| `name`      | TEXT    | Unique per type, e.g. "Black", "Galaxy Red". `UNIQUE(type_id, name)`. |
 | `hex_color` | TEXT    | Optional hex code, e.g. "#FF0000". Shown as a color swatch in the Settings table. |
 
 ## API Endpoints — `server/routes/filaments.js`
@@ -48,9 +49,9 @@ Returns all filament colors ordered by name.
 
 ### `POST /api/filaments/colors`
 Add a new filament color.
-- Body: `{ "name": "Galaxy Red", "hex_color": "#C0392B" }` — `hex_color` is optional.
-- Returns: the created row (201)
-- Errors: 400 if name missing, 409 if name already exists
+- Body: `{ "type_id": 1, "name": "Galaxy Red", "hex_color": "#C0392B" }` — `hex_color` is optional; `type_id` is required.
+- Returns: the created row with `type_name` included (201)
+- Errors: 400 if name or type_id missing / type not found, 409 if name already exists for that type
 
 ### `DELETE /api/filaments/colors/:id`
 Remove a filament color by ID. Same non-blocking behavior as type deletion.

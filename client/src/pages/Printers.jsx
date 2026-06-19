@@ -280,7 +280,7 @@ export default function Printers() {
           <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>Set:</span>
           <select
             value={bulkMaterial}
-            onChange={e => setBulkMaterial(e.target.value)}
+            onChange={e => { setBulkMaterial(e.target.value); setBulkColor(''); }}
             style={bulkInputSx}
           >
             <option value="">Material…</option>
@@ -289,10 +289,13 @@ export default function Printers() {
           <select
             value={bulkColor}
             onChange={e => setBulkColor(e.target.value)}
+            disabled={!bulkMaterial}
             style={bulkInputSx}
           >
             <option value="">Color…</option>
-            {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            {filamentColors
+              .filter(c => c.type_name === bulkMaterial)
+              .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
           <button
             onClick={applyBulk}

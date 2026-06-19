@@ -158,9 +158,32 @@ try {
 try {
   db.exec(`CREATE TABLE IF NOT EXISTS filament_colors (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    name      TEXT NOT NULL UNIQUE,
-    hex_color TEXT
+    type_id   INTEGER NOT NULL REFERENCES filament_types(id),
+    name      TEXT NOT NULL,
+    hex_color TEXT,
+    UNIQUE(type_id, name)
   )`);
+} catch (_) {}
+
+// Add type_id to filament_colors if missing (existing installs that predate this column)
+try {
+  const hasTypeId = db.prepare("PRAGMA table_info(filament_colors)").all().some(c => c.name === 'type_id');
+  if (!hasTypeId) {
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE filament_colors_new (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        type_id   INTEGER NOT NULL REFERENCES filament_types(id),
+        name      TEXT NOT NULL,
+        hex_color TEXT,
+        UNIQUE(type_id, name)
+      );
+      DROP TABLE filament_colors;
+      ALTER TABLE filament_colors_new RENAME TO filament_colors;
+      PRAGMA foreign_keys = ON;
+    `);
+    console.log('[db] Migrated filament_colors — added type_id (existing colors cleared)');
+  }
 } catch (_) {}
 
 // Settings table — key/value store for operator-configurable options
