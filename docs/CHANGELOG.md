@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-06-19 — Project-level filament defaults
+
+Projects now have optional `required_material` and `required_color` fields. When set, they apply to every gcode in the project without having to set them per-gcode. Individual gcodes can still override with their own values — the scheduler uses `COALESCE(gcode, project)`, so gcode-level wins when explicitly set.
+
+In the project detail view, a Filament row sits below the title/status bar with material and color selects that auto-save on change. The gcode targeting selects in upload and edit rows show "— project: PLA —" as the first option when a project default is active, making the inheritance clear. The color dropdown filters to the effective material (gcode value or project fallback). Filament types and colors are now fetched once at the Projects page level and passed as props rather than fetched per gcode row.
+
+### Changes
+- `server/db.js`: `ALTER TABLE projects ADD COLUMN required_material TEXT` and `required_color TEXT`.
+- `server/routes/projects.js`: `PUT /api/projects/:id/filament` — dedicated endpoint that explicitly supports clearing to NULL (empty string → NULL).
+- `server/scheduler.js`: gcode dispatch query uses `COALESCE(gcodes.required_material, projects.required_material)` and same for color.
+- `client/src/pages/Projects.jsx`: filamentTypes/filamentColors fetched once in the Projects component and passed via props; project filament selects added to detail header; `GcodeUploadPanel` and `GcodeEstimateRow` accept filament and project props instead of fetching independently; targeting dropdowns show project default hint and filter colors by effective material.
+
+---
+
 ## 2026-06-19 — Filament Library: colors are tied to their filament type
 
 Colors now belong to a specific filament type. When a printer's loaded material is set to PLA, only PLA colors appear in the color dropdown. The color picker is disabled until a material type is chosen. Attempting to delete a type that still has colors assigned is blocked with an error.

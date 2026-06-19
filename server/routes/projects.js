@@ -47,6 +47,18 @@ module.exports = (db, scheduler = null) => {
     res.json({ success: true });
   });
 
+  // Set project-level filament defaults — explicitly nullable (empty string → NULL)
+  router.put('/:id/filament', (req, res) => {
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const mat = req.body?.required_material?.trim() || null;
+    const col = req.body?.required_color?.trim()    || null;
+    db.prepare(`
+      UPDATE projects SET required_material = ?, required_color = ?, updated_at = ? WHERE id = ?
+    `).run(mat, col, Date.now(), project.id);
+    res.json(db.prepare('SELECT * FROM projects WHERE id = ?').get(project.id));
+  });
+
   router.put('/:id', (req, res) => {
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });

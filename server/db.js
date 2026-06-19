@@ -105,6 +105,8 @@ try { db.exec('ALTER TABLE printers ADD COLUMN loaded_color TEXT'); } catch (_) 
 try { db.exec('ALTER TABLE gcodes ADD COLUMN allowed_groups TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE gcodes ADD COLUMN required_material TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE gcodes ADD COLUMN required_color TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE projects ADD COLUMN required_material TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE projects ADD COLUMN required_color TEXT'); } catch (_) {}
 
 // Printer models — source of truth for which models this farm supports.
 // New installs start empty; operator adds models in Settings.

@@ -265,8 +265,8 @@ class JobScheduler extends EventEmitter {
           AND (gcodes.allowed_groups IS NULL OR EXISTS (
             SELECT 1 FROM json_each(gcodes.allowed_groups) WHERE value = ?
           ))
-          AND (gcodes.required_material IS NULL OR gcodes.required_material = ?)
-          AND (gcodes.required_color IS NULL OR gcodes.required_color = ?)
+          AND (COALESCE(gcodes.required_material, projects.required_material) IS NULL OR COALESCE(gcodes.required_material, projects.required_material) = ?)
+          AND (COALESCE(gcodes.required_color, projects.required_color) IS NULL OR COALESCE(gcodes.required_color, projects.required_color) = ?)
           ${excludeClause}
         ORDER BY projects.priority ASC, projects.created_at ASC, parts.sort_order ASC, parts.created_at ASC
         LIMIT 1

@@ -136,7 +136,7 @@ const inputSx = {
   outline: 'none',
 };
 
-function GcodeUploadPanel({ part, onUploaded }) {
+function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, projectMaterial, projectColor }) {
   const [file, setFile]             = useState(null);
   const [partsPerPlate, setPPP]     = useState('');
   const [model, setModel]           = useState('');
@@ -148,15 +148,11 @@ function GcodeUploadPanel({ part, onUploaded }) {
   const [amsSlot, setAmsSlot]       = useState('');
   const [availableGroups, setAvailableGroups] = useState([]);
   const [selectedGroups, setSelectedGroups]   = useState([]);  // [] = all groups
-  const [filamentTypes, setFilamentTypes]   = useState([]);
-  const [filamentColors, setFilamentColors] = useState([]);
   const [requiredMaterial, setRequiredMaterial] = useState('');
   const [requiredColor, setRequiredColor]       = useState('');
 
   useEffect(() => {
     fetch('/api/models').then(r => r.json()).then(setModelOptions).catch(() => {});
-    fetch('/api/filaments/types').then(r => r.json()).then(setFilamentTypes).catch(() => {});
-    fetch('/api/filaments/colors').then(r => r.json()).then(setFilamentColors).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -316,26 +312,29 @@ function GcodeUploadPanel({ part, onUploaded }) {
           <select
             value={requiredMaterial}
             onChange={e => { setRequiredMaterial(e.target.value); setRequiredColor(''); }}
-            style={{ ...inputSx, width: 140, fontSize: 12 }}
+            style={{ ...inputSx, width: 160, fontSize: 12 }}
           >
-            <option value="">Any material</option>
+            <option value="">{projectMaterial ? `— project: ${projectMaterial} —` : '— any material —'}</option>
             {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
           </select>
         ) : (
           <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials in library</span>
         )}
-        {requiredMaterial && filamentColors.filter(c => c.type_name === requiredMaterial).length > 0 && (
-          <select
-            value={requiredColor}
-            onChange={e => setRequiredColor(e.target.value)}
-            style={{ ...inputSx, width: 130, fontSize: 12 }}
-          >
-            <option value="">Any color</option>
-            {filamentColors
-              .filter(c => c.type_name === requiredMaterial)
-              .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-          </select>
-        )}
+        {(() => {
+          const effectiveMat = requiredMaterial || projectMaterial;
+          const colorOptions = filamentColors.filter(c => c.type_name === effectiveMat);
+          if (!effectiveMat || colorOptions.length === 0) return null;
+          return (
+            <select
+              value={requiredColor}
+              onChange={e => setRequiredColor(e.target.value)}
+              style={{ ...inputSx, width: 160, fontSize: 12 }}
+            >
+              <option value="">{projectColor ? `— project: ${projectColor} —` : '— any color —'}</option>
+              {colorOptions.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          );
+        })()}
         {availableGroups.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: '#475569' }}>Groups:</span>
@@ -360,7 +359,7 @@ function GcodeUploadPanel({ part, onUploaded }) {
   );
 }
 
-function GcodeEstimateRow({ gc, onDelete, onSaved }) {
+function GcodeEstimateRow({ gc, onDelete, onSaved, filamentTypes, filamentColors, projectMaterial, projectColor }) {
   const [timeDraft, setTimeDraft]         = useState(formatDurationForInput(gc.est_print_secs));
   const [materialDraft, setMaterialDraft] = useState(formatMaterialForInput(gc.material_grams));
   const [parsing, setParsing]             = useState(false);
@@ -370,8 +369,6 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
   const [selectedGroups, setSelectedGroups]   = useState(() => {
     try { return gc.allowed_groups ? JSON.parse(gc.allowed_groups) : []; } catch (_) { return []; }
   });
-  const [filamentTypes, setFilamentTypes]   = useState([]);
-  const [filamentColors, setFilamentColors] = useState([]);
   const [reqMaterial, setReqMaterial] = useState(gc.required_material || '');
   const [reqColor, setReqColor]       = useState(gc.required_color || '');
 
@@ -386,8 +383,6 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
   useEffect(() => {
     fetch(`/api/printers/groups?model=${encodeURIComponent(gc.printer_model)}`)
       .then(r => r.json()).then(setAvailableGroups).catch(() => {});
-    fetch('/api/filaments/types').then(r => r.json()).then(setFilamentTypes).catch(() => {});
-    fetch('/api/filaments/colors').then(r => r.json()).then(setFilamentColors).catch(() => {});
   }, [gc.printer_model]);
 
   function toggleGroup(g) {
@@ -515,26 +510,29 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
           <select
             value={reqMaterial}
             onChange={e => { setReqMaterial(e.target.value); setReqColor(''); }}
-            style={{ ...inputSx, width: 140, fontSize: 12 }}
+            style={{ ...inputSx, width: 160, fontSize: 12 }}
           >
-            <option value="">Any material</option>
+            <option value="">{projectMaterial ? `— project: ${projectMaterial} —` : '— any material —'}</option>
             {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
           </select>
         ) : (
           <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials in library</span>
         )}
-        {reqMaterial && filamentColors.filter(c => c.type_name === reqMaterial).length > 0 && (
-          <select
-            value={reqColor}
-            onChange={e => setReqColor(e.target.value)}
-            style={{ ...inputSx, width: 130, fontSize: 12 }}
-          >
-            <option value="">Any color</option>
-            {filamentColors
-              .filter(c => c.type_name === reqMaterial)
-              .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-          </select>
-        )}
+        {(() => {
+          const effectiveMat = reqMaterial || projectMaterial;
+          const colorOptions = filamentColors.filter(c => c.type_name === effectiveMat);
+          if (!effectiveMat || colorOptions.length === 0) return null;
+          return (
+            <select
+              value={reqColor}
+              onChange={e => setReqColor(e.target.value)}
+              style={{ ...inputSx, width: 160, fontSize: 12 }}
+            >
+              <option value="">{projectColor ? `— project: ${projectColor} —` : '— any color —'}</option>
+              {colorOptions.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          );
+        })()}
         {availableGroups.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: '#475569' }}>Groups:</span>
@@ -559,7 +557,7 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
   );
 }
 
-function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm }) {
+function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm, filamentTypes, filamentColors, projectMaterial, projectColor }) {
   const [have, setHave] = useState(String(part.completed_qty));
   const [need, setNeed] = useState(String(part.target_qty));
   const [saving, setSaving] = useState(false);
@@ -730,6 +728,10 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm }) {
               gc={gc}
               onDelete={() => deleteGcode(gc.id)}
               onSaved={onSaved}
+              filamentTypes={filamentTypes}
+              filamentColors={filamentColors}
+              projectMaterial={projectMaterial}
+              projectColor={projectColor}
             />
           ))}
         </div>
@@ -738,7 +740,14 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm }) {
       {/* Upload */}
       <div>
         <div style={sectionLabel}>Upload G-code</div>
-        <GcodeUploadPanel part={part} onUploaded={onRefresh} />
+        <GcodeUploadPanel
+          part={part}
+          onUploaded={onRefresh}
+          filamentTypes={filamentTypes}
+          filamentColors={filamentColors}
+          projectMaterial={projectMaterial}
+          projectColor={projectColor}
+        />
       </div>
     </div>
   );
@@ -779,6 +788,15 @@ export default function Projects() {
   const [dupModal,      setDupModal]      = useState(null); // null | { id }
   const [dupName,       setDupName]       = useState('');
   const [duplicating,   setDuplicating]   = useState(false);
+
+  // Filament library — fetched once here, passed down to avoid per-gcode-row fetches
+  const [filamentTypes,  setFilamentTypes]  = useState([]);
+  const [filamentColors, setFilamentColors] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/filaments/types').then(r => r.json()).then(setFilamentTypes).catch(() => {});
+    fetch('/api/filaments/colors').then(r => r.json()).then(setFilamentColors).catch(() => {});
+  }, []);
 
   // Drag-and-drop reorder state
   const [projectDragSrc,  setProjectDragSrc]  = useState(null);
@@ -1043,6 +1061,15 @@ export default function Projects() {
     setOpenPanels(new Set());
   }
 
+  async function saveProjectFilament(material, color) {
+    await fetch(`/api/projects/${detailProject.id}/filament`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ required_material: material, required_color: color }),
+    });
+    await fetchDetail(detailProject.id);
+  }
+
   async function saveProjectName() {
     if (renameEscapedRef.current) { renameEscapedRef.current = false; return; }
     const trimmed = projectNameDraft.trim();
@@ -1297,6 +1324,40 @@ export default function Projects() {
         <StatusDropdown project={detailProject} onTransition={handleStatusTransition} />
       </div>
 
+      {/* Project-level filament defaults */}
+      {filamentTypes.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: '#64748b', flexShrink: 0 }}>Filament:</span>
+          <select
+            value={detailProject.required_material || ''}
+            onChange={e => {
+              const mat = e.target.value;
+              saveProjectFilament(mat, '');
+            }}
+            style={{ ...inputSx, fontSize: 12, width: 160 }}
+          >
+            <option value="">— any material —</option>
+            {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+          </select>
+          <select
+            value={detailProject.required_color || ''}
+            onChange={e => saveProjectFilament(detailProject.required_material, e.target.value)}
+            disabled={!detailProject.required_material}
+            style={{ ...inputSx, fontSize: 12, width: 160 }}
+          >
+            <option value="">— any color —</option>
+            {filamentColors
+              .filter(c => c.type_name === detailProject.required_material)
+              .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+          </select>
+          {(detailProject.required_material || detailProject.required_color) && (
+            <span style={{ fontSize: 11, color: '#475569', fontStyle: 'italic' }}>
+              applies to all gcodes in this project unless overridden per-gcode
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Parts */}
       <h2 style={{ fontSize: 14, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
         Parts
@@ -1431,6 +1492,10 @@ export default function Projects() {
                 onRefresh={() => fetchDetail(selectedId)}
                 onSaved={showToast}
                 onConfirm={confirm}
+                filamentTypes={filamentTypes}
+                filamentColors={filamentColors}
+                projectMaterial={detailProject.required_material || ''}
+                projectColor={detailProject.required_color || ''}
               />
             )}
           </div>
