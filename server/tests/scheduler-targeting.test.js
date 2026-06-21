@@ -65,7 +65,8 @@ function makeDb({ printerGroup = null, printerMaterial = null, printerColor = nu
     CREATE TABLE projects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL, status TEXT DEFAULT 'active',
-      priority INTEGER DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      priority INTEGER DEFAULT 0, required_material TEXT, required_color TEXT,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     );
     CREATE TABLE parts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

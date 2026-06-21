@@ -7,6 +7,13 @@ const events = require('./events');
 
 const GCODE_DIR = path.join(__dirname, 'gcode');
 
+// A job we just dispatched looks identical to a stale orphaned job: the job is
+// 'printing'/'uploading' but the printer's stored status is still its last polled
+// value (IDLE/FINISHED) because the next poll hasn't run yet. Don't treat an active
+// job younger than this as stale — give the printer time to be re-polled as PRINTING.
+// Comfortably exceeds the 15s poll interval plus typical print-start (bed-heating) latency.
+const STALE_JOB_GRACE_MS = 90000;
+
 class JobScheduler extends EventEmitter {
   constructor(db, poller) {
     super();
@@ -189,14 +196,23 @@ class JobScheduler extends EventEmitter {
     // printer stopped the job on its own). Hold the printer so the operator can confirm
     // the outcome rather than leaving it permanently locked out of dispatch.
     const activeJob = this.db.prepare(
-      "SELECT id, status FROM jobs WHERE printer_id = ? AND status IN ('uploading', 'printing') LIMIT 1"
+      "SELECT id, status, created_at, started_at FROM jobs WHERE printer_id = ? AND status IN ('uploading', 'printing') LIMIT 1"
     ).get(printer.id);
     if (activeJob) {
       // A 'printing' job is only legitimate while the printer is actively printing or
-      // paused. Any other status (IDLE, STOPPED, FINISHED, ERROR, etc.) means the job
-      // is stale — the print ended outside our view. Auto-fail it so the operator can
+      // paused. Any other status (IDLE, STOPPED, FINISHED, ERROR, etc.) usually means the
+      // job is stale — the print ended outside our view. Auto-fail it so the operator can
       // use the normal green/red Fleet UI without a special resolution flow.
-      if (fresh.status !== 'PRINTING' && fresh.status !== 'PAUSED') {
+      //
+      // EXCEPT when the job was dispatched moments ago: a freshly dispatched job is
+      // 'printing'/'uploading' while the printer's stored status still reads IDLE/FINISHED
+      // until the next poll catches up. Without this grace window, a second dispatch firing
+      // in that gap auto-fails the job it just created and re-holds the printer. This is
+      // exactly the recommission case — recommission queues a dispatch, and a near-simultaneous
+      // "scan for jobs" enqueues the same printer again before it has been re-polled as PRINTING.
+      const jobAge = Date.now() - (activeJob.started_at ?? activeJob.created_at);
+      const isStaleEligible = fresh.status !== 'PRINTING' && fresh.status !== 'PAUSED';
+      if (isStaleEligible && jobAge > STALE_JOB_GRACE_MS) {
         this.db.prepare("UPDATE jobs SET status = 'failed', finished_at = ? WHERE id = ?")
           .run(Date.now(), activeJob.id);
         this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
@@ -204,6 +220,8 @@ class JobScheduler extends EventEmitter {
           `${printer.name}: stale job ${activeJob.id} automatically cancelled — printer held. Use Fleet to resume when ready.`
         );
         console.warn(`[scheduler] ${printer.name} stale job ${activeJob.id} auto-failed — printer is ${fresh.status}, held for operator review`);
+      } else if (isStaleEligible) {
+        console.log(`[scheduler] ${printer.name} has a freshly dispatched job ${activeJob.id} (${Math.round(jobAge / 1000)}s old, printer ${fresh.status}) — skipping duplicate dispatch, not yet stale`);
       } else {
         console.log(`[scheduler] ${printer.name} already has an active job — skipping duplicate dispatch`);
       }

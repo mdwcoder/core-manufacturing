@@ -140,7 +140,9 @@ Returns the updated printer object.
 
 ### `POST /api/printers/:id/recommission`
 
-Returns a decommissioned printer to active duty (`is_active = 1`). Returns the updated printer object.
+Returns a decommissioned printer to active duty (`is_active = 1`, `is_held = 0`, clears `decommissioned_at`/`decommission_note`), logs a `recommission` event, and immediately dispatches the next eligible job via `scheduler.scheduleForPrinter`. Returns the updated printer object.
+
+The dispatched job is marked `printing` before the next poll has updated the printer's stored status, so it briefly looks like an orphaned job on an `IDLE`/`FINISHED` printer. The scheduler's stale-job auto-fail only fires on jobs older than `STALE_JOB_GRACE_MS` (90s), so a freshly recommissioned-and-dispatched printer is not wrongly re-held if another dispatch (e.g. "Scan for Jobs") runs before the printer is re-polled as `PRINTING`.
 
 ### `POST /api/printers/:id/mark-job-failure`
 

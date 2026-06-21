@@ -67,7 +67,8 @@ function makeDb(gcodeFilepath) {
     CREATE TABLE projects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL, status TEXT DEFAULT 'active',
-      priority INTEGER DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      priority INTEGER DEFAULT 0, required_material TEXT, required_color TEXT,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     );
     CREATE TABLE parts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -364,5 +365,63 @@ describe('_dispatchToPrinter — upload lock', () => {
     // However, the printer now has an active 'printing' job, so the double-dispatch
     // guard will prevent a second job — this just confirms the lock is cleared.
     expect(scheduler._activeUploads.has(fakePrinter.id)).toBe(false);
+  });
+});
+
+// ─── Stale-job grace window ─────────────────────────────────────────────────────
+// A job dispatched moments ago is 'printing' while the printer's stored status still
+// reads IDLE/FINISHED until the next poll. The stale-job auto-fail must not fire on
+// such a fresh job — otherwise a second dispatch (e.g. recommission + "scan for jobs"
+// enqueueing the same printer twice) kills the job it just created and re-holds the printer.
+
+describe('_dispatchToPrinter — stale-job grace window', () => {
+  test('does NOT auto-fail a freshly dispatched job when the printer status has not yet caught up', async () => {
+    const filename = `fresh_${Date.now()}.bgcode`;
+    createTestFile(filename);
+    const db = makeDb(filename);
+    const scheduler = new JobScheduler(db, { on: () => {} });
+
+    // Printer is IDLE in the DB (last poll), but a job was just dispatched and is 'printing'.
+    db.prepare("UPDATE printers SET status = 'IDLE', is_held = 0 WHERE id = 1").run();
+    const now = Date.now();
+    const { lastInsertRowid: jobId } = db.prepare(`
+      INSERT INTO jobs (part_id, printer_id, gcode_id, parts_per_plate, status, started_at, created_at)
+      VALUES (1, 1, 1, 2, 'printing', ?, ?)
+    `).run(now, now);
+
+    const result = await scheduler._dispatchToPrinter(fakePrinter);
+
+    expect(result).toBeNull();
+    // The fresh job must be left intact — not auto-failed
+    const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(jobId);
+    expect(job.status).toBe('printing');
+    // Printer must NOT be re-held
+    const printer = db.prepare('SELECT is_held FROM printers WHERE id = 1').get();
+    expect(printer.is_held).toBe(0);
+    expect(notifications.add).not.toHaveBeenCalled();
+  });
+
+  test('auto-fails and holds when the active job is genuinely stale (older than the grace window)', async () => {
+    const filename = `stale_${Date.now()}.bgcode`;
+    createTestFile(filename);
+    const db = makeDb(filename);
+    const scheduler = new JobScheduler(db, { on: () => {} });
+
+    db.prepare("UPDATE printers SET status = 'IDLE', is_held = 0 WHERE id = 1").run();
+    const old = Date.now() - 10 * 60 * 1000; // 10 minutes ago — well past the grace window
+    const { lastInsertRowid: jobId } = db.prepare(`
+      INSERT INTO jobs (part_id, printer_id, gcode_id, parts_per_plate, status, started_at, created_at)
+      VALUES (1, 1, 1, 2, 'printing', ?, ?)
+    `).run(old, old);
+
+    const result = await scheduler._dispatchToPrinter(fakePrinter);
+
+    expect(result).toBeNull();
+    const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(jobId);
+    expect(job.status).toBe('failed');
+    const printer = db.prepare('SELECT is_held FROM printers WHERE id = 1').get();
+    expect(printer.is_held).toBe(1);
+    expect(notifications.add).toHaveBeenCalledTimes(1);
+    expect(notifications.add.mock.calls[0][0]).toMatch(/stale job/);
   });
 });

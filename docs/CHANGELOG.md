@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-06-20 — Fix: recommission no longer re-holds the printer with a phantom "stale job"
+
+Recommissioning a printer immediately dispatches a job to it. But a just-dispatched job is marked `printing` while the printer's *stored* status still reads `IDLE`/`FINISHED` until the next poll (≤15s, longer if the machine is still heating before it reports `PRINTING`). The stale-job guard in `_dispatchToPrinter` treated any active job on a non-`PRINTING` printer as orphaned and auto-failed it. If a second dispatch fired in that window — e.g. recommission queues a dispatch and the operator then clicks "Scan for Jobs", enqueuing the same printer twice — the second dispatch killed the job the first had just created and re-held the printer, surfacing the green/red confirmation buttons again with a "stale job automatically cancelled" notification.
+
+The stale-job auto-fail is now gated on job age: a job younger than `STALE_JOB_GRACE_MS` (90s) is treated as freshly dispatched and skipped rather than failed. A genuinely orphaned job (missed `FINISHED` transition, print stopped on the machine) has always run for minutes, so it is well past the grace window and still auto-fails as before.
+
+### Changes
+- `server/scheduler.js`: added `STALE_JOB_GRACE_MS` constant; the `_dispatchToPrinter` stale-job guard now computes job age from `started_at ?? created_at` and only auto-fails when the job is older than the grace window.
+- `server/tests/scheduler-file.test.js`: new `stale-job grace window` describe block — asserts a fresh job is left intact and the printer stays unheld, and that a >grace-old job still auto-fails and holds.
+
+### Also fixed: scheduler test fixtures broken by the 2026-06-19 filament-defaults change
+The 2026-06-19 change made the dispatch candidate query reference `projects.required_material`/`projects.required_color` (via `COALESCE`) but did not update the in-memory `projects` tables in the scheduler test fixtures. Any test reaching the candidate query threw `no such column: projects.required_material` — surfacing as 16 failures in `scheduler-targeting.test.js`, and as a hard Node crash in `scheduler-file.test.js` (the upload-lock test's un-awaited dispatch promise rejected with that error → unhandled rejection).
+- `server/tests/scheduler-targeting.test.js`, `server/tests/scheduler-file.test.js`: added `required_material TEXT, required_color TEXT` to the `projects` fixture. Full suite now passes (339 tests, 22 suites).
+
+---
+
 ## 2026-06-19 — Project-level filament defaults
 
 Projects now have optional `required_material` and `required_color` fields. When set, they apply to every gcode in the project without having to set them per-gcode. Individual gcodes can still override with their own values — the scheduler uses `COALESCE(gcode, project)`, so gcode-level wins when explicitly set.
