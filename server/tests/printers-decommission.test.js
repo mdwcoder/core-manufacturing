@@ -304,3 +304,96 @@ describe('POST /api/printers/:id/decommission', () => {
     expect(ids).toContain(printerId);
   });
 });
+
+// ── POST /api/printers/:id/complete-and-decommission ──────────────────────────
+
+describe('POST /api/printers/:id/complete-and-decommission', () => {
+  test('returns 404 for unknown printer id', async () => {
+    const res = await request(app).post('/api/printers/99999/complete-and-decommission');
+    expect(res.status).toBe(404);
+  });
+
+  test('normal finished job: decommissions, clears hold, leaves credit untouched', async () => {
+    const projectId = seedProject();
+    const partId    = seedPart(projectId, 10, 4); // 4 already credited at finish
+    const gcodeId   = seedGcode(partId);
+    const printerId = seedPrinter({ name: `Printer_cad_normal_${Date.now()}` });
+    seedJob(printerId, partId, gcodeId, 'finished', 4);
+
+    const res = await request(app).post(`/api/printers/${printerId}/complete-and-decommission`)
+      .send({ note: 'swap filament' });
+    expect(res.status).toBe(200);
+
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(printerId);
+    expect(printer.is_active).toBe(0);
+    expect(printer.is_held).toBe(0);
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(4); // unchanged
+  });
+
+  test('partial good count on a finished job applies the delta against the booked plate', async () => {
+    // _handleFinished credited the full plate (4). Operator reports 3 good of 4.
+    const projectId = seedProject();
+    const partId    = seedPart(projectId, 10, 4);
+    const gcodeId   = seedGcode(partId);
+    const printerId = seedPrinter({ name: `Printer_cad_partial_${Date.now()}` });
+    seedJob(printerId, partId, gcodeId, 'finished', 4);
+
+    const res = await request(app).post(`/api/printers/${printerId}/complete-and-decommission`)
+      .send({ note: 'one warped', confirmed_qty: 3 });
+    expect(res.status).toBe(200);
+
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(3); // 4 + (3 - 4)
+    const printer = db.prepare('SELECT is_active FROM printers WHERE id = ?').get(printerId);
+    expect(printer.is_active).toBe(0);
+  });
+
+  test('reduced count reopens a closed part and reactivates its completed project', async () => {
+    const projectId = seedProject();
+    const partId    = seedPart(projectId, 4, 4); // exactly at target
+    db.prepare("UPDATE parts SET status = 'closed' WHERE id = ?").run(partId);
+    db.prepare("UPDATE projects SET status = 'completed' WHERE id = ?").run(projectId);
+    const gcodeId   = seedGcode(partId);
+    const printerId = seedPrinter({ name: `Printer_cad_reopen_${Date.now()}` });
+    seedJob(printerId, partId, gcodeId, 'finished', 4);
+
+    await request(app).post(`/api/printers/${printerId}/complete-and-decommission`)
+      .send({ confirmed_qty: 3 });
+
+    const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(3);
+    expect(part.status).toBe('open');
+    const project = db.prepare('SELECT status FROM projects WHERE id = ?').get(projectId);
+    expect(project.status).toBe('active');
+  });
+
+  test('missed-finish (printing job) credits the confirmed count and marks the job finished', async () => {
+    const projectId = seedProject();
+    const partId    = seedPart(projectId, 10, 0);
+    const gcodeId   = seedGcode(partId);
+    const printerId = seedPrinter({ name: `Printer_cad_missed_${Date.now()}`, status: 'IDLE' });
+    const jobId     = seedJob(printerId, partId, gcodeId, 'printing', 4);
+
+    await request(app).post(`/api/printers/${printerId}/complete-and-decommission`)
+      .send({ confirmed_qty: 3 });
+
+    const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(jobId);
+    expect(job.status).toBe('finished');
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(3); // partial plate credited
+  });
+
+  test('missed-finish with no confirmed_qty credits the full plate', async () => {
+    const projectId = seedProject();
+    const partId    = seedPart(projectId, 10, 0);
+    const gcodeId   = seedGcode(partId);
+    const printerId = seedPrinter({ name: `Printer_cad_missedfull_${Date.now()}`, status: 'IDLE' });
+    seedJob(printerId, partId, gcodeId, 'printing', 4);
+
+    await request(app).post(`/api/printers/${printerId}/complete-and-decommission`).send({});
+
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(4);
+  });
+});

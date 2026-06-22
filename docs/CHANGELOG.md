@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-06-22 — Fix: decommissioning a FINISHED printer now resolves its pending sign-off
+
+When a printer finished a print and was held showing the green/red "Set Ready / Bad Print" buttons, clicking **Decommission** only asked for a reason and took the machine offline via the plain `/decommission` endpoint — it never resolved the pending confirmation and left `is_held = 1`. The cause: the decommission flow gated the "Was the last print successful?" dialog on `has_active_job`, which is false for a normally-finished printer (its job is already in `finished` status, not `uploading`/`printing`).
+
+The gate now also considers `is_held`: a held printer is awaiting sign-off, so decommissioning it opens the success/failure dialog. *Succeeded* → `complete-and-decommission` (parts stay credited, hold cleared, machine offline); *failed* → `mark-job-failure` (credit undone). This is the common "good print, take the machine offline to swap filament" path.
+
+The *succeeded* path also honors the partial-plate `Good: N / M` count. Previously that input only fed Set Ready (which re-queues the printer), so there was no way to credit a partial plate *and* take the machine offline — the only alternatives were re-queueing it or losing the adjustment. Now the count flows through as `confirmed_qty`, applied exactly like Set Ready (a delta against the full plate already booked at finish, or the credited amount on a missed-finish), with the machine decommissioned instead of re-queued. A reduced count that drops a part below target reopens the part (and reactivates a just-completed project) so it re-enters the queue.
+
+### Changes
+- `client/src/pages/Fleet.jsx`: `decommission()` computes `awaitingSignoff = has_active_job || is_held === 1` and routes held-for-sign-off printers through the resolution dialog; the card's Decommission button and `decommission()` now forward the `Good: N/M` count as `confirmed_qty` on the success path.
+- `server/routes/printers.js`: `complete-and-decommission` accepts `confirmed_qty` and applies it as a delta (finished job) or credit (missed-finish) via a shared `settlePart` helper that closes/reopens the part and its project. Full-plate behavior is unchanged when no count is supplied.
+- `server/tests/printers-decommission.test.js`: added a `complete-and-decommission` block (6 tests) covering normal finish, partial credit, part/project reopen, and missed-finish with/without a count.
+- `docs/web-app.md`: documented the decommission sign-off resolution and partial-qty behavior.
+
+---
+
 ## 2026-06-20 — Fleet card click opens printer detail
 
 Clicking a printer card in the Fleet page now navigates to that printer's detail view (`/printers/:id`) instead of dumping raw status to the browser console. The old `inspectPrinter()` debug helper (which fetched `/api/printers/:id/raw-status` and `console.group`'d the result) has been removed. The batch-confirmation interaction is unchanged: a card awaiting sign-off (held + `FINISHED`/`IDLE`) still toggles batch "Set Ready" selection on click rather than navigating.

@@ -237,26 +237,28 @@ module.exports = (db) => {
 
   // POST /api/printers/:id/complete-and-decommission — operator confirmed print was good; credit if
   // needed (missed-finish), then take machine offline for maintenance instead of releasing to queue.
+  //
+  // Optional confirmed_qty mirrors the set-ready confirmation: the operator can report fewer good
+  // parts than the full plate (e.g. 24 of 25). The only difference from set-ready is the outcome —
+  // the machine is decommissioned instead of released to take the next job. If the reduced count
+  // drops the part below its target, the part (and its project) reopens and re-enters the queue for
+  // the next available printer.
   router.post('/:id/complete-and-decommission', (req, res) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
 
     const now = Date.now();
+    const { confirmed_qty } = req.body || {};
+    const parsedQty = (confirmed_qty != null && !isNaN(parseInt(confirmed_qty, 10)))
+      ? parseInt(confirmed_qty, 10)
+      : null;
 
-    // Missed-finish case: job still shows 'printing' because the server didn't see the FINISHED
-    // event. Credit qty now, same as set-ready would do before dispatching the next job.
-    const printingJob = db.prepare(`
-      SELECT * FROM jobs WHERE printer_id = ? AND status = 'printing'
-      ORDER BY started_at DESC LIMIT 1
-    `).get(printer.id);
-
-    if (printingJob) {
-      db.prepare(`UPDATE jobs SET status = 'finished', finished_at = ? WHERE id = ?`).run(now, printingJob.id);
-      db.prepare(`UPDATE parts SET completed_qty = completed_qty + ?, updated_at = ? WHERE id = ?`)
-        .run(printingJob.parts_per_plate, now, printingJob.part_id);
-
-      const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(printingJob.part_id);
-      if (part.completed_qty >= part.target_qty) {
+    // Reconcile a part's status with its completed_qty: close (and maybe complete the project) when
+    // the target is met, reopen (and reactivate the project) when a reduced count drops below it.
+    const settlePart = (partId) => {
+      const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(partId);
+      if (!part) return;
+      if (part.completed_qty >= part.target_qty && part.status === 'open') {
         db.prepare(`UPDATE parts SET status = 'closed', updated_at = ? WHERE id = ?`).run(now, part.id);
         db.prepare(`UPDATE jobs SET status = 'cancelled' WHERE part_id = ? AND status = 'queued'`).run(part.id);
         const openCount = db.prepare(
@@ -266,10 +268,46 @@ module.exports = (db) => {
           db.prepare(`UPDATE projects SET status = 'completed', updated_at = ? WHERE id = ?`).run(now, part.project_id);
           console.log(`[printers] Project ${part.project_id} completed`);
         }
+      } else if (part.completed_qty < part.target_qty && part.status === 'closed') {
+        db.prepare(`UPDATE parts SET status = 'open', updated_at = ? WHERE id = ?`).run(now, part.id);
+        const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(part.project_id);
+        if (project && project.status === 'completed') {
+          db.prepare(`UPDATE projects SET status = 'active', updated_at = ? WHERE id = ?`).run(now, project.id);
+          console.log(`[printers] Project ${project.id} reopened — confirmed qty reduced on decommission`);
+        }
       }
-      console.log(`[printers] ${printer.name} missed-finish credited — decommissioning for maintenance`);
+    };
+
+    // Missed-finish case: job still shows 'printing' because the server didn't see the FINISHED
+    // event. Credit qty now, same as set-ready would do before dispatching the next job.
+    const printingJob = db.prepare(`
+      SELECT * FROM jobs WHERE printer_id = ? AND status = 'printing'
+      ORDER BY started_at DESC LIMIT 1
+    `).get(printer.id);
+
+    if (printingJob) {
+      const creditQty = parsedQty != null ? parsedQty : printingJob.parts_per_plate;
+      db.prepare(`UPDATE jobs SET status = 'finished', finished_at = ? WHERE id = ?`).run(now, printingJob.id);
+      db.prepare(`UPDATE parts SET completed_qty = MAX(0, completed_qty + ?), updated_at = ? WHERE id = ?`)
+        .run(creditQty, now, printingJob.part_id);
+      settlePart(printingJob.part_id);
+      console.log(`[printers] ${printer.name} missed-finish credited ${creditQty} — decommissioning for maintenance`);
+    } else if (parsedQty != null) {
+      // Normal case: job already 'finished' and credited the full plate by _handleFinished. If the
+      // operator adjusted the count, apply the delta against what was already booked (same as set-ready).
+      const finishedJob = db.prepare(`
+        SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
+        ORDER BY finished_at DESC LIMIT 1
+      `).get(printer.id);
+      if (finishedJob && parsedQty !== finishedJob.parts_per_plate) {
+        const delta = parsedQty - finishedJob.parts_per_plate; // negative = fewer good parts
+        db.prepare(`UPDATE parts SET completed_qty = MAX(0, completed_qty + ?), updated_at = ? WHERE id = ?`)
+          .run(delta, now, finishedJob.part_id);
+        settlePart(finishedJob.part_id);
+        console.log(`[printers] ${printer.name} confirmed ${parsedQty}/${finishedJob.parts_per_plate} good on decommission (delta ${delta > 0 ? '+' : ''}${delta})`);
+      }
     }
-    // Normal case: job already in 'finished' status was credited by _handleFinished — nothing to undo or re-credit.
+    // Normal case with no qty adjustment: job already 'finished' was credited by _handleFinished — nothing to do.
 
     const decommNote = req.body?.note ?? null;
     db.prepare('UPDATE printers SET is_active = 0, is_held = 0, decommissioned_at = ?, decommission_note = ? WHERE id = ?').run(now, decommNote, printer.id);

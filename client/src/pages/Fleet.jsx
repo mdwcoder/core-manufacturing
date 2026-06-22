@@ -245,7 +245,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
 
       {!isPrinting && (
         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 2 }}>
-          <button onClick={() => onDecommission(printer.id)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 6, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}>
+          <button onClick={() => onDecommission(printer.id, (needsConfirmation && printer.last_parts_per_plate != null) ? parseInt(confirmedQty, 10) : null)} style={{ background: 'none', color: '#475569', border: '1px solid #2d3748', borderRadius: 6, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}>
             Decommission
           </button>
         </div>
@@ -380,11 +380,18 @@ export default function Fleet() {
     fetchPrinters();
   }
 
-  async function decommission(printerId) {
+  async function decommission(printerId, confirmedQty = null) {
     const printer = printers.find(p => p.id === printerId);
 
-    if (!printer?.has_active_job) {
-      // No job to resolve — just collect a note and decommission directly
+    // A held printer has a print outcome pending sign-off (the green/red "Set Ready /
+    // Bad Print" buttons), and a printer with an uploading/printing job has work in
+    // flight. Either way the outcome must be resolved before the machine leaves the
+    // fleet — a normally-FINISHED printer awaiting confirmation has has_active_job=false
+    // (its job is already 'finished'), so the hold is what flags the pending sign-off.
+    const awaitingSignoff = printer?.has_active_job || printer?.is_held === 1;
+
+    if (!awaitingSignoff) {
+      // No outcome to resolve — just collect a note and decommission directly
       const result = await confirm({
         title: `Decommission ${printer?.name}`,
         message: 'This machine will be removed from the active fleet and will require a manual recommission before running again.',
@@ -410,7 +417,7 @@ export default function Fleet() {
       return;
     }
 
-    // Printer has an active job — ask operator to resolve it first
+    // Print outcome pending (active job or held for sign-off) — resolve it first
     const result = await confirm({
       title: `Decommission ${printer?.name}`,
       message: 'Was the last print successful?\n\nThis machine will be removed from the active fleet and will require a manual recommission before running again.',
@@ -439,11 +446,12 @@ export default function Fleet() {
       return;
     }
 
-    // choice === 'success'
+    // choice === 'success' — forward the operator's good-part count (if adjusted) so the
+    // credit matches what Set Ready would have applied, then decommission instead of re-queue.
     const res = await fetch(`/api/printers/${printerId}/complete-and-decommission`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ note: reason }),
+      body: JSON.stringify({ note: reason, confirmed_qty: (confirmedQty != null && !isNaN(confirmedQty)) ? confirmedQty : null }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
