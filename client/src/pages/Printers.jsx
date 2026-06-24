@@ -67,6 +67,7 @@ export default function Printers() {
   const [filamentColors, setFilamentColors] = useState([]);
   const [bulkMaterial, setBulkMaterial] = useState('');
   const [bulkColor, setBulkColor]       = useState('');
+  const [bulkGroup, setBulkGroup]       = useState('');
   const [applying, setApplying]         = useState(false);
 
   const navigate = useNavigate();
@@ -132,16 +133,25 @@ export default function Printers() {
     setSelectedIds(new Set());
     setBulkMaterial('');
     setBulkColor('');
+    setBulkGroup('');
   }
+
+  // Distinct existing group names across all loaded printers — powers the bulk-group autocomplete
+  const existingGroups = useMemo(
+    () => [...new Set(printers.map(p => p.group_name).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [printers]
+  );
 
   async function applyBulk() {
     const mat = bulkMaterial.trim();
     const col = bulkColor.trim();
-    if (!mat && !col) return;
+    const grp = bulkGroup.trim();
+    if (!mat && !col && !grp) return;
     setApplying(true);
     const body = {};
     if (mat) body.loaded_material = mat;
     if (col) body.loaded_color = col;
+    if (grp) body.group_name = grp;
     await Promise.all([...selectedIds].map(id =>
       fetch(`/api/printers/${id}`, {
         method: 'PUT',
@@ -219,7 +229,7 @@ export default function Printers() {
     persistCollapsed(all);
   }
 
-  const canApply = (bulkMaterial.trim() || bulkColor.trim()) && selectedIds.size > 0;
+  const canApply = (bulkMaterial.trim() || bulkColor.trim() || bulkGroup.trim()) && selectedIds.size > 0;
 
   return (
     <div>
@@ -297,6 +307,17 @@ export default function Printers() {
               .filter(c => c.type_name === bulkMaterial)
               .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
+          <input
+            type="text"
+            list="bulk-group-options"
+            value={bulkGroup}
+            onChange={e => setBulkGroup(e.target.value)}
+            placeholder="Group…"
+            style={{ ...bulkInputSx, width: 130 }}
+          />
+          <datalist id="bulk-group-options">
+            {existingGroups.map(g => <option key={g} value={g} />)}
+          </datalist>
           <button
             onClick={applyBulk}
             disabled={!canApply || applying}

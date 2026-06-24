@@ -151,6 +151,8 @@ Searchable directory of every active printer registered in the farm, grouped by 
 
 **Columns within a group:** Name, Group, IP, Status badge. (Model is implied by the group header.)
 
+**Bulk edit:** selecting one or more printers (row checkboxes / select-all) reveals a bulk-edit bar. It can set **Material** and **Color** (dropdowns from the filament library) and **Group** (free-text input with a `<datalist>` autocomplete of existing group names, so you can reuse a group or type a new one). "Apply to selected" loops `PUT /api/printers/:id` for each selected printer; only non-empty fields are sent, so empty fields are left unchanged. Each changed field is recorded as an `info_changed` event on the printer. Common use: funnel small prints to low-spool machines by bulk-assigning them a group, then targeting that group from the G-code's `allowed_groups`.
+
 Click any row to navigate to `/printers/:id` (the Printer Detail view).
 
 ## Printer Detail View

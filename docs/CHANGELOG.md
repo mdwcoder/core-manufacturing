@@ -2,7 +2,15 @@
 
 ---
 
-## 2026-06-22 — Fix: decommissioning a FINISHED printer now resolves its pending sign-off
+## 2026-06-23 — Bulk-assign printer group from the Printers page
+
+The Printers bulk-edit bar can now set **Group** in addition to Material and Color. The group field is a free-text input with a `<datalist>` autocomplete of existing group names (derived from the loaded printers — no extra fetch), so you can reuse a group or type a new one. Use case: park low-spool machines in a dedicated group, then funnel tiny/small prints to them via the G-code's `allowed_groups` targeting.
+
+Client-only — it reuses the existing `PUT /api/printers/:id` (which already accepts `group_name` and logs an `info_changed` event). Only non-empty bulk fields are sent, so empty fields are left unchanged. The single-`group_name` model is unchanged (multi-group was considered and declined).
+
+### Changes
+- `client/src/pages/Printers.jsx`: added `bulkGroup` state, a Group input + `<datalist>` of distinct existing groups, wired into `applyBulk`/`canApply`/`clearSelection`.
+- `docs/web-app.md`: documented the bulk-edit bar including the new Group field.
 
 When a printer finished a print and was held showing the green/red "Set Ready / Bad Print" buttons, clicking **Decommission** only asked for a reason and took the machine offline via the plain `/decommission` endpoint — it never resolved the pending confirmation and left `is_held = 1`. The cause: the decommission flow gated the "Was the last print successful?" dialog on `has_active_job`, which is false for a normally-finished printer (its job is already in `finished` status, not `uploading`/`printing`).
 
