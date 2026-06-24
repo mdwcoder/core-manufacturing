@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 const STATUS_COLORS = {
   IDLE:     { bg: '#1e3a5f', text: '#93c5fd' },
-  PRINTING: { bg: '#14532d', text: '#86efac' },
+  PRINTING: { bg: '#1e3a5f', text: '#60a5fa' },
   FINISHED: { bg: '#14532d', text: '#86efac' },
   PAUSED:   { bg: '#78350f', text: '#fcd34d' },
   ERROR:    { bg: '#7f1d1d', text: '#fca5a5' },
