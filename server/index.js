@@ -176,17 +176,25 @@ const server = app.listen(PORT, () => {
     const { confirmed_qty } = req.body || {};
     const now = Date.now();
 
-    // Check for an uploading job FIRST — it takes priority over a stale 'finished' job
-    // from a previous print cycle. Without this check, a printer that has both a
-    // previous 'finished' job and a current 'uploading' job (failed upload) would take
-    // the normal-confirmation path, skip the uploading job, then have _dispatchToPrinter
-    // find the stale uploading job, auto-fail it, and re-hold the printer — causing a
-    // spurious second "Set Ready or Bad Print" green panel.
+    // Check for an uploading or printing job FIRST — they take priority over a stale
+    // 'finished' job from a previous print cycle. Without this check, a printer that has
+    // both a previous 'finished' job and a current 'uploading'/'printing' job would take
+    // the normal-confirmation path, skip the active job, then have _dispatchToPrinter find
+    // the stale active job, auto-fail it, and re-hold the printer.
+    //
+    // The uploading case was caught earlier; the printing case hits when a printer goes
+    // OFFLINE mid-job (leaving it 'printing'), comes back online, and the operator clicks
+    // Set Ready. The old finished job was from a prior cycle — the printing job is the one
+    // that needs to be credited now.
     const uploadingJobEarly = db.prepare(
       "SELECT * FROM jobs WHERE printer_id = ? AND status = 'uploading' ORDER BY created_at DESC LIMIT 1"
     ).get(printer.id);
 
-    const finishedJob = uploadingJobEarly ? null : db.prepare(`
+    const printingJobEarly = !uploadingJobEarly && db.prepare(
+      "SELECT id FROM jobs WHERE printer_id = ? AND status = 'printing' ORDER BY started_at DESC LIMIT 1"
+    ).get(printer.id);
+
+    const finishedJob = (uploadingJobEarly || printingJobEarly) ? null : db.prepare(`
       SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
       ORDER BY finished_at DESC LIMIT 1
     `).get(printer.id);

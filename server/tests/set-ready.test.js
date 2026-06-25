@@ -4,11 +4,15 @@
 // closure access to db and scheduler, so we build a self-contained minimal
 // express app here rather than starting the full server.
 //
-// Three cases under test:
-//   1. Normal finish  — job is 'finished'; operator may adjust qty via confirmed_qty
-//   2. Missed finish  — job is still 'printing' (server was down when print completed)
-//   3. MQTT recovery  — job was marked 'failed' by a transient MQTT disconnect but
-//                       the printer finished successfully; count must still be credited
+// Cases under test:
+//   1. Normal finish      — job is 'finished'; operator may adjust qty via confirmed_qty
+//   2. Missed finish      — job is still 'printing' (server was down when print completed)
+//   3. MQTT recovery      — job was marked 'failed' by a transient MQTT disconnect but
+//                           the printer finished successfully; count must still be credited
+//   4. Upload stalled     — job is 'uploading'; operator confirms it is actually printing
+//   5. Offline recovery   — printer went OFFLINE with a printing job (old finished job
+//                           also in DB from prior cycle); printing job must be credited,
+//                           not silently shadowed by the old finished job
 
 const request  = require('supertest');
 const express  = require('express');
@@ -27,7 +31,15 @@ function makeApp(db, scheduler = { scheduleForPrinter: jest.fn(), startedAt: 0 }
     const { confirmed_qty } = req.body || {};
     const now = Date.now();
 
-    const finishedJob = db.prepare(`
+    // A printing job takes priority over any old finished job from a prior cycle.
+    // Without this check, set-ready would find the stale finished job, take the
+    // "already credited" normal path, release the hold — and then _dispatchToPrinter
+    // would find the stale printing job and auto-fail it.
+    const printingJobEarly = db.prepare(
+      "SELECT id FROM jobs WHERE printer_id = ? AND status = 'printing' ORDER BY started_at DESC LIMIT 1"
+    ).get(printer.id);
+
+    const finishedJob = printingJobEarly ? null : db.prepare(`
       SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
       ORDER BY finished_at DESC LIMIT 1
     `).get(printer.id);
@@ -549,5 +561,80 @@ describe('set-ready — upload stalled (uploading job, operator confirms running
     // Uploading job must be left untouched
     const uploadingJob = db.prepare('SELECT status FROM jobs WHERE id = ?').get(uploadingId);
     expect(uploadingJob.status).toBe('uploading');
+  });
+});
+
+// ── Case 5: Offline recovery — printing job must beat old finished job ────────
+//
+// Regression test for: printer goes OFFLINE with a printing job (job2), while an
+// older finished job (job1 from a prior cycle) still sits in the DB. Set-ready was
+// finding job1 first, taking the "already credited" normal path, and releasing the
+// hold without crediting job2. _dispatchToPrinter then found the stale printing
+// job2 and auto-failed it — causing the operator's green click to produce a failure.
+
+describe('set-ready — offline recovery (printing job beats old finished job)', () => {
+  test('credits the printing job when an older finished job also exists', async () => {
+    const db        = makeDb();
+    const printerId = seedPrinter(db, { name: `P_offr_${Date.now()}`, status: 'IDLE' });
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId, { completedQty: 4 }); // job1 already credited
+    const gcodeId   = seedGcode(db, partId);
+
+    // job1: an older finished job from a prior cycle (already credited)
+    seedJob(db, printerId, partId, gcodeId, 'finished', {
+      partsPerPlate: 4,
+      finishedAt: Date.now() - 3600_000,
+    });
+    // job2: the current job that was printing when the printer went OFFLINE
+    const job2Id = seedJob(db, printerId, partId, gcodeId, 'printing', { partsPerPlate: 4 });
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({});
+
+    const job2 = db.prepare('SELECT status FROM jobs WHERE id = ?').get(job2Id);
+    expect(job2.status).toBe('finished'); // must be credited, not left as printing/failed
+  });
+
+  test('increments completed_qty for the printing job, not the old finished job', async () => {
+    const db        = makeDb();
+    const printerId = seedPrinter(db, { name: `P_offrc_${Date.now()}`, status: 'IDLE' });
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId, { completedQty: 4 }); // job1 already credited
+    const gcodeId   = seedGcode(db, partId);
+
+    seedJob(db, printerId, partId, gcodeId, 'finished', {
+      partsPerPlate: 4,
+      finishedAt: Date.now() - 3600_000,
+    });
+    seedJob(db, printerId, partId, gcodeId, 'printing', { partsPerPlate: 4 });
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({});
+
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(8); // 4 (from job1) + 4 (from job2) = 8
+  });
+
+  test('releases the hold after crediting the printing job', async () => {
+    const db        = makeDb();
+    const printerId = seedPrinter(db, { name: `P_offrh_${Date.now()}`, status: 'IDLE' });
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId, { completedQty: 4 });
+    const gcodeId   = seedGcode(db, partId);
+
+    seedJob(db, printerId, partId, gcodeId, 'finished', {
+      partsPerPlate: 4,
+      finishedAt: Date.now() - 3600_000,
+    });
+    seedJob(db, printerId, partId, gcodeId, 'printing', { partsPerPlate: 4 });
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({});
+
+    const printer = db.prepare('SELECT is_held FROM printers WHERE id = ?').get(printerId);
+    expect(printer.is_held).toBe(0);
   });
 });
