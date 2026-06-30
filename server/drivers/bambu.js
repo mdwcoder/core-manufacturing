@@ -300,10 +300,11 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
     console.log(`[bambu] Print triggered on ${printer.name}: ${onPrinterFilename} (project_file)`);
   } else {
     // .gcode/.bgcode — gcode_file command, file lives in gcodes/ subdir.
+    // param is the filename only — the printer resolves it relative to gcodes/ automatically.
     printPayload = {
       sequence_id: '0',
       command:     'gcode_file',
-      param:       `gcodes/${onPrinterFilename}`,
+      param:       onPrinterFilename,
     };
     console.log(`[bambu] Print triggered on ${printer.name}: gcodes/${onPrinterFilename}`);
   }
