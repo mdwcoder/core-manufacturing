@@ -28,6 +28,7 @@ const ftp      = require('basic-ftp');
 const path     = require('path');
 const fs       = require('fs');
 const os       = require('os');
+const crypto   = require('crypto');
 const JSZip    = require('jszip');
 
 // Map of printer.id → { client, latestPrint, connected }
@@ -237,8 +238,22 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
   let tempPath     = null;             // set if we created a temp file to clean up
 
   if (!is3mf) {
+    const gcodeContent = fs.readFileSync(gcodeFullPath);
+    const md5 = crypto.createHash('md5').update(gcodeContent).digest('hex');
+
     const zip = new JSZip();
-    zip.file('Metadata/plate_1.gcode', fs.readFileSync(gcodeFullPath));
+    // [Content_Types].xml — required by the Open Packaging Convention that .3mf is built on.
+    // Without it many OPC parsers (including Bambu firmware) silently fail to open the package.
+    zip.file('[Content_Types].xml', [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+      '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+      '  <Default Extension="gcode" ContentType="application/octet-stream"/>',
+      '  <Default Extension="md5" ContentType="application/octet-stream"/>',
+      '</Types>',
+    ].join('\n'));
+    zip.file('Metadata/plate_1.gcode', gcodeContent);
+    zip.file('Metadata/plate_1.gcode.md5', md5);
     const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 
     const baseName = path.basename(onPrinterFilename, ext);
