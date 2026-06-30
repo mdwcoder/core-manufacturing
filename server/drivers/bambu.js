@@ -245,7 +245,13 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
       },
     });
 
-    await ftpClient.uploadFrom(gcodeFullPath, onPrinterFilename);
+    if (is3mf) {
+      await ftpClient.uploadFrom(gcodeFullPath, onPrinterFilename);
+    } else {
+      // Bambu expects gcode files in the gcodes/ subdirectory on the SD card.
+      await ftpClient.ensureDir('gcodes');
+      await ftpClient.uploadFrom(gcodeFullPath, `gcodes/${onPrinterFilename}`);
+    }
     console.log(`[bambu] Upload complete on ${printer.name}`);
   } finally {
     ftpClient.close();
@@ -297,7 +303,7 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
     printPayload = {
       sequence_id: '0',
       command:     'gcode_file',
-      param:       onPrinterFilename,
+      param:       `gcodes/${onPrinterFilename}`,
     };
     console.log(`[bambu] Print triggered on ${printer.name}: gcodes/${onPrinterFilename}`);
   }
@@ -312,6 +318,11 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
 async function deleteFile(printer, filename) {
   if (!filename) return;
 
+  const ext = path.extname(filename).toLowerCase();
+  const remotePath = (ext === '.gcode' || ext === '.bgcode')
+    ? `gcodes/${filename}`
+    : filename;
+
   const ftpClient = new ftp.Client();
   ftpClient.ftp.verbose = !!process.env.DEBUG_BAMBU;
 
@@ -325,8 +336,8 @@ async function deleteFile(printer, filename) {
       secureOptions: { rejectUnauthorized: false },
     });
 
-    await ftpClient.remove(filename);
-    console.log(`[bambu] Deleted ${filename} from ${printer.name}`);
+    await ftpClient.remove(remotePath);
+    console.log(`[bambu] Deleted ${remotePath} from ${printer.name}`);
   } catch (err) {
     // Non-fatal — file may have already been deleted or never uploaded
     console.warn(`[bambu] Could not delete ${filename} from ${printer.name}: ${err.message}`);
