@@ -309,7 +309,12 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
     console.log(`[bambu] Print triggered on ${printer.name}: gcodes/${onPrinterFilename}`);
   }
 
-  conn.client.publish(`device/${printer.serial_number}/request`, JSON.stringify({ print: printPayload }));
+  const mqttPayload = JSON.stringify({ print: printPayload });
+  console.log(`[bambu] MQTT payload → ${printer.name}: ${mqttPayload}`);
+  conn.client.publish(`device/${printer.serial_number}/request`, mqttPayload, (err) => {
+    if (err) console.error(`[bambu] MQTT publish failed for ${printer.name}:`, err.message);
+    else console.log(`[bambu] MQTT publish confirmed for ${printer.name}`);
+  });
 }
 
 // ─── File cleanup ─────────────────────────────────────────────────────────────
