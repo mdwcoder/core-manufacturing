@@ -249,7 +249,7 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
       await ftpClient.uploadFrom(gcodeFullPath, onPrinterFilename);
     } else {
       // Bambu expects gcode files in the gcodes/ subdirectory on the SD card.
-      await ftpClient.ensureDir('gcodes');
+      // gcodes/ always exists on Bambu printers — upload directly with the path.
       await ftpClient.uploadFrom(gcodeFullPath, `gcodes/${onPrinterFilename}`);
     }
     console.log(`[bambu] Upload complete on ${printer.name}`);
