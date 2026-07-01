@@ -2,6 +2,24 @@
   "name": "print-farm-manager",
   "version": "1.0.0",
   "description": "Centralized print farm management for multi-brand 3D printer fleets",
+  "author": "Joel Telling",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joeltelling/print-farm-manager.git"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "keywords": [
+    "3d-printing",
+    "print-farm",
+    "prusa",
+    "bambu",
+    "klipper",
+    "elegoo",
+    "self-hosted"
+  ],
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",

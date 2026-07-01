@@ -24,7 +24,7 @@ Stores the physical printer registry imported from the CSV spreadsheet.
 CREATE TABLE IF NOT EXISTS printers (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   name                TEXT NOT NULL UNIQUE,      -- e.g. "MK4S_07", "Twilight"
-  ip                  TEXT NOT NULL,             -- e.g. "192.168.15.194"
+  ip                  TEXT NOT NULL,             -- e.g. "192.168.1.100"
   api_key             TEXT NOT NULL,             -- PrusaLink X-Api-Key header value
   group_name          TEXT,                      -- e.g. "MK4S Farm" (optional)
   type                TEXT DEFAULT 'prusa',      -- vendor; reserved for future use

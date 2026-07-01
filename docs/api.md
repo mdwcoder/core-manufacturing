@@ -29,8 +29,8 @@ Returns all active printers (`is_active = 1`) ordered by name.
   {
     "id": 1,
     "name": "MK4S_01",
-    "ip": "192.168.15.194",
-    "api_key": "aauukLtMLUTqq6e",
+    "ip": "192.168.1.100",
+    "api_key": "aK3jR7xQ2pLm9vN",
     "group_name": "MK4S Farm",
     "type": "prusa",
     "model": "mk4s",
@@ -82,8 +82,8 @@ Create a single printer.
 ```json
 {
   "name": "MK4S_01",
-  "ip": "192.168.15.194",
-  "api_key": "aauukLtMLUTqq6e",
+  "ip": "192.168.1.100",
+  "api_key": "aK3jR7xQ2pLm9vN",
   "model": "mk4s",
   "group_name": "MK4S Farm",
   "type": "prusa"
@@ -215,7 +215,7 @@ Proxies a live `GET /api/v1/status` call to the printer's PrusaLink API and retu
 
 ```json
 {
-  "printer": { "id": 1, "name": "MK4S_35", "ip": "192.168.15.88" },
+  "printer": { "id": 1, "name": "MK4S_35", "ip": "192.168.1.100" },
   "raw": { "printer": { "state": "IDLE", ... }, "storage": { ... } }
 }
 ```
@@ -228,8 +228,8 @@ Bulk import from CSV. `Content-Type: multipart/form-data`, field name `file`.
 
 ```
 name,ip,api_key,group,type,model
-MK4S_01,192.168.15.194,aauukLtMLUTqq6e,MK4S Farm,prusa,MK4S
-C1 Apple Jack,192.168.15.72,pu6whBHx8B2ivgK,CORE One Farm,prusa,C1
+MK4S_01,192.168.1.100,aK3jR7xQ2pLm9vN,MK4S Farm,prusa,MK4S
+C1 Rarity,192.168.1.101,bR5mQ8nZ4vKs2Pw,CORE One Farm,prusa,C1
 ```
 
 The `model` column is optional but strongly recommended. Valid values (case-insensitive): `MK4`, `MK4S`, `C1`, `C1L`, `XL`. When present it takes priority over name inference — any printer name is valid.
@@ -248,7 +248,7 @@ The `model` column is optional but strongly recommended. Valid values (case-inse
   "skipped": 1,
   "flagged": [
     {
-      "row": { "name": "Twilight", "ip": "192.168.15.110", "api_key": "...", "group": "Core One Farm", "type": "prusa" },
+      "row": { "name": "Twilight", "ip": "192.168.1.102", "api_key": "...", "group": "Core One Farm", "type": "prusa" },
       "reason": "Cannot infer model from name \"Twilight\". Please specify model manually."
     }
   ]

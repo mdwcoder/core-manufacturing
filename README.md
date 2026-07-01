@@ -4,6 +4,8 @@ A self-hosted web app for managing a multi-brand 3D printer farm. Replaces manua
 
 No cloud. No subscriptions. No vendor lock-in.
 
+> **Security note:** This app has no built-in authentication. It is designed to run on a trusted local network only. Do not expose port 3000 (or 5173 in dev) to the internet — your printer API keys are served to any client that can reach the server. Run it behind your router's firewall or a local VPN.
+
 ---
 
 ## What It Does
@@ -99,7 +101,7 @@ The fastest way to add a large fleet is via CSV import on the Settings page.
 |---|---|---|
 | `name` | Yes | `MK4S_01` |
 | `ip` | Yes | `192.168.1.100` |
-| `api_key` | Prusa/Bambu only | `aauukLtMLUTqq6e` |
+| `api_key` | Prusa/Bambu only | `aK3jR7xQ2pLm9vN` |
 | `group` | No | `MK4S Farm` |
 | `type` | Yes | `prusa` / `elegoo-centauri` / `bambu` / `klipper` |
 

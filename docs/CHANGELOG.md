@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-07-01 — Open-source release prep
+
+Pre-release hardening pass before public open-source release.
+
+### Changes
+- `server/drivers/bambu.js`: fixed `ReferenceError` — `onPrinterName` was undefined in the MQTT `project_file` payload; corrected to `onPrinterFilename`. Bambu prints would have thrown after the FTPS upload completed.
+- `server/tests/bambu-driver.test.js`: rewrote the stale `.gcode`/`.bgcode` test suite (4 tests that expected success) into a `non-.3mf rejection` suite (4 tests) that asserts the `.3mf`-only validation — no FTP or MQTT is attempted. All 20 Bambu driver tests pass.
+- `docs/api.md`, `docs/database.md`, `README.md`, `ARCHITECTURE.md`: replaced real PrusaLink API keys and internal network IPs used as doc examples with clearly fictional values (`aK3jR7xQ2pLm9vN`, `192.168.1.100`, etc.).
+- `ARCHITECTURE.md`: removed reference to the private fleet CSV filename and printer count.
+- `docs/video-outline.md`: deleted (personal filming notes, not project documentation).
+- `scripts/test-bambu-print.js`: deleted (temporary diagnostic script from `.3mf` debugging, superseded).
+- `package.json`: added `author`, `license`, `repository`, `engines`, and `keywords` fields per OSS conventions.
+- `README.md`: added security note warning against internet exposure — the app has no authentication and serves printer credentials to any connected client.
+- `docs/README.md`: removed `video-outline.md` from the documentation index.
+
+---
+
 ## 2026-06-23 — Bulk-assign printer group from the Printers page
 
 The Printers bulk-edit bar can now set **Group** in addition to Material and Color. The group field is a free-text input with a `<datalist>` autocomplete of existing group names (derived from the loaded printers — no extra fetch), so you can reuse a group or type a new one. Use case: park low-spool machines in a dedicated group, then funnel tiny/small prints to them via the G-code's `allowed_groups` targeting.

@@ -291,8 +291,8 @@ Operator can intervene at any time:
 | Column | Example | Notes |
 |---|---|---|
 | `name` | `MK4S_01` | Display name — used throughout UI |
-| `ip` | `192.168.15.194` | Base URL for all PrusaLink API calls |
-| `api_key` | `aauukLtMLUTqq6e` | PrusaLink auth key |
+| `ip` | `192.168.1.100` | Base URL for all PrusaLink API calls |
+| `api_key` | `aK3jR7xQ2pLm9vN` | PrusaLink auth key |
 | `group` | `MK4S Farm` | Logical grouping for fleet filter sidebar |
 | `type` | `prusa` | Vendor identifier; reserved for future use |
 
@@ -548,8 +548,7 @@ The following decisions were revised during Phase 1 implementation. Treat these 
 | `C1L` | `c1l` | Prusa Core 1L |
 | `XL` | `xl` | Prusa XL |
 
-**CSV format** now includes an explicit `model` column (positioned second): `name, model, ip, api_key, group, type`. Model is read directly from this column; name-based inference is the fallback only. The live fleet CSV is `3dpn-prusa-farm-info.csv` in the project root — 46 MK4S + 6 Core One printers.
-
+**CSV format** now includes an explicit `model` column (positioned second): `name, model, ip, api_key, group, type`. Model is read directly from this column; name-based inference is the fallback only.
 ### 12.2 New Files to Create
 
 Add the following files. Do not modify the existing Phase 1 file structure except where noted.

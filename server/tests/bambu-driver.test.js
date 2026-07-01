@@ -253,47 +253,49 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
   });
 });
 
-// ─── uploadAndPrint — .gcode ──────────────────────────────────────────────────
+// ─── uploadAndPrint — non-.3mf rejection ─────────────────────────────────────
+// Bambu printers only accept .3mf files (project_file command). Plain .gcode
+// and .bgcode uploads are rejected before any FTP/MQTT activity.
 
-describe('uploadAndPrint — .gcode (gcode_file)', () => {
-  test('uses gcode_file MQTT command', async () => {
+describe('uploadAndPrint — non-.3mf rejection', () => {
+  test('throws for .gcode with descriptive message', async () => {
+    const printer = nextPrinter();
+    bambu.getStatus(printer);
+
+    await expect(
+      bambu.uploadAndPrint(printer, '/tmp/1234_part.gcode', 'part.gcode')
+    ).rejects.toThrow(/requires a \.3mf file/);
+  });
+
+  test('throws for .bgcode with descriptive message', async () => {
+    const printer = nextPrinter();
+    bambu.getStatus(printer);
+
+    await expect(
+      bambu.uploadAndPrint(printer, '/tmp/1234_part.bgcode', 'part.bgcode')
+    ).rejects.toThrow(/requires a \.3mf file/);
+  });
+
+  test('does not attempt FTP upload when file is rejected', async () => {
+    const printer = nextPrinter();
+    bambu.getStatus(printer);
+
+    await expect(
+      bambu.uploadAndPrint(printer, '/tmp/1234_part.gcode', 'part.gcode')
+    ).rejects.toThrow();
+
+    expect(mockFtpClient.uploadFrom).not.toHaveBeenCalled();
+  });
+
+  test('does not publish MQTT when file is rejected', async () => {
     const printer = nextPrinter();
     bambu.getStatus(printer);
     mockPublish.mockClear();
 
-    await bambu.uploadAndPrint(printer, '/tmp/1234_part.gcode', 'part.gcode');
+    await expect(
+      bambu.uploadAndPrint(printer, '/tmp/1234_part.gcode', 'part.gcode')
+    ).rejects.toThrow();
 
-    expect(findPayload('gcode_file')).not.toBeNull();
-  });
-
-  test('param is the bare filename (no path prefix)', async () => {
-    const printer = nextPrinter();
-    bambu.getStatus(printer);
-    mockPublish.mockClear();
-
-    await bambu.uploadAndPrint(printer, '/tmp/1234_part.gcode', 'part.gcode');
-
-    expect(findPayload('gcode_file').param).toBe('1234_part.gcode');
-  });
-
-  test('uploads to FTP root', async () => {
-    const printer = nextPrinter();
-    bambu.getStatus(printer);
-
-    await bambu.uploadAndPrint(printer, '/tmp/1234_part.gcode', 'part.gcode');
-
-    expect(mockFtpClient.uploadFrom).toHaveBeenCalledWith(
-      '/tmp/1234_part.gcode', '1234_part.gcode'
-    );
-  });
-
-  test('.bgcode also uses gcode_file command', async () => {
-    const printer = nextPrinter();
-    bambu.getStatus(printer);
-    mockPublish.mockClear();
-
-    await bambu.uploadAndPrint(printer, '/tmp/1234_part.bgcode', 'part.bgcode');
-
-    expect(findPayload('gcode_file')).not.toBeNull();
+    expect(mockPublish).not.toHaveBeenCalled();
   });
 });

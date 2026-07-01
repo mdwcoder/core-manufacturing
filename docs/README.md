@@ -26,7 +26,6 @@ npm run dev
 | [docs/CHANGELOG.md](CHANGELOG.md) | Dated log of all implemented features and changes |
 | [docs/multi-brand.md](multi-brand.md) | Phase 6 design — driver abstraction for non-Prusa brands (Elegoo Centauri Carbon) |
 | [docs/filaments.md](filaments.md) | Filament Library — admin-managed type and color lists, API endpoints, client usage |
-| [docs/video-outline.md](video-outline.md) | YouTube video filming outline — sections, timestamps, talking points |
 
 ## Project Structure
 
