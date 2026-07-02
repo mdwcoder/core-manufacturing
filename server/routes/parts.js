@@ -96,8 +96,10 @@ module.exports = (db) => {
         continue;
       }
 
+      // Mirrors sweepIdlePrinters eligibility: unheld STOPPED printers are
+      // dispatchable (Bambu latches the stopped state until the next print starts).
       const ready = materialOk.filter(p =>
-        (p.status === 'IDLE' || p.status === 'FINISHED') && p.is_held === 0
+        (p.status === 'IDLE' || p.status === 'FINISHED' || p.status === 'STOPPED') && p.is_held === 0
       );
       if (ready.length === 0) {
         const held = materialOk.filter(p => p.is_held === 1).length;

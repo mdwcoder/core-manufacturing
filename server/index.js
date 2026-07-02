@@ -194,10 +194,22 @@ const server = app.listen(PORT, () => {
       "SELECT id FROM jobs WHERE printer_id = ? AND status = 'printing' ORDER BY started_at DESC LIMIT 1"
     ).get(printer.id);
 
-    const finishedJob = (uploadingJobEarly || printingJobEarly) ? null : db.prepare(`
+    let finishedJob = (uploadingJobEarly || printingJobEarly) ? null : db.prepare(`
       SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
       ORDER BY finished_at DESC LIMIT 1
     `).get(printer.id);
+
+    // A cancelled job newer than the last finished one means the printer was stopped
+    // (STOPPED status) after its last normal finish. The stopped job is the one the
+    // operator is confirming — fall through to the missed-finish path below, which
+    // resolves it via the cancelled lookup. Without this, confirmed_qty would be
+    // misapplied as a delta against the older finished job's part.
+    if (finishedJob) {
+      const newerCancelled = db.prepare(`
+        SELECT 1 FROM jobs WHERE printer_id = ? AND status = 'cancelled' AND finished_at > ? LIMIT 1
+      `).get(printer.id, finishedJob.finished_at);
+      if (newerCancelled) finishedJob = null;
+    }
 
     if (finishedJob) {
       // Normal case: apply confirmed_qty delta if the operator adjusted the count.

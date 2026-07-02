@@ -62,14 +62,19 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
 
   // Confirmed-qty input — pre-filled from the last finished job's parts_per_plate.
   // Only shown when is_held and we know how many parts were on the plate.
+  // STOPPED means the operator deliberately stopped the print mid-way, so the safe
+  // default is 0 good parts — crediting a stopped plate must be an explicit choice.
   const [confirmedQty, setConfirmedQty] = useState(
-    printer.last_parts_per_plate != null ? String(printer.last_parts_per_plate) : ''
+    printer.status === 'STOPPED' ? '0'
+      : printer.last_parts_per_plate != null ? String(printer.last_parts_per_plate) : ''
   );
   useEffect(() => {
-    if (printer.last_parts_per_plate != null) {
+    if (printer.status === 'STOPPED') {
+      setConfirmedQty('0');
+    } else if (printer.last_parts_per_plate != null) {
       setConfirmedQty(String(printer.last_parts_per_plate));
     }
-  }, [printer.last_parts_per_plate]);
+  }, [printer.last_parts_per_plate, printer.status]);
 
   // Partial failure — operator has reduced the good-qty below the full plate count.
   // Batch set-ready credits full parts_per_plate, so this printer must be confirmed
@@ -83,7 +88,11 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
   // Show confirmation buttons only when there's something to inspect.
   // A printer that is actively printing is held-in-advance — it will need sign-off
   // when it finishes, but there is nothing to confirm right now.
-  const needsConfirmation = printer.is_held === 1 && (printer.status === 'FINISHED' || printer.status === 'IDLE');
+  // STOPPED is included: some printers (Bambu) latch the stopped state until the next
+  // print starts, with nothing to acknowledge on the printer screen — the only way out
+  // is confirming here so the farm dispatches a new job.
+  const needsConfirmation = printer.is_held === 1
+    && (printer.status === 'FINISHED' || printer.status === 'IDLE' || printer.status === 'STOPPED');
   // OFFLINE with an active job: printer dropped off network but job may still be running.
   // Operator can confirm the job is OK (green = resume) or declare it failed (red).
   // If the printer comes back PRINTING on its own, the hold is released automatically.
@@ -194,7 +203,9 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
 
       {printer.status === 'STOPPED' && (
         <div style={{ fontSize: 11, color: '#fb923c', marginTop: 4 }}>
-          Clear on printer screen to continue
+          {needsConfirmation
+            ? 'Print stopped from printer screen — confirm outcome below to resume'
+            : 'Print stopped from printer screen — returns to service on next dispatch'}
         </div>
       )}
 

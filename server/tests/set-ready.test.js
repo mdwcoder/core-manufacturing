@@ -39,10 +39,20 @@ function makeApp(db, scheduler = { scheduleForPrinter: jest.fn(), startedAt: 0 }
       "SELECT id FROM jobs WHERE printer_id = ? AND status = 'printing' ORDER BY started_at DESC LIMIT 1"
     ).get(printer.id);
 
-    const finishedJob = printingJobEarly ? null : db.prepare(`
+    let finishedJob = printingJobEarly ? null : db.prepare(`
       SELECT * FROM jobs WHERE printer_id = ? AND status = 'finished'
       ORDER BY finished_at DESC LIMIT 1
     `).get(printer.id);
+
+    // A cancelled job newer than the last finished one means the printer was stopped
+    // after its last normal finish — the stopped job is the one being confirmed, not
+    // a qty delta against the older finished job.
+    if (finishedJob) {
+      const newerCancelled = db.prepare(`
+        SELECT 1 FROM jobs WHERE printer_id = ? AND status = 'cancelled' AND finished_at > ? LIMIT 1
+      `).get(printer.id, finishedJob.finished_at);
+      if (newerCancelled) finishedJob = null;
+    }
 
     if (finishedJob) {
       if (confirmed_qty != null) {
@@ -67,10 +77,15 @@ function makeApp(db, scheduler = { scheduleForPrinter: jest.fn(), startedAt: 0 }
         ORDER BY started_at DESC LIMIT 1
       `).get(printer.id);
 
-      const activeJob = printingJob || db.prepare(`
-        SELECT * FROM jobs WHERE printer_id = ? AND status = 'failed' AND finished_at > ?
-        ORDER BY finished_at DESC LIMIT 1
-      `).get(printer.id, scheduler.startedAt);
+      const activeJob = printingJob
+        || db.prepare(`
+            SELECT * FROM jobs WHERE printer_id = ? AND status = 'failed' AND finished_at > ?
+            ORDER BY finished_at DESC LIMIT 1
+          `).get(printer.id, scheduler.startedAt)
+        || db.prepare(`
+            SELECT * FROM jobs WHERE printer_id = ? AND status = 'cancelled'
+            ORDER BY finished_at DESC LIMIT 1
+          `).get(printer.id);
 
       if (activeJob) {
         const creditQty = (confirmed_qty != null && !isNaN(parseInt(confirmed_qty, 10)))
@@ -636,5 +651,95 @@ describe('set-ready — offline recovery (printing job beats old finished job)',
 
     const printer = db.prepare('SELECT is_held FROM printers WHERE id = ?').get(printerId);
     expect(printer.is_held).toBe(0);
+  });
+});
+
+// ── 6. Stopped printer (operator stopped on printer screen) ───────────────────
+// The stopped job was marked 'cancelled' by _handlePrinterStopped. When it is
+// newer than the last finished job, set-ready must resolve IT — not misapply
+// confirmed_qty as a delta against the older finished job's part.
+
+describe('set-ready — stopped printer (cancelled job newer than old finished job)', () => {
+  function seedStoppedScenario(db) {
+    const printerId = seedPrinter(db, { name: `P_stop_${Date.now()}_${Math.random()}` });
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId, { completedQty: 4 }); // credited by the old finished job
+    const gcodeId   = seedGcode(db, partId);
+
+    seedJob(db, printerId, partId, gcodeId, 'finished', {
+      partsPerPlate: 4,
+      finishedAt: Date.now() - 7200_000,
+    });
+    const cancelledJobId = seedJob(db, printerId, partId, gcodeId, 'cancelled', {
+      partsPerPlate: 4,
+      finishedAt: Date.now() - 60_000,
+    });
+    return { printerId, partId, cancelledJobId };
+  }
+
+  test('confirmed_qty 0 credits nothing and leaves the old finished job untouched', async () => {
+    const db = makeDb();
+    const { printerId, partId } = seedStoppedScenario(db);
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({ confirmed_qty: 0 });
+
+    // Old code applied delta (0 - 4) against the finished job → would read 0 here.
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(4);
+  });
+
+  test('resolves the cancelled job and credits the confirmed qty', async () => {
+    const db = makeDb();
+    const { printerId, partId, cancelledJobId } = seedStoppedScenario(db);
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({ confirmed_qty: 2 });
+
+    const job  = db.prepare('SELECT status FROM jobs WHERE id = ?').get(cancelledJobId);
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(job.status).toBe('finished');
+    expect(part.completed_qty).toBe(6); // 4 from old job + 2 confirmed good
+  });
+
+  test('releases the hold so the next job dispatches', async () => {
+    const db = makeDb();
+    const { printerId } = seedStoppedScenario(db);
+    const scheduler = { scheduleForPrinter: jest.fn(), startedAt: 0 };
+
+    await request(makeApp(db, scheduler))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({ confirmed_qty: 0 });
+
+    const printer = db.prepare('SELECT is_held FROM printers WHERE id = ?').get(printerId);
+    expect(printer.is_held).toBe(0);
+    expect(scheduler.scheduleForPrinter).toHaveBeenCalled();
+  });
+
+  test('an older cancelled job does not shadow a newer finished job', async () => {
+    const db        = makeDb();
+    const printerId = seedPrinter(db, { name: `P_stopold_${Date.now()}` });
+    const projectId = seedProject(db);
+    const partId    = seedPart(db, projectId, { completedQty: 4 });
+    const gcodeId   = seedGcode(db, partId);
+
+    seedJob(db, printerId, partId, gcodeId, 'cancelled', {
+      partsPerPlate: 4,
+      finishedAt: Date.now() - 7200_000, // stopped print from a prior cycle
+    });
+    seedJob(db, printerId, partId, gcodeId, 'finished', {
+      partsPerPlate: 4,
+      finishedAt: Date.now() - 60_000, // normal finish afterwards
+    });
+
+    await request(makeApp(db))
+      .post(`/api/printers/${printerId}/set-ready`)
+      .send({ confirmed_qty: 3 });
+
+    // Normal delta path against the finished job: 4 + (3 - 4) = 3
+    const part = db.prepare('SELECT completed_qty FROM parts WHERE id = ?').get(partId);
+    expect(part.completed_qty).toBe(3);
   });
 });

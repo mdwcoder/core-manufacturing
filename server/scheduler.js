@@ -65,12 +65,18 @@ class JobScheduler extends EventEmitter {
     // Include FINISHED printers with is_held = 0 — this state means the operator
     // confirmed the print was good (released the hold) but the upload failed.
     // They need a new job just as much as an IDLE printer does.
+    //
+    // Include STOPPED printers with is_held = 0 — no hold means there is no
+    // unresolved outcome (any farm job was already resolved, or the stopped print
+    // was never ours). Some printers (Bambu) latch the stopped state until the
+    // next print starts, so they never transition to IDLE on their own —
+    // dispatching to them is what returns them to service.
     const eligiblePrinters = this.db.prepare(`
       SELECT * FROM printers
-      WHERE status IN ('IDLE', 'FINISHED') AND is_held = 0 AND is_active = 1
+      WHERE status IN ('IDLE', 'FINISHED', 'STOPPED') AND is_held = 0 AND is_active = 1
     `).all();
 
-    console.log(`[scheduler] Sweeping ${eligiblePrinters.length} eligible printer(s) (IDLE or operator-confirmed FINISHED)`);
+    console.log(`[scheduler] Sweeping ${eligiblePrinters.length} eligible printer(s) (IDLE, operator-confirmed FINISHED, or resolved STOPPED)`);
 
     if (eligiblePrinters.length === 0) return;
 

@@ -119,9 +119,13 @@ Live printer grid that polls `GET /api/printers` every 15 seconds (matching the 
 
 Filter chips in the Fleet header derive their text color from the same `STATUS_COLORS` constant so badges and chips are always in sync.
 
-**Card click behavior:** clicking a printer card navigates to its detail view (`/printers/:id`). The exception is a card awaiting sign-off (held + `FINISHED`/`IDLE`): there, clicking toggles the card's selection for the batch "Set Ready (N)" action instead. Action buttons inside a card (Set Ready, Bad Print, etc.) `stopPropagation`, so they never trigger navigation.
+**Card click behavior:** clicking a printer card navigates to its detail view (`/printers/:id`). The exception is a card awaiting sign-off (held + `FINISHED`/`IDLE`/`STOPPED`): there, clicking toggles the card's selection for the batch "Set Ready (N)" action instead. Action buttons inside a card (Set Ready, Bad Print, etc.) `stopPropagation`, so they never trigger navigation.
 
-**Confirmation button visibility:** "Set Ready" and "Bad Print" buttons (and the green card highlight) appear when `is_held === 1` AND `status` is `FINISHED` or `IDLE`.
+**Confirmation button visibility:** "Set Ready" and "Bad Print" buttons (and the green card highlight) appear when `is_held === 1` AND `status` is `FINISHED`, `IDLE`, or `STOPPED`.
+
+**Stopped printers:** `STOPPED` is included because some printers (Bambu) latch the stopped state until the next print starts, with nothing to acknowledge on the printer screen — confirming here is the only way to resume dispatch without power-cycling the machine. For stopped printers the `Good: N / M` input defaults to **0** (the operator deliberately stopped the print, so crediting parts must be an explicit choice); this also excludes them from batch Set Ready via the partial-count rule, forcing individual confirmation. Server-side, set-ready resolves the stopped (`cancelled`) job when it is newer than the last finished job, crediting `confirmed_qty` — it is never applied as a delta against the older finished job.
+
+A STOPPED printer that is **not** held (its outcome was already resolved, or the stopped print was never a farm job) shows no buttons — instead it is dispatch-eligible: `sweepIdlePrinters` includes unheld STOPPED printers, so it returns to service on the next sweep (server start, project activation, or Sweep for Jobs). The card notes this.
 
 **OFFLINE-with-job handling:** when `is_held === 1` AND `status` is `OFFLINE` AND `has_active_job === 1`, an amber card and separate amber banner appear instead of the green confirmation UI. Two buttons are shown:
 - **✓ Job OK** — releases the hold via `POST /api/printers/:id/set-ready`. The job stays as `printing` and resolves naturally when the printer finishes. No qty is credited.
