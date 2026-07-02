@@ -20,7 +20,7 @@ function normalizeModel(raw) {
 function inferModel(name) {
   if (/^MK4S_/i.test(name)) return 'mk4s';
   if (/^MK4_/i.test(name))  return 'mk4';
-  if (/^(CoreOne_|Core1L_|C1L )/i.test(name)) return 'c1l';
+  if (/^(CoreOneL_|Core1L_|C1L )/i.test(name)) return 'c1l';
   if (/^(CoreOne_|Core1_|C1 )/i.test(name))   return 'c1';
   if (/^XL_/i.test(name))   return 'xl';
   return null;
