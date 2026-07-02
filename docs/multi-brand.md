@@ -45,6 +45,18 @@ Both brands map their native states to a shared internal set. The rest of the sy
 | `OFFLINE` | Timeout | WebSocket unreachable |
 | `UNKNOWN` | — | Unrecognised SDCP code; logged for classification, does not hold printer |
 
+### Bambu status mapping (MQTT `gcode_state`)
+
+`RUNNING`/`PREPARE` → `PRINTING`, `IDLE` → `IDLE`, `PAUSE` → `PAUSED`, `FINISH` → `FINISHED`.
+
+`FAILED` needs disambiguation: Bambu reports a user-cancelled print (Stop pressed on the printer screen) as `gcode_state: FAILED` — the same state as a genuine failure — and keeps reporting it until the next print starts or the printer power-cycles. The driver tells them apart via `print_error`:
+
+- `50348044` (`0x0300400C`) — cancelled by the user; sent for a few seconds after the stop, then resets to `0` while `gcode_state` stays `FAILED` → maps to **`STOPPED`** (scheduler cancels the job, printer held for operator sign-off)
+- `0` — no active error code; a settled user cancel → **`STOPPED`**
+- any other nonzero value — genuine firmware-detected failure → **`ERROR`**
+
+Reference: ha-bambulab `pybambu/models.py` cancel handling. Without this, a Bambu stopped from its own screen shows a persistent false ERROR in the farm that decommission/recommission cannot clear (status always comes from the live MQTT report, not the DB).
+
 ---
 
 ## Connector Families

@@ -119,7 +119,8 @@ function dropConnection(printerId) {
 // IDLE     = Standby, no print loaded
 // PAUSE    = Print paused by operator or firmware event
 // FINISH   = Print complete — triggers operator confirmation in farm UI
-// FAILED   = Firmware-detected print failure
+// FAILED   = Print did not complete — covers BOTH firmware-detected failures and
+//            user-cancelled prints. See the print_error disambiguation in getStatus.
 function mapStatus(gcodeState) {
   switch (gcodeState) {
     case 'RUNNING':  return 'PRINTING';
@@ -134,8 +135,21 @@ function mapStatus(gcodeState) {
 
 // ─── Status ──────────────────────────────────────────────────────────────────
 
+// Bambu reports a user-cancelled print (Stop pressed on the printer screen) as
+// gcode_state FAILED — the same state as a genuine print failure — and keeps
+// reporting FAILED until the next print starts or the printer power-cycles.
+// The two cases are distinguished by print_error:
+//   50348044 (0x0300400C) — print cancelled by the user; sent for a few seconds
+//                           after the stop, then print_error resets to 0 while
+//                           gcode_state stays FAILED
+//   any other nonzero     — genuine firmware-detected failure
+//   0                     — no active error; FAILED with no error code is a
+//                           settled user cancel
+// Ref: ha-bambulab pybambu/models.py (isCanceledPrint handling)
+const BAMBU_USER_CANCELLED = 50348044;
+
 // Returns { status, progress, timeRemaining, currentFile }
-// status is a canonical string: IDLE | PRINTING | FINISHED | PAUSED | ERROR | OFFLINE | UNKNOWN
+// status is a canonical string: IDLE | PRINTING | FINISHED | PAUSED | STOPPED | ERROR | OFFLINE | UNKNOWN
 // progress (0–100), timeRemaining (seconds), and currentFile are null when not printing.
 async function getStatus(printer) {
   if (!printer.serial_number) {
@@ -151,8 +165,18 @@ async function getStatus(printer) {
     return { status: 'OFFLINE', progress: null, timeRemaining: null, currentFile: null };
   }
 
-  const print  = conn.latestPrint;
-  const status = mapStatus(print.gcode_state);
+  const print = conn.latestPrint;
+  let status  = mapStatus(print.gcode_state);
+
+  // User-cancelled prints report FAILED — remap to STOPPED so the scheduler
+  // cancels the job (rather than failing it) and the UI doesn't show a false
+  // error. Real failures carry a persistent nonzero print_error.
+  if (status === 'ERROR') {
+    const printError = print.print_error ?? 0;
+    if (printError === 0 || printError === BAMBU_USER_CANCELLED) {
+      status = 'STOPPED';
+    }
+  }
 
   const progress = (status === 'PRINTING' || status === 'PAUSED')
     ? (print.mc_percent ?? null)

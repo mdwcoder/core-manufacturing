@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-07-01 — Bambu: stop from printer screen no longer shows a false ERROR
+
+Pressing **Stop** on a Bambu printer's own screen left the farm showing a persistent ERROR that decommission/recommission couldn't clear. Cause: Bambu reports a user-cancelled print as `gcode_state: FAILED` — the same state as a genuine failure — and keeps reporting it until the next print starts or a power cycle. The driver mapped any `FAILED` to `ERROR`, and since status always comes from the live MQTT report (not the DB), no farm-side action cleared it.
+
+The driver now disambiguates via `print_error`: `50348044` (the user-cancel code, sent briefly after the stop) or `0` (a settled cancel) map `FAILED` → `STOPPED`; any other nonzero `print_error` remains `ERROR`. `STOPPED` is the existing canonical "operator stopped the print" status (Klipper already emits it): the scheduler marks the job `cancelled` rather than `failed`, and the poller holds the printer for operator sign-off. Cancel-code semantics verified against ha-bambulab's `pybambu/models.py`.
+
+Part-count safety: unchanged. A cancelled job is excluded from the FINISHED-recovery fallback (which only recovers `failed` jobs), and a stopped Bambu never transitions to `FINISH`.
+
+### Changes
+- `server/drivers/bambu.js`: `getStatus()` remaps `FAILED` + (`print_error` 0 or 50348044) to `STOPPED`; added `BAMBU_USER_CANCELLED` constant and protocol notes.
+- `server/tests/bambu-driver.test.js`: 5 new tests covering cancel code, settled cancel (0/missing `print_error`), genuine failure, and nonzero `print_error` during `RUNNING`.
+- `docs/multi-brand.md`: documented the Bambu `gcode_state` mapping and `FAILED` disambiguation.
+
+353/353 tests pass.
+
+---
+
 ## 2026-07-01 — Fleet view shows in-flight uploads
 
 While the scheduler transfers a file, the printer hardware still reports IDLE — so the Fleet view showed "Idle" for machines that were actually mid-dispatch, disagreeing with the Jobs page. Fleet cards now show a violet **Uploading** badge with the filename and "Sending file to printer…" during a healthy transfer, plus an "Uploading (N)" filter chip; uploading printers no longer inflate the Idle count.

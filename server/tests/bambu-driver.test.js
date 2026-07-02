@@ -146,6 +146,44 @@ describe('getAmsSlots', () => {
   });
 });
 
+// ─── getStatus — FAILED disambiguation ───────────────────────────────────────
+// Bambu reports user-cancelled prints as gcode_state FAILED, same as genuine
+// failures. print_error tells them apart: 50348044 = cancelled by user (resets
+// to 0 a few seconds later while gcode_state stays FAILED); any other nonzero
+// value = real firmware-detected failure.
+
+describe('getStatus — FAILED: user cancel vs real failure', () => {
+  test('FAILED with cancel code 50348044 maps to STOPPED', async () => {
+    const printer = nextPrinter();
+    pushStatus(printer, { gcode_state: 'FAILED', print_error: 50348044 });
+    expect((await bambu.getStatus(printer)).status).toBe('STOPPED');
+  });
+
+  test('FAILED with print_error 0 (settled cancel) maps to STOPPED', async () => {
+    const printer = nextPrinter();
+    pushStatus(printer, { gcode_state: 'FAILED', print_error: 0 });
+    expect((await bambu.getStatus(printer)).status).toBe('STOPPED');
+  });
+
+  test('FAILED with no print_error field maps to STOPPED', async () => {
+    const printer = nextPrinter();
+    pushStatus(printer, { gcode_state: 'FAILED' });
+    expect((await bambu.getStatus(printer)).status).toBe('STOPPED');
+  });
+
+  test('FAILED with a different nonzero print_error maps to ERROR', async () => {
+    const printer = nextPrinter();
+    pushStatus(printer, { gcode_state: 'FAILED', print_error: 117473285 });
+    expect((await bambu.getStatus(printer)).status).toBe('ERROR');
+  });
+
+  test('RUNNING with a nonzero print_error stays PRINTING', async () => {
+    const printer = nextPrinter();
+    pushStatus(printer, { gcode_state: 'RUNNING', print_error: 50348044, mc_percent: 40 });
+    expect((await bambu.getStatus(printer)).status).toBe('PRINTING');
+  });
+});
+
 // ─── uploadAndPrint — .3mf ────────────────────────────────────────────────────
 
 describe('uploadAndPrint — .3mf (project_file)', () => {
