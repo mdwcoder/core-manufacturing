@@ -67,6 +67,8 @@ No cloud. No subscriptions. No vendor lock-in.
 
 ## Quick Start (Development)
 
+Requires **Node.js 22 LTS** — Node 24+ has known issues compiling the native SQLite dependency on Windows (see the [Installation Guide](docs/installation.md) for details).
+
 ```bash
 git clone https://github.com/joeltelling/print-farm-manager.git
 cd print-farm-manager

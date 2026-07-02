@@ -9,7 +9,7 @@
     "url": "https://github.com/joeltelling/print-farm-manager.git"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.0.0 <24"
   },
   "keywords": [
     "3d-printing",
