@@ -775,7 +775,7 @@ export default function Settings() {
                   value={addForm.api_key}
                   onChange={e => setAddForm(p => ({ ...p, api_key: e.target.value }))}
                   required
-                  placeholder={addForm.type === 'bambu' || addForm.type === 'elegoo-centauri2' ? 'SQdQfo' : 'xxxxxxxxxxxxxxxx'}
+                  placeholder={addForm.type === 'bambu' || addForm.type === 'elegoo-centauri2' ? 'Ab12Cd' : 'xxxxxxxxxxxxxxxx'}
                   style={inputStyle}
                 />
               </div>
