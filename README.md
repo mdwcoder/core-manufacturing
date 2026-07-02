@@ -4,6 +4,8 @@ A self-hosted web app for managing a multi-brand 3D printer farm. Replaces manua
 
 No cloud. No subscriptions. No vendor lock-in.
 
+![Dashboard — live fleet status and active projects](docs/images/dashboard.png)
+
 > **Security note:** This app has no built-in authentication. It is designed to run on a trusted local network only. Do not expose port 3000 (or 5173 in dev) to the internet — your printer API keys are served to any client that can reach the server. Run it behind your router's firewall or a local VPN.
 
 ---
@@ -17,6 +19,8 @@ No cloud. No subscriptions. No vendor lock-in.
 - **CSV fleet import** — add 50 printers at once from a spreadsheet
 - **TV dashboard mode** — a heads-up fleet summary designed for a monitor on the shop wall
 - **Farm backup and restore** — export your entire farm config and job history as a single JSON file
+
+![Fleet view — per-printer cards with operator confirmation](docs/images/fleet.png)
 
 ---
 
