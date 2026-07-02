@@ -2,6 +2,42 @@
 
 ---
 
+## 2026-07-02 — CSV import: Core One printers no longer inferred as Core 1L
+
+`inferModel()` in `server/routes/printers.js` listed the `CoreOne_` prefix in both the `c1l` and `c1` patterns, and `c1l` was checked first — so a printer named `CoreOne_01` imported as a Core 1L instead of a Core One. The `c1l` pattern now uses `CoreOneL_` (alongside `Core1L_` and `C1L `); `CoreOne_` correctly falls through to `c1`.
+
+---
+
+## 2026-07-02 — Docs accuracy pass on README and installation guide (pre-release)
+
+Verified every claim in `README.md` and `docs/installation.md` against the code ahead of the open-source release. Commands, ports, startup log lines, data paths, PM2 steps, and `update.bat` behavior all matched. Fixed the parts that didn't — all related to the Centauri Carbon 2 and the CSV import format:
+
+- `README.md`: Elegoo protocol column now distinguishes SDCP WebSocket (Centauri Carbon) from MQTT (Centauri Carbon 2); CSV table gains the `serial_number` and optional `model` columns, the `elegoo-centauri2` type, and corrected `api_key` requirements (Prusa API key; Bambu/CC2 LAN access code).
+- `docs/installation.md`: credential table splits Elegoo into Centauri Carbon (IP only) and Centauri Carbon 2 (IP + serial + access code); Bambu access-code location aligned with the in-app help text (Settings → WLAN / Settings → Device); Step 1 no longer claims "built-in" model IDs (a fresh install starts with an empty model list — the fixed IDs only matter for CSV name inference); Step 2 field notes reflect the Access Code label and CC2 serial requirement.
+
+---
+
+## 2026-07-01 — Stopped printers confirmable from Fleet (no printer reboot needed)
+
+Follow-up to the Bambu STOPPED fix: a held + STOPPED printer showed no confirmation buttons — the card said "Clear on printer screen to continue," which is a dead end on Bambu (nothing to acknowledge on-screen; the printer latches the stopped state until the next print starts). The operator was deadlocked: the farm wouldn't dispatch until confirmed, the printer wouldn't leave STOPPED until the farm dispatched. Only a power cycle got out.
+
+Fleet's confirmation UI (Set Ready / Bad Print) now also appears for held + STOPPED printers. Set Ready un-holds and dispatches — the new print snaps a Bambu out of its latched state. The Good-count input defaults to **0** for stopped printers (the operator deliberately stopped it; crediting parts must be an explicit choice). Bad Print already handled cancelled jobs.
+
+Backend fix uncovered along the way: set-ready preferred *any* most-recent `finished` job over a newer `cancelled` one, so a qty adjustment on a stopped printer would misapply as a delta against the previous print's job (wrongly debiting/crediting its part). The cancelled job now takes precedence when it is newer than the last finished job and resolves via the existing "cancelled-confirmed-good" path.
+
+Second gap found on the live farm: a STOPPED printer with **no hold** (its job was already resolved, e.g. by an earlier decommission/recommission cycle, or the stopped print was never a farm job) showed no confirmation UI *and* was invisible to dispatch — `sweepIdlePrinters` only selected `IDLE`/`FINISHED`, and the `printerIdle` event only fires on an IDLE transition, which a latched Bambu never makes. Unheld STOPPED printers are now sweep-eligible: no hold means no unresolved outcome, and dispatching is what returns a latched Bambu to service. They get picked up by the startup sweep, project activation, and Sweep for Jobs.
+
+### Changes
+- `client/src/pages/Fleet.jsx`: `needsConfirmation` includes `STOPPED`; Good-count defaults to 0 for stopped printers (also auto-excludes them from batch Set Ready via the existing partial-count rule); STOPPED hint text rewritten (held → "confirm outcome below", unheld → "returns to service on next dispatch").
+- `server/index.js` (set-ready): a cancelled job newer than the last finished job takes precedence over the finished-job delta path.
+- `server/scheduler.js` (`sweepIdlePrinters`): eligibility is now `IDLE`/`FINISHED`/`STOPPED` with `is_held = 0`.
+- `server/routes/parts.js` (dispatch-status diagnostic): mirrors the new eligibility.
+- `server/tests/set-ready.test.js`: replica updated to match; 4 new tests (no false delta against the old finished job, cancelled job resolved with confirmed qty, hold released, older cancelled job does not shadow a newer finish).
+
+Deploy note: the production server serves the prebuilt client from `client/dist` — run `npm run build` in `client/` after pulling, then hard-refresh the browser.
+
+---
+
 ## 2026-07-01 — Bambu: stop from printer screen no longer shows a false ERROR
 
 Pressing **Stop** on a Bambu printer's own screen left the farm showing a persistent ERROR that decommission/recommission couldn't clear. Cause: Bambu reports a user-cancelled print as `gcode_state: FAILED` — the same state as a genuine failure — and keeps reporting it until the next print starts or a power cycle. The driver mapped any `FAILED` to `ERROR`, and since status always comes from the live MQTT report (not the DB), no farm-side action cleared it.

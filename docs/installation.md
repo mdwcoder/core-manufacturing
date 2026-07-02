@@ -94,8 +94,9 @@ Before adding printers to the app, gather the following credentials. The app wil
 | Brand | What the app needs | Where to find it |
 |---|---|---|
 | **Prusa** | IP address + API key | Printer touchscreen: **Settings → Network** shows the IP. PrusaLink web UI (open the IP in a browser) → **Settings → API Key** shows the key. |
-| **Bambu Lab** | IP address + serial number + access code | On the printer: **Settings → Network → LAN Mode** — enable it, then the serial number and access code are shown on the same screen. The access code changes every time LAN Mode is toggled. |
-| **Elegoo Centauri** | IP address only | Printer touchscreen: **Settings → Network**. No API key required. |
+| **Bambu Lab** | IP address + serial number + access code | Enable **LAN Mode** on the printer first. The access code is on the printer screen under **Settings → WLAN**; the serial number is under **Settings → Device**. The access code changes every time LAN Mode is toggled. |
+| **Elegoo Centauri Carbon** | IP address only | Printer touchscreen: **Settings → Network**. No access code required. |
+| **Elegoo Centauri Carbon 2** | IP address + serial number + access code | Enable LAN mode on the printer. The access code and serial number are shown on the printer's network settings screen. |
 | **Klipper (Voron, etc.)** | IP address of the Klipper host | The IP of the machine running Moonraker (same machine as Klipper). Port 7125 is used automatically. No API key required. |
 
 ---
@@ -231,11 +232,9 @@ When you open the app for the first time, the Fleet view will be empty. This is 
 
 ### Step 1 — Add a Printer Model
 
-Go to **Settings → Printer Models** and add a model entry for each type of printer you have. A model entry links a display name (e.g. "MK4S") to a brand connector (Prusa, Bambu, Elegoo, Klipper).
+Go to **Settings → Printer Models** and add a model entry for each type of printer you have. A model entry links a display name (e.g. "MK4S") to a brand connector (Prusa, Bambu, Elegoo Centauri Carbon, Elegoo Centauri Carbon 2, Klipper). A fresh install starts with an empty model list — add whichever models your farm uses.
 
-Built-in model IDs: `mk4s`, `c1`, `xl` (Prusa) · `centauri-carbon` (Elegoo) · `x1c`, `p1s`, `p1p`, `a1`, `a1-mini` (Bambu)
-
-For Klipper printers, choose a descriptive model ID (e.g. `voron-24`) — the ID is only used internally.
+Model IDs are free-form and only used internally — choose something descriptive (e.g. `voron-24` for a Klipper printer). One exception: CSV import can infer a printer's model from its name prefix, but only for the Prusa IDs `mk4s`, `mk4`, `c1`, `c1l`, and `xl` (e.g. a printer named `MK4S_01` resolves to `mk4s`).
 
 ### Step 2 — Add a Printer
 
@@ -243,8 +242,8 @@ Still in **Settings**, click **Add Printer**. Fill in:
 
 - **Name** — a short identifier (e.g. `MK4S_01`). Used throughout the UI.
 - **IP Address** — the local IP of the printer (see credential table above).
-- **API Key / Serial Number** — see credential table above. Leave blank for Elegoo and Klipper.
-- **Serial Number** — Bambu printers only.
+- **API Key / Access Code** — see credential table above. The field is labelled **Access Code** for Bambu and Centauri Carbon 2 printers. Not needed for Elegoo Centauri Carbon (original) or Klipper.
+- **Serial Number** — Bambu and Elegoo Centauri Carbon 2 printers only.
 - **Group** — optional, for organizing multiple printers (e.g. `MK4S Farm`).
 - **Model** — select from the models you added in Step 1.
 
