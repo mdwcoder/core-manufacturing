@@ -2,6 +2,12 @@
 
 ---
 
+## 2026-07-03 — README + install guide caught up to the OctoPrint connector
+
+PR #4 added the OctoPrint driver with full docs coverage in `multi-brand.md` but did not touch the two user-facing entry docs. Synced them: README gains an OctoPrint row in Supported Printers, `octoprint` in the CSV `type` list, corrected `api_key` requirements, and the full six-driver list in Project Structure (`elegoo-centauri2.js` and `octoprint.js` were missing); `docs/installation.md` credential table gains an OctoPrint row (API key from **Settings → API**, port included in the IP field, e.g. `:5000`).
+
+---
+
 ## 2026-07-03 — Remove dead HTTP-pull upload code from the CC2 path
 
 The Elegoo Centauri Carbon 2 driver originally uploaded files by having the printer pull them from an HTTP URL served by the app (MQTT method 1057). That design was replaced by the chunked HTTP PUT push before the driver shipped, but two remnants survived: `getLanIp()` in `server/drivers/elegoo-centauri2.js` (never called) and the `GET /api/gcode-download/:filename` endpoint in `server/index.js` (nothing constructed URLs to it). The endpoint was a live unauthenticated file-download route kept for a design that no longer exists — removed as attack-surface cleanup. Also corrected the driver's header comment, which still described the pull design.

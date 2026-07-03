@@ -32,6 +32,7 @@ No cloud. No subscriptions. No vendor lock-in.
 | **Elegoo** | SDCP WebSocket (Centauri Carbon) · MQTT (Centauri Carbon 2) | Centauri Carbon, Centauri Carbon 2 |
 | **Bambu Lab** | MQTT + FTPS | X1C, P1S, and other Bambu models (with AMS slot selection) |
 | **Klipper** | Moonraker REST API | Voron and any Klipper-firmware printer |
+| **OctoPrint** | OctoPrint REST API | Any printer running OctoPrint / OctoPi |
 
 ---
 
@@ -42,7 +43,7 @@ No cloud. No subscriptions. No vendor lock-in.
 |---|---|
 | [Node.js](https://nodejs.org) + [Express](https://expressjs.com) | HTTP API server |
 | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | Embedded SQLite database — synchronous, zero configuration |
-| [axios](https://axios-http.com) | HTTP communication with Prusa and Klipper printers |
+| [axios](https://axios-http.com) | HTTP communication with Prusa, Klipper, and OctoPrint printers |
 | [mqtt](https://github.com/mqttjs/MQTT.js) | MQTT over TLS for Bambu printer communication |
 | [basic-ftp](https://github.com/patrickjuchli/basic-ftp) | FTPS file transfer to Bambu printers |
 | [sdcp](https://github.com/blakejrobinson/sdcp) | WebSocket protocol driver for Elegoo SDCP printers |
@@ -152,8 +153,8 @@ The fastest way to add a large fleet is via CSV import on the Settings page.
 |---|---|---|
 | `name` | Yes | `MK4S_01` |
 | `ip` | Yes | `192.168.1.100` |
-| `type` | Yes | `prusa` / `elegoo-centauri` / `elegoo-centauri2` / `bambu` / `klipper` |
-| `api_key` | Prusa (API key), Bambu and Centauri Carbon 2 (LAN access code) | `aK3jR7xQ2pLm9vN` |
+| `type` | Yes | `prusa` / `elegoo-centauri` / `elegoo-centauri2` / `bambu` / `klipper` / `octoprint` |
+| `api_key` | Prusa and OctoPrint (API key), Bambu and Centauri Carbon 2 (LAN access code) | `aK3jR7xQ2pLm9vN` |
 | `serial_number` | Bambu and Centauri Carbon 2 | `01S00C123456789` |
 | `group` | No | `MK4S Farm` |
 | `model` | No | `mk4s` |
@@ -173,9 +174,11 @@ print-farm-manager/
 │   ├── scheduler.js      # Job dispatch engine
 │   └── drivers/          # Per-brand printer drivers
 │       ├── prusa.js       # PrusaLink REST
-│       ├── elegoo-centauri.js  # SDCP WebSocket
+│       ├── elegoo-centauri.js   # SDCP WebSocket (Centauri Carbon)
+│       ├── elegoo-centauri2.js  # MQTT + chunked HTTP PUT (Centauri Carbon 2)
 │       ├── bambu.js       # MQTT + FTPS
-│       └── klipper.js     # Moonraker REST
+│       ├── klipper.js     # Moonraker REST
+│       └── octoprint.js   # OctoPrint REST
 ├── client/               # React + Vite frontend
 ├── docs/                 # Full documentation
 ├── Dockerfile            # Multi-stage production image (build client + server, run on Node 22)
