@@ -142,6 +142,18 @@ export default function Settings() {
   const [addError, setAddError] = useState(null);
   const [adding, setAdding] = useState(false);
 
+  // Keep the Model select's value valid whenever the available models change for the
+  // selected brand — e.g. adding a printer model in the section above while this form is
+  // open. Without this, the <select> can visually show the newly-added option (the browser
+  // defaults to it once it's the only one) while addForm.model silently stays '', so the
+  // submitted request fails required-field validation despite the dropdown looking selected.
+  useEffect(() => {
+    const validModels = allModels.filter(m => m.connector === addForm.type);
+    if (!validModels.some(m => m.model_id === addForm.model)) {
+      setAddForm(p => ({ ...p, model: validModels[0]?.model_id || '' }));
+    }
+  }, [allModels, addForm.type, addForm.model]);
+
   async function handleAddPrinter(e) {
     e.preventDefault();
     setAdding(true);
