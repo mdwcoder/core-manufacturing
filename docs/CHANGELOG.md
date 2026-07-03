@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-07-03 — Remove dead HTTP-pull upload code from the CC2 path
+
+The Elegoo Centauri Carbon 2 driver originally uploaded files by having the printer pull them from an HTTP URL served by the app (MQTT method 1057). That design was replaced by the chunked HTTP PUT push before the driver shipped, but two remnants survived: `getLanIp()` in `server/drivers/elegoo-centauri2.js` (never called) and the `GET /api/gcode-download/:filename` endpoint in `server/index.js` (nothing constructed URLs to it). The endpoint was a live unauthenticated file-download route kept for a design that no longer exists — removed as attack-surface cleanup. Also corrected the driver's header comment, which still described the pull design.
+
+### Changes
+- `server/index.js`: removed the `/api/gcode-download/:filename` route.
+- `server/drivers/elegoo-centauri2.js`: removed `getLanIp()` and the `os` require; header comment now describes the chunked PUT upload.
+
+---
+
 ## 2026-07-03 — Docker production deployment
 
 Added a container-based path to run the app in production, as an alternative to the bare-metal + PM2 setup. Requested to simplify deployment (no host Node.js/build-tooling install, consistent environment across machines) without changing any Phase 1 conventions — no DB migration system was introduced, and the SQLite/`better-sqlite3` synchronous-API convention is unaffected since the container just runs the existing `server/index.js` entry point.
