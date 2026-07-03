@@ -7,7 +7,7 @@
 //   - Requires a registration handshake before any commands are accepted
 //   - Serial number is part of all MQTT topic names (stored in printer.serial_number)
 //   - Access code from the printer screen is the MQTT password (stored in printer.api_key)
-//   - File upload: the printer pulls the file from an HTTP URL we serve (not pushed over MQTT)
+//   - File upload: chunked HTTP PUT to the printer's /upload endpoint (not pushed over MQTT)
 //
 // Uses the `mqtt` npm package (already installed for the Bambu driver).
 //
@@ -24,7 +24,6 @@ const http         = require('http');
 const crypto       = require('crypto');
 const fs           = require('fs');
 const path         = require('path');
-const os           = require('os');
 const EventEmitter = require('events');
 
 // Map<printerId, ConnectionState>
@@ -40,20 +39,6 @@ function genClientId() {
   const ts   = Date.now().toString(16).slice(-3);
   const rand = Math.floor(Math.random() * 0x1000).toString(16).padStart(3, '0');
   return `0cli${ts}${rand}`;
-}
-
-// Return the machine's LAN IPv4 address for constructing the file-download URL.
-// Skips loopback and link-local (169.254.x.x). Set SERVER_HOST env var to override.
-function getLanIp() {
-  if (process.env.SERVER_HOST) return process.env.SERVER_HOST;
-  for (const iface of Object.values(os.networkInterfaces())) {
-    for (const info of iface) {
-      if (info.family === 'IPv4' && !info.internal && !info.address.startsWith('169.254.')) {
-        return info.address;
-      }
-    }
-  }
-  return '127.0.0.1';
 }
 
 // Map CC2 status to canonical driver status strings.
