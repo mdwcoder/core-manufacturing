@@ -14,6 +14,13 @@ The Settings page also now refreshes printer models, filament lists, farm name, 
 - `server/routes/backup.js`: export/restore now include `printer_models`, `filament_types`, `filament_colors`, `settings`; guarded restore for backward compatibility with older backup files; response/log now report counts for all restored tables.
 - `client/src/pages/Settings.jsx`: added restore-result chips for the three new counts; refetches models/filament lists/settings after a successful restore.
 - `docs/api.md`: corrected the backup endpoint docs, which previously described the buggy behavior ("all 5 tables") as correct.
+## 2026-07-04 — CI: gate Docker publishing on the test suite
+
+`.github/workflows/docker-publish.yml` could previously publish an image even if `server/tests/` was failing — nothing ran the suite. Added a `test` job (`npm ci` + `npm test` on `ubuntu-24.04`) that both `build` and the PR-only `pr_test_build` job now declare as a dependency (`needs: test`), so a red test suite blocks any image build, published or not. `merge` remains gated transitively via `needs: build`.
+
+### Changes
+- `.github/workflows/docker-publish.yml`: added the `test` job; `build` and `pr_test_build` now `needs: test`.
+- `docs/docker-publish.md`: documented the test gate and updated the job breakdown.
 
 ---
 
