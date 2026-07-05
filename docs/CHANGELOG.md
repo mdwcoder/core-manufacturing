@@ -26,6 +26,15 @@ Added `server/tests/backup-restore.test.js` per the reviewer's request for a tes
 - `server/tests/backup-restore.test.js` (new): column round-trip regression coverage.
 - `docs/api.md`: documented that restore now derives its column list from the live schema.
 
+**Follow-up 2 (PR review, second round):**
+- **[P1] Path traversal in `gcode_files` restore.** Restore wrote each `backup.gcode_files` key straight through `path.join(GCODE_DIR, key)` with no validation — reviewer showed a key like `../../server/poller.js` resolves outside `server/gcode/`, so a crafted backup could overwrite arbitrary files the server process can write to instead of only restoring gcode files. Fixed by rejecting any key that isn't a bare filename (contains `/`, `\`, or is `.`/`..`) with `400` before writing anything to disk.
+- **[P2] `makeInserter()` bound missing columns as an explicit `NULL`.** That's fine for nullable columns but breaks `NOT NULL DEFAULT` columns like `parts.sort_order` — a backup row missing that column threw `NOT NULL constraint failed` instead of restoring with the default `0`, contradicting the older-backup compatibility path added in the first follow-up. Fixed by having `makeInserter()` take the actual rows being restored and omit any column absent from all of them from the generated `INSERT`, letting SQLite apply the column's own default rather than binding `null`.
+
+### Changes (follow-up 2)
+- `server/routes/backup.js`: `gcode_files` keys are validated as bare filenames before any write; `makeInserter()` now takes the table's rows and only includes columns present in the data, so columns missing from an older backup are left for SQLite's schema default instead of bound as `null`.
+- `server/tests/backup-restore.test.js`: added coverage for a missing `NOT NULL DEFAULT` column (`parts.sort_order`) restoring to its default instead of throwing, and for `gcode_files` keys attempting path traversal (`../../server/index.js`, bare `..`) being rejected with `400` and never reaching `fs.writeFileSync`.
+- `docs/api.md`: documented the `gcode_files` filename validation and the schema-default fallback for columns missing from a backup.
+
 ---
 
 ## 2026-07-04 — CI: gate Docker publishing on the test suite

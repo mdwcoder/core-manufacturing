@@ -264,4 +264,73 @@ describe('Backup export/restore — column round-trip regression', () => {
       fs.unlinkSync(backupFile);
     }
   });
+
+  // Reported (PR review, second round): makeInserter() bound every live column, including
+  // ones absent from the backup row, as an explicit NULL. That's fine for nullable columns
+  // (covered above) but a NOT NULL DEFAULT column like parts.sort_order rejects an explicit
+  // NULL outright, so restoring a backup predating that column threw a constraint failure
+  // instead of falling back to the column's own default. Fixed by omitting columns missing
+  // from every row of the backup's data from the generated INSERT entirely, letting SQLite
+  // apply the schema default.
+  test('restore falls back to the schema default for a NOT NULL DEFAULT column missing from an older backup', async () => {
+    const exportRes = await request(app).get('/api/backup');
+    const backup = exportRes.body;
+    expect(backup.parts[0]).toHaveProperty('sort_order');
+    delete backup.parts[0].sort_order; // simulate a backup predating this column
+    const backupFile = writeTempBackupFile(backup);
+
+    try {
+      const restoreRes = await request(app).post('/api/backup/restore').attach('file', backupFile);
+      expect(restoreRes.status).toBe(200);
+      expect(restoreRes.body.ok).toBe(true);
+
+      const part = db.prepare('SELECT * FROM parts WHERE id = 1').get();
+      expect(part.sort_order).toBe(0); // schema DEFAULT, not a thrown NOT NULL violation
+    } finally {
+      fs.unlinkSync(backupFile);
+    }
+  });
+});
+
+// Reported (PR review, second round): restore wrote each backup.gcode_files entry straight
+// through path.join(GCODE_DIR, key) with no validation. A key like `../../server/index.js`
+// resolves outside GCODE_DIR, so a crafted backup could overwrite arbitrary files the server
+// process can write to instead of only restoring gcode files. Fixed by rejecting any
+// gcode_files key that isn't a bare filename before writing anything to disk.
+describe('Backup restore — gcode_files path traversal', () => {
+  test('rejects a gcode_files key that would escape GCODE_DIR and writes nothing', async () => {
+    const exportRes = await request(app).get('/api/backup');
+    const backup = exportRes.body;
+    backup.gcode_files = {
+      '../../server/index.js': Buffer.from('malicious payload').toString('base64'),
+    };
+    const backupFile = writeTempBackupFile(backup);
+
+    const writeSpy = jest.spyOn(fs, 'writeFileSync');
+    try {
+      const restoreRes = await request(app).post('/api/backup/restore').attach('file', backupFile);
+      expect(restoreRes.status).toBe(400);
+      expect(restoreRes.body.error).toMatch(/invalid gcode file name/i);
+
+      const gcodeWrites = writeSpy.mock.calls.filter(([p]) => typeof p === 'string' && p.includes(`${path.sep}gcode${path.sep}`));
+      expect(gcodeWrites.length).toBe(0);
+    } finally {
+      writeSpy.mockRestore();
+      fs.unlinkSync(backupFile);
+    }
+  });
+
+  test('rejects a bare ".." gcode_files key', async () => {
+    const exportRes = await request(app).get('/api/backup');
+    const backup = exportRes.body;
+    backup.gcode_files = { '..': Buffer.from('malicious payload').toString('base64') };
+    const backupFile = writeTempBackupFile(backup);
+
+    try {
+      const restoreRes = await request(app).post('/api/backup/restore').attach('file', backupFile);
+      expect(restoreRes.status).toBe(400);
+    } finally {
+      fs.unlinkSync(backupFile);
+    }
+  });
 });

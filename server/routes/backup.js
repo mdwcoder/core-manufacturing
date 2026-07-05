@@ -24,19 +24,29 @@ function runUpload(req, res) {
   });
 }
 
-// Builds an INSERT statement covering every column the live schema currently has for
-// `table` (via PRAGMA table_info), rather than a hand-maintained column list. A
-// hardcoded list silently drifts out of sync as migrations add columns over time — this
-// is what let restore round-trip printers/projects/parts/gcodes while quietly dropping
-// serial_number, loaded_material/loaded_color, project targeting, and gcode
+// Builds an INSERT statement covering the columns the live schema currently has for
+// `table` (via PRAGMA table_info) that are actually present in the backup's `rows`,
+// rather than a hand-maintained column list. A hardcoded list silently drifts out of
+// sync as migrations add columns over time — this is what let restore round-trip
+// printers/projects/parts/gcodes while quietly dropping serial_number,
+// loaded_material/loaded_color, project targeting, and gcode
 // allowed_groups/required_material/required_color/ams_slot/material_grams. Deriving the
 // column list from the table itself makes that whole bug class structurally impossible:
 // a newly-added column is included automatically, with no restore.js edit to remember.
 //
-// Any property missing from a given row (e.g. an older backup predating a newer column)
-// binds as null rather than throwing on an unbound parameter.
-function makeInserter(db, table) {
-  const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+// Columns missing from every row (e.g. an older backup predating a newer column) are
+// left out of the INSERT entirely so SQLite applies the column's own DEFAULT — binding
+// them as NULL instead would fail for NOT NULL DEFAULT columns like parts.sort_order.
+function makeInserter(db, table, rows) {
+  if (rows.length === 0) return { run() {} };
+
+  const liveColumns = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+  const presentColumns = new Set();
+  for (const row of rows) {
+    for (const key of Object.keys(row)) presentColumns.add(key);
+  }
+  const columns = liveColumns.filter(c => presentColumns.has(c));
+
   const stmt = db.prepare(`
     INSERT INTO ${table} (${columns.join(', ')})
     VALUES (${columns.map(c => '@' + c).join(', ')})
@@ -114,8 +124,16 @@ module.exports = (db) => {
         return res.status(400).json({ error: 'Unrecognised backup format' });
       }
 
-      // Write gcode files to disk before the DB transaction
-      for (const [basename, b64] of Object.entries(backup.gcode_files || {})) {
+      // Write gcode files to disk before the DB transaction. Reject any key that isn't a
+      // bare filename — a crafted key like `../../server/poller.js` would otherwise resolve
+      // outside GCODE_DIR and let a malicious backup overwrite arbitrary app files.
+      const gcodeEntries = Object.entries(backup.gcode_files || {});
+      for (const [name] of gcodeEntries) {
+        if (path.basename(name) !== name || name === '.' || name === '..') {
+          return res.status(400).json({ error: `Invalid gcode file name in backup: ${name}` });
+        }
+      }
+      for (const [basename, b64] of gcodeEntries) {
         fs.writeFileSync(path.join(GCODE_DIR, basename), Buffer.from(b64, 'base64'));
       }
 
@@ -141,19 +159,19 @@ module.exports = (db) => {
         if (hasSettings)       db.prepare('DELETE FROM settings').run();
 
         // Reinsert with original IDs so FK relationships are preserved. Each inserter
-        // covers every column the live schema currently has for that table — see
-        // makeInserter() above.
+        // covers the live-schema columns actually present in this backup's rows for that
+        // table — see makeInserter() above.
         const stmts = {
-          printer:        makeInserter(db, 'printers'),
-          project:        makeInserter(db, 'projects'),
-          part:           makeInserter(db, 'parts'),
-          gcode:          makeInserter(db, 'gcodes'),
-          job:            makeInserter(db, 'jobs'),
-          printer_event:  makeInserter(db, 'printer_events'),
-          printer_model:  makeInserter(db, 'printer_models'),
-          filament_type:  makeInserter(db, 'filament_types'),
-          filament_color: makeInserter(db, 'filament_colors'),
-          setting:        makeInserter(db, 'settings'),
+          printer:        makeInserter(db, 'printers', backup.printers || []),
+          project:        makeInserter(db, 'projects', backup.projects || []),
+          part:           makeInserter(db, 'parts', backup.parts || []),
+          gcode:          makeInserter(db, 'gcodes', backup.gcodes || []),
+          job:            makeInserter(db, 'jobs', backup.jobs || []),
+          printer_event:  makeInserter(db, 'printer_events', backup.printer_events || []),
+          printer_model:  makeInserter(db, 'printer_models', backup.printer_models || []),
+          filament_type:  makeInserter(db, 'filament_types', backup.filament_types || []),
+          filament_color: makeInserter(db, 'filament_colors', backup.filament_colors || []),
+          setting:        makeInserter(db, 'settings', backup.settings || []),
         };
 
         // printer_models before printers — printers.model refers to it logically
