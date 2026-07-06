@@ -40,6 +40,13 @@ Added `server/tests/backup-restore.test.js` per the reviewer's request for a tes
 
 ### Changes (follow-up 3)
 - `server/tests/backup-restore.test.js`: seeded two filament types/colors (not one) plus a printer model and two settings rows in `beforeEach`; added a describe block covering (1) export includes all four tables, (2) restore round-trips them and each restored `filament_colors` row resolves to the *correct* `filament_types` row by name (not just any row satisfying the FK), and (3) an older backup missing all four keys leaves the farm's current printer models/filament library/settings untouched. The round-trip case mutates the existing filament rows rather than deleting them first, so restore's own internal delete-then-insert runs against still-linked rows — verified by temporarily reversing the delete order in `backup.js` and confirming the test fails (500, FK violation) before reverting.
+## 2026-07-06 - Driver authoring guide for third-party connector contributors
+
+With the repo now public, printer manufacturers and community members may want to contribute connectors for new brands. The driver contract was previously folklore: spread across `multi-brand.md` brand notes, driver file comments, and hard-won lessons in this changelog. New `docs/driver-authoring.md` turns it into a spec someone outside the project can build against.
+
+Covers: the four-function driver interface with exact return shapes and error contracts (`UPLOAD_CONFLICT`, never-throw `getStatus`, resolve-only-when-started `uploadAndPrint`), the `printer` row fields drivers may use, the canonical status table with what the poller/scheduler do on each transition, the no-double-credit rules for `FINISHED` (reconnect flapping, cold start, STOPPED vs ERROR disambiguation, synthesized FINISHED), the stateless vs persistent-connection patterns with named reference drivers, a six-step registration checklist (including every `Settings.jsx` touch point), a real-hardware test matrix, and dev-without-a-fleet tips.
+
+No code changes. `docs/README.md` gained an index row; `CONTRIBUTING.md`'s Printer Drivers section now links to the guide.
 
 ---
 
