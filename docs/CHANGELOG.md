@@ -25,6 +25,9 @@ Also verified: hot reload actually round-trips through the bind mount (`docker c
 - `README.md`: added a "Prefer Docker instead of a local Node.js install?" subsection under Quick Start (Development), alongside (not replacing) the native steps; documented running the test suite via `docker compose exec print-farm-manager-dev npm test`.
 - `CONTRIBUTING.md`: same Docker cross-reference and test-running note added to "Getting Set Up", which had its own independent copy of the native setup steps this PR hadn't touched yet.
 - `docs/installation.md`, `docs/README.md`: cross-referenced the new `dev` service from the existing dev-mode note, the top-level Quick Start, and the file-structure index.
+
+---
+
 ## 2026-07-06: rewrite CLAUDE.md as an operating manual; add Claude Code project skills
 
 CLAUDE.md still described the Phase 1 scaffold ("no migration system", "do not implement Phase 2+ features"), which stopped being true over a year of shipped phases ago. Rewritten as a full operating manual so agent-assisted work (Joel's or a contributor's) follows the house process without rediscovering it: server, driver, and client conventions as exact idioms, a sync-pairs table of code that must change together, named failure modes with the rule that prevents each, per-deliverable quality checklists, and escalation rules for ambiguous cases. Also adds three project skills under `.claude/skills/`, which is now tracked (personal `.claude` settings remain ignored).
