@@ -541,7 +541,7 @@ Body: `{ "value": "..." }`. Allowed keys:
 
 | Key | Validation | Used by |
 |---|---|---|
-| `dispatch_batch_size` | integer 1–100 | Scheduler batch size |
+| `dispatch_batch_size` | integer 1-100 | How many printers the scheduler keeps uploading or printing at once (a concurrency target, not a fixed group size; it draws deeper into the ready queue to fill the target if some printers have no dispatchable candidate) |
 | `farm_name` | ≤ 40 chars | Sidebar branding (falls back to "Print Farm") |
 
 Returns `400` for unknown keys or failed validation.
