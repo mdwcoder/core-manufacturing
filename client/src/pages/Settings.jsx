@@ -1126,14 +1126,15 @@ export default function Settings() {
       <section style={{ background: '#1e2433', borderRadius: 10, padding: 20, marginBottom: 24, maxWidth: 640 }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Dispatch Settings</h2>
         <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
-          Control how many printers receive a file simultaneously when the scheduler sweeps.
-          Reduce this number if your network is saturated during large batch uploads — each batch
-          waits for all printers to reach <em>printing</em> before the next batch fires.
+          The scheduler keeps this many printers uploading or printing at once, pulling
+          further down the ready queue to fill that target even if some printers have no
+          matching work right now. Reduce this number if your network is saturated during
+          large uploads.
         </p>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <div>
             <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
-              Printers per batch (1–100)
+              Concurrent printers (1-100)
             </label>
             <input
               type="number"
