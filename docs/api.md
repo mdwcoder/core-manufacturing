@@ -600,7 +600,7 @@ Single endpoint that returns all data required by the TV dashboard in one call. 
 
 `printers` is the same shape as `GET /api/printers` (includes `last_parts_per_plate`) plus `last_event_at` — the timestamp of the most recent `printer_events` row for that printer.
 
-`active_projects` includes only `status = 'active'` projects, each with a nested `parts` array ordered by `sort_order`, plus three computed stats fields:
+`active_projects` includes only `status = 'active'` projects, ordered by `priority ASC, created_at ASC` (same order as `GET /api/projects` and the scheduler's dispatch query, so the dashboard's project order matches what actually dispatches next), each with a nested `parts` array ordered by `sort_order`, plus three computed stats fields:
 
 - `elapsed_secs` — total wall-clock print time in seconds: sum of `finished_at − started_at` for all `finished` jobs in the project, plus `now − started_at` for any currently `printing` job.
 - `material_used_grams` — total material consumed in grams: sum of `gcode.material_grams / gcode.parts_per_plate * job.parts_per_plate` across all `finished` jobs that have a linked gcode with `material_grams` set. `null` if no jobs have gcode material data.

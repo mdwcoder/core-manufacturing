@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-07-30: Projects page only shows Active projects by default
+
+Joel noticed the Projects page listed every project regardless of status, so a farm with a long history of finished and shelved work buried the projects actually in flight. Now only `active` projects show by default; `draft`, `paused`, and `completed` are each hidden behind their own "Show X (count)" checkbox above the list, and a checkbox only appears when at least one project has that status. State persists per browser via `localStorage`, matching the existing "Show decommissioned" pattern on the Printers page. If every project ends up filtered out, an empty-state prompts to check a box instead of showing the misleading first-run "create your first project" message.
+
+No change to which projects the scheduler dispatches to, drag-to-reorder priority, or any endpoint; this is purely a client-side list filter.
+
+### Changes
+- `client/src/pages/Projects.jsx`: added `showDraft`/`showPaused`/`showCompleted` state (persisted to `localStorage`), a checkbox row above the project list, and a `visibleProjects` filter (defaults to `active` only) used in place of the raw `projects` array for the list and its empty state.
+- `docs/web-app.md`: documented the default filter and the checkboxes in the Projects page's List view section.
+
+## 2026-07-30: dashboard's Active Projects panel ignored manual project priority
+
+Joel reordered projects on the Projects page and noticed the Dashboard's Active Projects panel kept showing them in a different order. Root cause: `GET /api/dashboard` queried active projects with `ORDER BY created_at ASC` only. `GET /api/projects` (the Projects page) and the scheduler's dispatch candidate query both order by `priority ASC, created_at ASC` (added 2026-04-07), but the dashboard route predates that feature by one day and was never updated to match, so it always showed projects oldest-first regardless of any manual reordering.
+
+Fixed by adding `priority ASC` to the dashboard's active-projects query, matching the other two. Verified against a running instance: with two active projects where the older one had the lower-priority (higher) number, the dashboard now lists the higher-priority, newer project first, matching the Projects page and what the scheduler actually dispatches next.
+
+### Changes
+- `server/routes/dashboard.js`: `active_projects` query now orders by `priority ASC, created_at ASC` instead of `created_at ASC` alone.
+- `server/tests/dashboard.test.js` (new): covers priority ordering, the `created_at` tiebreaker, and exclusion of non-active projects.
+- `docs/api.md`, `docs/web-app.md`: documented that `active_projects` and the Dashboard's Active Projects panel are ordered by priority, matching the Projects page.
+
 ## 2026-07-04: fix adding a part to a completed project couldn't be reactivated
 
 Reported: adding a new part to a project that had already completed left the project stuck, clicking Re-activate returned "All parts are at target qty, adjust quantities first" even though the new part clearly had remaining qty (0/1).
