@@ -8,7 +8,7 @@ Fork of [joeltelling/print-farm-manager](https://github.com/joeltelling/print-fa
 
 No cloud. No subscriptions. No vendor lock-in.
 
-> **Security:** First run creates the first admin account (login + one-time setup guide). Additional named accounts with roles (admin/manager/operator/viewer) can be added from Users. This is still a basic local login: no CSRF token yet, no rate limiting yet, no TLS. Run only on a trusted LAN or VPN. Do not expose ports 3000 / 5173 to the internet. Anyone signed in with a non-viewer role can reach printer API keys and farm controls. See [docs/installation.md](docs/installation.md#account-recovery) for local password recovery if no admin can log in.
+> **Security:** First run creates the first admin account (login + one-time setup guide). Additional named accounts with roles (admin/manager/operator/viewer) can be added from Users. The login gate now has roles, a CSRF header, login rate limiting, an audit log, and optional HTTPS support (`COOKIE_SECURE`/`TRUST_PROXY`) behind a reverse proxy. Still run CoMa only on a trusted LAN or VPN; do not expose ports 3000 / 5173 to the internet. Full picture: [docs/security.md](docs/security.md).
 
 ---
 
@@ -213,7 +213,8 @@ Settings → General picks the default sales landing (`legacy` Sales Order vs `q
 
 ### Ops
 
-- JSON backup for shopfloor + ERP + G-code files (`auth_*`, eBay, and Shopify secrets excluded on purpose)
+- Named accounts with roles (admin/manager/operator/viewer), audit log, CSRF header, login rate limiting, optional HTTPS via reverse proxy; see [docs/security.md](docs/security.md)
+- JSON backup for shopfloor + ERP + G-code files (`auth_*`, `users`, `audit_log`, eBay, and Shopify secrets excluded on purpose); separate users-only export/import for migrating accounts between installations
 - Organic vs seed databases so demos never overwrite real farm data
 - Linux `./start.sh` / `./stop.sh` / `./restart.sh`, Docker Compose, optional PM2
 
@@ -409,6 +410,7 @@ core-manufacturing/
 | [docs/erp/ebay.md](docs/erp/ebay.md) | eBay Sell integration |
 | [docs/erp/shopify.md](docs/erp/shopify.md) | Shopify Admin integration |
 | [docs/api.md](docs/api.md) | REST contracts |
+| [docs/security.md](docs/security.md) | Accounts, roles, CSRF, rate limiting, audit log, HTTPS |
 | [docs/web-app.md](docs/web-app.md) | React pages and UI |
 | [docs/database.md](docs/database.md) | Schema |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Dated change log |

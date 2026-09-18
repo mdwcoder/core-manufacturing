@@ -9,7 +9,11 @@
 | File | Responsibility |
 |---|---|
 | `server/index.js` | App setup, route mounting, server start, poller + scheduler init |
-| `server/auth.js` | Password hashing, session tokens, cookie helpers, `requireAuth` middleware |
+| `server/auth.js` | Password hashing, session tokens, cookie helpers, `requireAuth`/`requireRole`/`requireMinRole`/`blockViewerWrites`/`blockOnForcedPasswordChange`/`requireCsrfHeader` middleware |
+| `server/audit.js` | Persistent audit log (`log(db, user, action, ...)`); see [docs/security.md](security.md#audit-log) |
+| `server/rate-limit.js` | In-memory sliding-window rate limiter for login/register/reset-password |
+| `server/trust-proxy.js` | Parses `TRUST_PROXY` for `app.set('trust proxy', ...)` |
+| `server/auth-migration.js` | One-time `auth_account` to `users` migration on upgrade |
 | `server/db.js` | SQLite connection, schema creation, directory setup |
 | `server/poller.js` | Printer status polling loop |
 | `server/scheduler.js` | Job dispatch engine — listens to poller events, dispatches prints |
@@ -43,13 +47,17 @@ No `.env` file is required for core shopfloor. Marketplace credentials can use e
 
 ## Login Gate
 
-Right after `express.json()` and before any router is mounted, `server/index.js` registers an inline middleware that 401s any `/api/*` request without a valid `coma_session` cookie, except `/api/auth/*` (which is what issues the cookie) and `/api/health`. Because Express checks middleware in registration order for every request regardless of when a later route was added during startup, this single middleware also covers `/api/projects`, `/api/parts`, and `/api/gcodes`, which are mounted later inside the `app.listen()` callback once the scheduler exists (see below). See [docs/api.md](api.md#authentication) for the auth endpoints themselves.
+Right after `express.json()`, `server/index.js` registers four global inline middlewares, in this order, before any router is mounted: the CSRF header check (`requireCsrfHeader()`, exempting only `POST /api/auth/login` and `POST /api/auth/register`), the login gate (401s any `/api/*` request without a valid `coma_session` cookie, exempting `/api/auth/*` and `/api/health`), the forced-password-change gate (`blockOnForcedPasswordChange`, exempting the same two plus `POST /api/users/me/password`), and the coarse role gate (`blockViewerWrites()`, rejecting any mutating request from a `viewer`). Because Express checks middleware in registration order for every request regardless of when a later route was added during startup, all four also cover `/api/projects`, `/api/parts`, and `/api/gcodes`, which are mounted later inside the `app.listen()` callback once the scheduler exists (see below). See [docs/security.md](security.md) for the full picture and [docs/api.md](api.md#authentication) for the auth endpoints themselves.
 
 ## Route Mounting
 
 ```
 GET    /api/health                  → health check (inline handler; not gated by auth)
 *      /api/auth                    → server/routes/auth.js (not gated by auth: this is what issues the session)
+*      /api/users                   → server/routes/users.js
+*      /api/audit-log               → server/routes/audit-log.js
+*      /api/sessions                → server/routes/sessions.js (selfRouter)
+*      /api/users/:id/sessions      → server/routes/sessions.js (adminRouter)
 POST   /api/scheduler/dispatch      → scheduler.sweepIdlePrinters() (inline handler)
 GET    /api/notifications           → notifications.list() (inline handler)
 DELETE /api/notifications/:id       → notifications.dismiss() (inline handler)

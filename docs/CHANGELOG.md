@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-09-18: Security documentation consolidated
+
+The nine commits before this one landed named accounts and roles, manageable
+sessions, forced password change and local recovery, role-based route
+gating, an audit log, users-only backup export/import with restore
+validation, login rate limiting, a CSRF header, and HTTPS support behind a
+reverse proxy. Each shipped with its own `docs/api.md` entries, but the
+overview was scattered. This adds `docs/security.md` as the one place that
+describes the whole surface (accounts and roles, passwords, sessions, CSRF,
+rate limiting, audit log, backup/restore, HTTPS) and links out to the
+request-level detail in `docs/api.md` and `docs/database.md`, and rewrites
+the README's security note and Ops capability table to describe what
+actually ships today instead of the original "deliberately basic" gate.
+
+### Changes
+- `docs/security.md` (new): accounts/roles, passwords, sessions, CSRF,
+  rate limiting, audit log, backup/restore, HTTPS, in one place
+- `docs/README.md`: index entry for `docs/security.md`
+- `docs/server.md`: documents the four global middlewares in their real
+  registration order, and the new `users`/`audit-log`/`sessions` route
+  mounts and `server/audit.js`/`rate-limit.js`/`trust-proxy.js`/
+  `auth-migration.js` modules
+- `README.md`: security note and Ops capability table rewritten to
+  describe roles, CSRF, rate limiting, the audit log, and HTTPS support,
+  linking to `docs/security.md`
+
+---
+
 ## 2026-09-18: Trust proxy + conditional Secure cookie
 
 The last piece of the README's security note: "no TLS". CoMa still speaks
