@@ -7,6 +7,8 @@ import PrinterDetail from './pages/PrinterDetail';
 import Projects from './pages/Projects';
 import Jobs from './pages/Jobs';
 import Settings from './pages/Settings';
+import Users from './pages/Users';
+import AuditLog from './pages/AuditLog';
 import Decommissioned from './pages/Decommissioned';
 import Timelapses from './pages/Timelapses';
 import Calendar from './pages/Calendar';
@@ -56,8 +58,11 @@ const compactLinkStyle = ({ isActive }) => ({
   fontWeight: isActive ? 700 : 500,
 });
 
-export default function App() {
+export default function App({ authRole, authUsername }) {
   const [farmName, setFarmName] = useState('CoMa');
+  // Users management is visible to admin and manager (mutations are admin-only,
+  // enforced server-side regardless of what this hides); everyone else never sees it.
+  const canSeeUsers = authRole === 'admin' || authRole === 'manager';
   const [showBoot, setShowBoot] = useState(shouldShowBootSplash);
   const dismissBoot = useCallback(() => setShowBoot(false), []);
 
@@ -130,6 +135,16 @@ export default function App() {
             <NavSections linkStyle={navLinkStyle} />
 
             <div style={{ marginTop: 2 }}>
+              {canSeeUsers && (
+                <NavLink to="/users" className={navLinkClass} style={navLinkStyle}>
+                  Users
+                </NavLink>
+              )}
+              {canSeeUsers && (
+                <NavLink to="/audit-log" className={navLinkClass} style={navLinkStyle}>
+                  Audit Log
+                </NavLink>
+              )}
               <NavLink to={SETTINGS_ITEM.to} className={navLinkClass} style={navLinkStyle}>
                 {SETTINGS_ITEM.label}
               </NavLink>
@@ -149,6 +164,16 @@ export default function App() {
         <nav id="topbar">
           <span style={{ fontWeight: 800, fontSize: 14, color: theme.textBright, marginRight: 4 }}>{farmName}</span>
           <NavSections compact linkStyle={compactLinkStyle} />
+          {canSeeUsers && (
+            <NavLink to="/users" style={compactLinkStyle}>
+              Users
+            </NavLink>
+          )}
+          {canSeeUsers && (
+            <NavLink to="/audit-log" style={compactLinkStyle}>
+              Audit Log
+            </NavLink>
+          )}
           <NavLink to={SETTINGS_ITEM.to} style={compactLinkStyle}>
             {SETTINGS_ITEM.label}
           </NavLink>
@@ -197,6 +222,8 @@ export default function App() {
             <Route path="/workspace"       element={<WorkspaceBoard />} />
             <Route path="/workspace/bloc"  element={<Notebook />} />
             <Route path="/decommissioned"  element={<Decommissioned />} />
+            <Route path="/users"           element={<Users authRole={authRole} />} />
+            <Route path="/audit-log"       element={<AuditLog />} />
             <Route path="/settings"        element={<Settings />} />
           </Routes>
           </div>

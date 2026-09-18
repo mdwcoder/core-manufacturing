@@ -20,27 +20,27 @@ All request bodies are JSON (`Content-Type: application/json`) unless noted othe
 
 ## Authentication
 
-CoMa gates every `/api/*` route except `/api/auth/*` and `/api/health` behind a single local operator account (`server/auth.js`, `server/routes/auth.js`). This is intentionally basic: one shared account, no roles, no password reset flow, no CSRF token, no rate limiting. It stops a stranger on the LAN from opening the app without logging in; it is not a hardened multi-user auth system. Still run CoMa only on a trusted LAN or VPN (see the security note in [README.md](../README.md)).
+CoMa gates every `/api/*` route except `/api/auth/*` and `/api/health` behind a local login (`server/auth.js`, `server/routes/auth.js`). Named accounts each carry a role (`admin`, `manager`, `operator`, `viewer`); see [docs/security.md](security.md) for the full permission model, audit log, CSRF header, rate limiting, and password recovery.
 
-Sessions are an HttpOnly `coma_session` cookie (`SameSite=Lax`, 30 day expiry, no `Secure` attribute since installs are typically plain HTTP on a LAN). The client (`client/src/components/AuthGate.jsx`) reads `GET /api/auth/status` to decide which screen to show: create an account, log in, run the one-time setup guide, or render the app.
+Sessions are an HttpOnly `coma_session` cookie (`SameSite=Lax`, 30 day expiry; `Secure` only when `COOKIE_SECURE=true` is set, see [docs/installation.md](installation.md)). The client (`client/src/components/AuthGate.jsx`) reads `GET /api/auth/status` to decide which screen to show: create the first account, log in, force a password change, run the one-time setup guide, or render the app.
 
 ### `GET /api/auth/status`
 
 Not gated by auth (this is what decides whether to ask for one). Returns:
 
 ```json
-{ "hasAccount": true, "authenticated": true, "onboardingCompleted": false, "username": "operator" }
+{ "hasAccount": true, "authenticated": true, "onboardingCompleted": false, "username": "operator", "role": "admin", "mustChangePassword": false }
 ```
 
-`username` is only present when `authenticated` is `true`.
+`username`, `role`, and `mustChangePassword` are only present when `authenticated` is `true`.
 
 ### `POST /api/auth/register`
 
-Creates the single operator account. Body: `{ "username": "...", "password": "..." }` (password minimum 8 characters). Sets the session cookie and returns `201` with `{ "ok": true, "onboardingCompleted": false }`. Returns `409` if an account already exists (delete it first via `/api/auth/delete-account`), `400` for a missing username or a short password.
+Creates the very first account (always `admin`) on a fresh install. Body: `{ "username": "...", "password": "..." }` (password minimum 8 characters). Sets the session cookie and returns `201` with `{ "ok": true, "onboardingCompleted": false }`. Returns `409` once any account exists (every later user is created by an admin via `POST /api/users`, see [docs/security.md](security.md)), `400` for a missing username or a short password.
 
 ### `POST /api/auth/login`
 
-Body: `{ "username": "...", "password": "..." }`. Sets the session cookie and returns `{ "ok": true, "onboardingCompleted": <bool> }`. Returns `401` for a wrong username or password.
+Body: `{ "username": "...", "password": "..." }`. Sets the session cookie and returns `{ "ok": true, "onboardingCompleted": <bool>, "role": "...", "mustChangePassword": <bool> }`. Returns `401` for a wrong username/password or a deactivated user, `429` after `DEFAULT_MAX_ATTEMPTS` (10) attempts for the same IP+username within `DEFAULT_WINDOW_MS` (10 minutes): see [Rate limiting](#rate-limiting) below.
 
 ### `POST /api/auth/logout`
 
@@ -48,13 +48,202 @@ Clears the caller's session. Returns `{ "ok": true }`. The account itself is unt
 
 ### `POST /api/auth/complete-onboarding`
 
-Marks the one-time setup guide as done for the account, so `AuthGate` stops showing it. Requires a valid session (`401` otherwise). Returns `{ "ok": true }`.
+Marks the one-time setup guide as done for the whole install (a `settings` key, not a per-account flag), so `AuthGate` stops showing it. Requires a valid session (`401` otherwise). Returns `{ "ok": true }`.
 
 ### `POST /api/auth/delete-account`
 
-The only way the setup guide reappears. Body: `{ "password": "..." }`; the current password is required even though the caller already holds a session, because this is destructive. Deletes the account, invalidates every open session (not just the caller's), and clears the session cookie. Returns `{ "ok": true }`, `401` for a missing session or a wrong password, `404` if there is no account.
+Deletes the caller's own account. Body: `{ "password": "..." }`; the current password is required even though the caller already holds a session, because this is destructive. Blocked with `409` if the caller is the last active admin. Invalidates every session belonging to that account and clears the session cookie. Returns `{ "ok": true }`, `401` for a missing session or a wrong password.
 
-`auth_account` and `auth_sessions` are intentionally excluded from `GET /api/backup` and restore: a restored backup must never change who can log into the machine it lands on, or leak a password hash inside the backup JSON (see `server/routes/backup.js`).
+`users`, `auth_sessions`, and `audit_log` are intentionally excluded from `GET /api/backup` and restore: a restored backup must never change who can log into the machine it lands on, or leak a password hash inside the backup JSON (see `server/routes/backup.js`).
+
+### Sessions
+
+`auth_sessions.token` is never sent to the client. Every session is identified by a
+`display_id` (`sha256(token).slice(0, 16)`, computed server-side on read). All routes
+require a valid session; the admin routes additionally require the `admin` role.
+
+#### `GET /api/sessions`
+
+The caller's own open sessions, most recently seen first:
+
+```json
+[{ "display_id": "a1b2c3d4e5f60718", "created_at": 1774900000000, "expires_at": 1777492000000, "last_seen_at": 1774903200000, "user_agent": "Mozilla/5.0...", "ip": "192.168.1.20", "current": true }]
+```
+
+#### `DELETE /api/sessions`
+
+Revokes every other session belonging to the caller (never the one making this
+request). Returns `{ "ok": true, "revoked": <count> }`.
+
+#### `DELETE /api/sessions/:displayId`
+
+Revokes one of the caller's own sessions. `404` if `displayId` does not belong to the
+caller.
+
+#### `GET /api/users/:id/sessions`
+
+Admin only. Same shape as `GET /api/sessions`, for the given user. `404` if the user
+does not exist, `403` for a non-admin caller.
+
+#### `DELETE /api/users/:id/sessions` / `DELETE /api/users/:id/sessions/:displayId`
+
+Admin only. Revokes all, or one, of another user's sessions. Used to sign out a
+departed or compromised account without knowing its password.
+
+### Users
+
+`GET /api/users` is visible to `manager` and `admin`; every mutation below requires
+`admin`. Responses never include `password_hash`/`password_salt`.
+
+#### `GET /api/users`
+
+```json
+[{ "id": 2, "username": "shift-lead", "role": "operator", "is_active": 1, "must_change_password": 0, "created_at": 1774900000000, "created_by": 1 }]
+```
+
+#### `POST /api/users`
+
+Body: `{ "username": "...", "role": "admin"|"manager"|"operator"|"viewer" }`. There is
+no password field: a random temporary password is generated and returned once,
+alongside the new user, with `must_change_password` already set. Returns `201`, `409`
+for a taken username, `400` for a missing username or invalid role.
+
+```json
+{ "user": { "id": 5, "username": "shift-lead", "role": "operator", "is_active": 1, "must_change_password": 1, "created_at": 1774900000000, "created_by": 1 }, "temporaryPassword": "aBc123XyZ..." }
+```
+
+#### `PUT /api/users/:id`
+
+Partial update, `COALESCE`d: `{ "role": "...", "is_active": 0|1 }`. Deactivating a user
+revokes every open session of theirs. Returns `404` for an unknown user, `409` if the
+change would leave CoMa with no active admin.
+
+#### `DELETE /api/users/:id`
+
+Deletes the user and revokes their sessions. `404` for an unknown user, `409` if they
+are the last active admin.
+
+#### `POST /api/users/:id/reset-password`
+
+Generates a new random temporary password, sets `must_change_password`, and revokes
+every open session of that user. Returns the password once. `429` after
+`DEFAULT_MAX_ATTEMPTS` calls for the same admin IP + target user within
+`DEFAULT_WINDOW_MS` (see [Rate limiting](#rate-limiting) below):
+
+```json
+{ "ok": true, "temporaryPassword": "aBc123XyZ..." }
+```
+
+#### `POST /api/users/me/password`
+
+Any authenticated user changing their own password. Body:
+`{ "currentPassword": "...", "newPassword": "..." }` (new password minimum 8
+characters). This is the one route still reachable while `must_change_password` is set
+(see below), and does not require any particular role.
+
+#### `GET /api/users/export`
+
+Admin only. Migrates the user roster between installations. `{username, role,
+is_active}` only, never a password hash:
+
+```json
+{ "version": 1, "exported_at": 1774900000000, "users": [{ "username": "shift-lead", "role": "operator", "is_active": 1 }] }
+```
+
+#### `POST /api/users/import`
+
+Admin only. Body: `{ "users": [{ "username": "...", "role": "...", "is_active": 0|1 }] }`
+(the shape `GET /api/users/export` produces). Each user is created with its own fresh
+random temporary password and `must_change_password` set, exactly like
+`POST /api/users`; an imported roster never carries a usable password across machines.
+An existing username is skipped, not overwritten. Returns `201`:
+
+```json
+{ "created": [{ "id": 6, "username": "shift-lead", "role": "operator", "temporaryPassword": "aBc123XyZ..." }], "skipped": [{ "username": "already-here", "reason": "username already exists" }] }
+```
+
+### Forced password change
+
+While `req.user.must_change_password` is set, every `/api/*` route is rejected with
+`403 { "error": "Password change required", "code": "MUST_CHANGE_PASSWORD" }` except
+`/api/auth/*`, `/api/health`, and `POST /api/users/me/password`. The client
+(`AuthGate.jsx`) shows a dedicated screen for this instead of the normal app or
+onboarding.
+
+### Local password recovery
+
+`node server/scripts/reset-admin-password.js <username> <new-password> [--role admin]`,
+run directly on the machine (SSH/console access is the security boundary, documented
+in [docs/installation.md](installation.md)). Creates the user if it does not exist,
+otherwise resets its password and revokes its open sessions; the account is usable
+immediately, without a forced change, since the operator typed the password themselves.
+
+### Role-based route gating
+
+Every route below `/api/*` (except `/api/auth/*` and `/api/health`) now runs behind
+three global checks, in order, after the login gate: the forced-password-change gate
+above, then `blockViewerWrites()`: any `POST`/`PUT`/`DELETE`/`PATCH` from a `viewer`
+role is rejected with `403 { "error": "Viewers cannot make changes" }`. This is
+intentionally coarse: a `viewer` can read everything the app shows them (Fleet,
+Projects, ERP, ...) but cannot change anything, without every one of the ~20 existing
+route files needing its own role check. Endpoints that need a tighter role than "not a
+viewer" say so explicitly in their own section: `GET /api/users` and
+`GET /api/backup` need `manager` or above; user mutations and `POST /api/backup/restore`
+need `admin`.
+
+This does not change what `admin`/`manager`/`operator` can do anywhere in the app
+compared to before roles existed; it only adds a floor for `viewer`.
+
+### CSRF header
+
+Every mutating `/api/*` request (`POST`/`PUT`/`DELETE`/`PATCH`) must carry
+`X-CoMa-Request: 1`, except `POST /api/auth/login` and `POST /api/auth/register` (the
+two entry points that issue a session in the first place; there is no session yet to
+protect). A request missing or with a wrong value for that header gets
+`403 { "error": "Missing required request header" }`, before the login gate or any
+route handler runs. Cookies are already `SameSite=Lax` with no CORS configuration, so a
+plain cross-site form post or fetch cannot set a custom header; this closes the rest of
+the gap without a token to generate, store, or rotate.
+
+The client never has to think about this: `client/src/apiFetch.js` is a drop-in
+replacement for `fetch()` that adds the header to every mutating call, and every page's
+`fetch()`/`apiJson()` call goes through it (ERP pages share one `apiJson()` helper in
+`client/src/pages/erp/shared.jsx`, so wiring it there covered all of them at once).
+
+### Rate limiting
+
+`server/rate-limit.js`: an in-memory sliding window, no new dependency (same spirit as
+`server/auth.js`'s own "no new dependency" note). Mounted on `POST /api/auth/login`,
+`POST /api/auth/register`, and `POST /api/users/:id/reset-password`. Login and register
+share the same key (IP + the username in the request body, lowercased and trimmed) so
+they bound each other; reset-password keys on IP + the target user id. Default:
+`DEFAULT_MAX_ATTEMPTS` = 10 attempts per `DEFAULT_WINDOW_MS` = 10 minutes. A blocked
+request gets `429 { "error": "Too many attempts, try again later" }` with a
+`Retry-After` header (seconds). State resets on server restart, the same tradeoff
+session expiry already makes; it is not shared across multiple server processes.
+
+### Audit log
+
+`GET /api/audit-log` requires `manager` or above. Read-only; the log itself has no
+pruning and no delete endpoint (see `docs/database.md#audit_log`).
+
+Query params, all optional and combined with AND: `user_id`, `action` (exact match, see
+the action names below), `entity_type`, `from`/`to` (epoch ms, inclusive), `limit`
+(default 50, capped at 200), `offset`.
+
+```json
+{ "rows": [{ "id": 41, "user_id": 2, "username": "shift-lead", "action": "printer.set_ready", "entity_type": "printer", "entity_id": 7, "note": null, "ip": "192.168.1.20", "created_at": 1774903200000 }], "total": 1, "limit": 50, "offset": 0 }
+```
+
+Actions currently logged: `auth.register`, `auth.login`, `auth.login_failed`,
+`auth.logout`, `auth.delete_account`, `user.create`, `user.update`, `user.delete`,
+`user.reset_password`, `user.change_own_password`, `session.revoke`,
+`session.revoke_all`, `backup.export`, `backup.restore`, `printer.set_ready`,
+`printer.set_ready_batch`, `printer.recommission`. The last three record
+safety-sensitive fleet actions as a pure side effect. `printer.set_ready` is emitted
+after any existing quantity reconciliation has completed; see
+`server/tests/role-gating.test.js` for the proof that role gating did not change what
+gets credited.
 
 ---
 
@@ -1326,6 +1515,22 @@ All error responses use this shape:
 Downloads a complete CoMa snapshot as `shopfloor-backup-YYYY-MM-DD.json`. The stable filename is retained for compatibility. It includes `printers`, `projects`, `parts`, `gcodes`, `jobs`, `printer_events`, `printer_models`, `printer_groups`, `filament_types`, `filament_colors`, `settings`, gcode file contents, and an `erp` object containing every embedded ERP table. Older `farm-backup-*.json` files still restore. No request body.
 
 **Response:** `Content-Disposition: attachment` JSON file.
+
+### `POST /api/backup/validate`
+
+Admin only. Parses and sanity-checks an uploaded backup file without writing anything,
+so the client can show a confirmation summary before the operator commits to the real,
+destructive restore below. Same request shape as restore (`multipart/form-data`, field
+`file`). Row counts, an `erp` per-table breakdown when the backup has one, `version`,
+and `exported_at` are reported so the summary can say what the file actually contains.
+
+```json
+{ "valid": true, "version": 1, "exported_at": 1774900000000, "counts": { "printers": 52, "projects": 3, "parts": 12, "gcodes": 18, "jobs": 340 }, "erp": { "item": 40 } }
+```
+
+An unrecognised format or a failed ERP-section check returns `200` with
+`{ "valid": false, "error": "..." }` (this is a validation *result*, not a request
+error). Invalid JSON or a missing file still return `400`.
 
 ### `POST /api/backup/restore`
 

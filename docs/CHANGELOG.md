@@ -2,6 +2,353 @@
 
 ---
 
+## 2026-09-18: Fix security branch integration regressions
+
+Reviewing the multi-user security branch against the complete application found two
+integration failures that its focused server tests did not exercise. Calendar create
+and update requests still used native `fetch`, so the new server-wide CSRF header gate
+rejected every save with 403. User deletion also left incoming `users.created_by`
+references intact, so deleting an account that had created another account failed with
+`SQLITE_CONSTRAINT_FOREIGNKEY`.
+
+### Changes
+- `client/src/pages/Calendar.jsx`: send calendar create and update requests through
+  `apiFetch` so they carry the required CSRF header
+- `server/routes/auth.js`, `server/routes/users.js`: clear historical `created_by`
+  attribution and delete sessions and users in one transaction
+- `server/tests/auth.test.js`, `server/tests/users.test.js`: cover deletion of an
+  account referenced as another account's creator
+- `server/tests/client-csrf.test.js`: guard the Calendar mutation path against falling
+  back to native `fetch`
+- `docs/security.md`, `docs/api.md`, `client/src/pages/AuditLog.jsx`: describe the
+  current audit scope as safety-sensitive fleet actions without implying that every
+  listed action changes part quantities
+
+---
+
+## 2026-09-18: Security documentation consolidated
+
+The nine commits before this one landed named accounts and roles, manageable
+sessions, forced password change and local recovery, role-based route
+gating, an audit log, users-only backup export/import with restore
+validation, login rate limiting, a CSRF header, and HTTPS support behind a
+reverse proxy. Each shipped with its own `docs/api.md` entries, but the
+overview was scattered. This adds `docs/security.md` as the one place that
+describes the whole surface (accounts and roles, passwords, sessions, CSRF,
+rate limiting, audit log, backup/restore, HTTPS) and links out to the
+request-level detail in `docs/api.md` and `docs/database.md`, and rewrites
+the README's security note and Ops capability table to describe what
+actually ships today instead of the original "deliberately basic" gate.
+
+### Changes
+- `docs/security.md` (new): accounts/roles, passwords, sessions, CSRF,
+  rate limiting, audit log, backup/restore, HTTPS, in one place
+- `docs/README.md`: index entry for `docs/security.md`
+- `docs/server.md`: documents the four global middlewares in their real
+  registration order, and the new `users`/`audit-log`/`sessions` route
+  mounts and `server/audit.js`/`rate-limit.js`/`trust-proxy.js`/
+  `auth-migration.js` modules
+- `README.md`: security note and Ops capability table rewritten to
+  describe roles, CSRF, rate limiting, the audit log, and HTTPS support,
+  linking to `docs/security.md`
+
+---
+
+## 2026-09-18: Trust proxy + conditional Secure cookie
+
+The last piece of the README's security note: "no TLS". CoMa still speaks
+plain HTTP itself; this adds the two opt-in env vars a reverse proxy setup
+needs, both defaulting to today's LAN/HTTP behavior so nothing changes for
+an install that does not set them. `COOKIE_SECURE=true` adds `Secure` to
+the session cookie for an install actually served over HTTPS; `TRUST_PROXY`
+makes `req.ip` (used by rate limiting and the audit log) reflect the real
+client address instead of the proxy's.
+
+### Changes
+- `server/auth.js`: `setSessionCookie`/`clearSessionCookie` add `; Secure`
+  when `COOKIE_SECURE=true`
+- `server/trust-proxy.js` (new): pure `parseTrustProxy(raw)`, kept separate
+  from `server/index.js` so it is testable without importing that file
+- `server/index.js`: calls `app.set('trust proxy', ...)` when `TRUST_PROXY`
+  is set
+- `server/tests/trust-proxy.test.js` (new); `server/tests/auth.test.js`
+  gets `COOKIE_SECURE` coverage on the real register/logout responses
+- `docs/installation.md`: new "HTTPS / reverse proxy" section with nginx
+  and Caddy examples, and an explicit warning that `COOKIE_SECURE=true`
+  without HTTPS breaks login silently
+
+---
+
+## 2026-09-18: CSRF header, server-wide
+
+The last named gap in the README's security note: "no CSRF token". Since
+cookies are already `SameSite=Lax` and the server has no CORS configuration,
+requiring a custom header on every mutating request is enough to stop a
+plain cross-site form post or fetch, without a token to generate, store,
+rotate, or leak.
+
+Server side is one small middleware (`requireCsrfHeader()`), mounted before
+the login gate so it applies uniformly. Client side is the wide part: every
+mutating `fetch()` call across the app now goes through
+`client/src/apiFetch.js`. ERP pages already routed every mutation through
+one shared `apiJson()` helper, so that one edit covered all of them; every
+other page's `fetch(url, { method: 'POST' | 'PUT' | 'DELETE', ... })` calls
+were mechanically switched to `apiFetch(...)`, verified with
+`npm run build` and a full sweep confirming no mutating `fetch()` call was
+left unrouted anywhere in `client/src`.
+
+### Changes
+- `server/auth.js`: `requireCsrfHeader()`
+- `server/index.js`: mounts it first, exempting only
+  `POST /api/auth/login` and `POST /api/auth/register`
+- `server/tests/auth.test.js`: coverage for the header check
+- `client/src/apiFetch.js` (new): drop-in `fetch()` wrapper
+- `client/src/components/AuthGate.jsx`: its own `postJson`/`putJson` now
+  route through `apiFetch`
+- `client/src/pages/erp/shared.jsx`: `apiJson()` now routes through
+  `apiFetch`, covering every ERP page's mutations in one place
+- `client/src/components/AlertBell.jsx`, `client/src/pages/{Calendar,
+  Decommissioned,Fleet,Jobs,Notebook,PrinterDetail,Printers,Projects,
+  Settings,Timelapses,Users,WorkspaceBoard}.jsx`: every mutating `fetch()`
+  call switched to `apiFetch()`
+- `client/src/pages/Projects.jsx`: the one `XMLHttpRequest`-based upload
+  (gcode upload with progress) gets the header via `setRequestHeader`
+- `docs/api.md`, `docs/web-app.md`: document the header and the client
+  wrapper
+
+---
+
+## 2026-09-18: Login rate limiting
+
+The README's own security note has long admitted "no rate limiting"; this
+closes that specific gap. `server/rate-limit.js` is a small in-memory
+sliding window, no new dependency, mounted on the three endpoints an
+automated retry loop would actually target: login, register, and an
+admin's password reset for another user. Login and register share a key
+(IP + username) so they bound each other; reset-password keys on IP +
+target user id.
+
+State lives in a plain Map for the process lifetime rather than a
+background sweep timer, so it adds no interval/handle for the process or
+for tests to manage; it resets on restart, the same tradeoff session expiry
+already makes in `server/auth.js`.
+
+### Changes
+- `server/rate-limit.js` (new): `rateLimit({ windowMs, max, keyFn })`,
+  `loginKey`, `resetPasswordKey`
+- `server/routes/auth.js`: rate limits `POST /login` and `POST /register`
+- `server/routes/users.js`: rate limits `POST /:id/reset-password`
+- `server/tests/rate-limit.test.js` (new); `auth.test.js` gets an
+  end-to-end 429 test against the real login route
+- `docs/api.md`: documents the rate limiter and the endpoints it covers
+
+---
+
+## 2026-09-18: Users-only export/import, restore validation
+
+Two small gaps left in the backup surface: restoring a large backup file was
+"upload it and find out" with no preview, and there was no supported way to
+move an admin roster onto a fresh install (matching what the plan settled
+on: general export/import stays out of scope, users-only is the one piece
+added). Both are additive, read-mostly features on top of the existing
+backup/restore endpoint pair.
+
+`POST /api/backup/validate` parses and counts an uploaded file without
+writing anything; the Settings restore form now calls it first and shows the
+real row counts in the confirmation dialog instead of a generic warning.
+`GET /api/users/export` / `POST /api/users/import` round-trip
+`{username, role, is_active}` only, never a password hash: every imported
+user gets its own fresh random temporary password, exactly like creating one
+by hand.
+
+### Changes
+- `server/routes/backup.js`: `POST /api/backup/validate` (admin), sharing
+  the same format checks as `/restore`
+- `server/routes/users.js`: `GET /api/users/export`, `POST /api/users/import`
+  (admin), both static routes declared before `/:id`
+- `server/tests/backup-restore.test.js`: validate coverage, plus the
+  `users`/`audit_log` export-exclusion assertion extended alongside the
+  existing `auth_account`/`auth_sessions` one (sync pair with backup.js)
+- `server/tests/users.test.js`: export/import coverage, including the
+  skip-without-overwrite case for an existing username
+- `client/src/pages/Settings.jsx`: restore form validates first and shows
+  real row counts in the confirmation
+- `client/src/pages/Users.jsx`: export/import UI, admin only
+- `docs/api.md`: documents the three new endpoints
+
+---
+
+## 2026-09-18: Audit log
+
+Named accounts, roles, and role-based gating (previous commits) answer "who
+is allowed to do X". This answers "who actually did X": a persistent,
+never-pruned audit log covering login/logout (success and failure), user
+management, session revocation, backup export/restore, and the
+safety-sensitive fleet actions set-ready, set-ready-batch, and recommission.
+
+Set Ready was the one place this needed extra care: `audit.log()` is added next
+to the existing state change as a pure side effect, after any `completed_qty`
+reconciliation has already been written, never as part of computing it. A regression
+test already exists for this from the role-gating commit; nothing about it changed
+here.
+
+`server/audit.js` takes `db` as a parameter rather than requiring the real
+`server/db.js` singleton at module scope (unlike `server/events.js`, which
+it is otherwise modeled on): it is wired into `auth.js`, `users.js`,
+`sessions.js`, and `backup.js`, all of which are exercised by tests that
+build their own in-memory database, and none of them may transitively pull
+in the real database file (CLAUDE.md's "heavyweight test" rule).
+
+### Changes
+- `server/audit.js` (new): `log(db, user, action, { entityType, entityId, note, ip })`
+- `server/routes/audit-log.js` (new): `GET /api/audit-log` (manager+), filters
+  on `user_id`/`action`/`entity_type`/`from`/`to`, paginated
+- `server/routes/auth.js`, `users.js`, `sessions.js`, `backup.js`: call
+  `audit.log()` next to the existing state change in each mutating route
+- `server/index.js`: mounts the audit-log router; calls `audit.log()` in
+  set-ready/set-ready-batch/recommission, after the existing crediting code
+- `server/tests/audit-log.test.js` (new); `auth.test.js`, `users.test.js`,
+  `sessions.test.js`, `backup-restore.test.js` updated with an `audit_log`
+  table in their in-memory schema
+- `client/src/pages/AuditLog.jsx` (new): filterable, paginated table;
+  `client/src/App.jsx`: nav entry and route, visible to manager and admin
+- `docs/api.md`: documents the audit-log endpoint and the actions it logs
+
+---
+
+## 2026-09-18: Role-based route gating
+
+Roles existed on the `users` table since the first commit of this series but
+did nothing yet: every authenticated user, whatever their role, could still
+do everything. This wires the coarse permission model the plan settled on:
+a global `blockViewerWrites()` gate rejects any mutating request from a
+`viewer`, without touching the ~20 existing route files individually, plus
+a few explicitly tighter endpoints (`GET /api/backup` and `GET /api/users`
+need `manager`+; `POST /api/backup/restore` and user mutations need
+`admin`).
+
+The one place this had to be handled carefully is `completed_qty`
+(non-negotiable #1): set-ready, recommission, and set-ready-batch are all
+`POST` handlers inside `server/index.js`, so they are covered by the new
+global gate automatically. No line of their crediting logic changed. A
+dedicated regression test proves it: an operator gets exactly the same
+`completed_qty` delta as before this change, and a viewer gets `403` with
+`completed_qty` left completely untouched.
+
+### Changes
+- `server/index.js`: mounts `blockViewerWrites()` globally, right after the
+  forced-password-change gate; adds explanatory comments (no logic changes)
+  to the set-ready/recommission/set-ready-batch/scheduler-dispatch handlers
+  noting they are now covered by it
+- `server/routes/backup.js`: `GET /api/backup` requires `manager`+,
+  `POST /api/backup/restore` requires `admin`
+- `server/tests/role-gating.test.js` (new): the completed_qty regression
+  proof described above, plus recommission gating
+- `server/tests/backup-restore.test.js`: existing tests now run behind a
+  stand-in admin `req.user` (matching what the real login gate would set),
+  plus new coverage for the backup route role gates
+- `docs/api.md`: documents the gating order and which endpoints need more
+  than "not a viewer"
+
+---
+
+## 2026-09-18: User management, forced password change, local password recovery
+
+With named accounts and roles in place (two commits back), CoMa needs a way to
+actually add operators and recover a locked-out account without email. This
+adds a Users admin screen, a self password-change route, a forced-change
+gate that blocks the rest of the app until a temporary password is replaced,
+and a console-only recovery script for when no admin can log in at all.
+
+Admin-created passwords are always random and temporary, never chosen by the
+admin creating the account: the real password is only ever known to the
+person who typed it in on first login (or via `users/me/password`).
+
+### Changes
+- `server/auth.js`: adds `generateTemporaryPassword` and the
+  `blockOnForcedPasswordChange` middleware factory
+- `server/routes/users.js` (new): `GET /api/users` (manager+),
+  `POST /api/users`, `PUT /api/users/:id`, `DELETE /api/users/:id`,
+  `POST /api/users/:id/reset-password` (admin only, last-active-admin guard
+  on demote/deactivate/delete), `POST /api/users/me/password` (self)
+- `server/index.js`: mounts the users router and the forced-password-change
+  gate (exempts only `/api/auth/*`, `/api/health`, and
+  `POST /api/users/me/password`)
+- `server/scripts/reset-admin-password.js` (new): console-only recovery,
+  documented as needing SSH/console access rather than a network endpoint
+- `server/tests/users.test.js` (new), `server/tests/auth.test.js`: coverage
+  for user CRUD, the last-admin guard, self password change, and the forced-
+  change gate
+- `client/src/components/AuthGate.jsx`: new forced-password-change screen;
+  passes `authRole`/`authUsername` down to `<App>` as props
+  (no context provider, per project convention)
+- `client/src/App.jsx`, `client/src/pages/Users.jsx` (new): Users
+  administration page (list, create, edit role/active, reset password with
+  a one-time reveal, delete, per-user sessions), nav entry hidden below
+  manager
+- `README.md`, `docs/installation.md`, `docs/api.md`: document the users
+  endpoints, forced password change, and the local recovery script
+
+---
+
+## 2026-09-18: Manageable sessions
+
+Named accounts (previous commit) need a way to see and end their own logins, and an
+admin needs a way to sign out a departed or compromised account without knowing its
+password. Sessions were already tracked in `auth_sessions`; this adds routes and a
+Settings UI on top, without ever exposing the real session token to the client (every
+session is addressed by a `display_id`, a truncated hash of the token, computed on the
+server).
+
+### Changes
+- `server/routes/sessions.js` (new): `selfRouter` (`GET/DELETE /api/sessions`,
+  `DELETE /api/sessions/:displayId`) and `adminRouter`
+  (`GET/DELETE /api/users/:id/sessions[/:displayId]`, admin only)
+- `server/index.js`: mounts both routers
+- `server/tests/sessions.test.js` (new): list/revoke for self and for another user,
+  role gating, display-id lookup never leaking the raw token
+- `client/src/pages/Settings.jsx`: new "Sessions" section in the Account tab (list,
+  revoke one, sign out everywhere else); corrected the now-stale "Delete account"
+  copy left over from the single-shared-account era
+- `docs/api.md`: documents the new session endpoints
+
+---
+
+## 2026-09-18: Named accounts and roles, replacing the single shared login
+
+The README has long admitted the login gate was "deliberately basic: one shared
+login, no CSRF token, no rate limiting, no TLS". This starts closing that gap.
+First step: replace the single `auth_account` row with a `users` table so every
+operator gets a named account with a role (`admin`, `manager`, `operator`,
+`viewer`). Existing installs are migrated in place on first startup after the
+upgrade: the one `auth_account` row becomes the first admin, its
+`onboarding_completed_at` moves to the `settings` table (the setup wizard is a
+per-installation event, not a per-account one), and open sessions are
+reassigned so nobody is forced to log back in. `auth_account` itself is never
+dropped, per the no-destructive-migrations rule.
+
+Role-based route gating and a proper user-management UI land in later commits;
+this commit only lays the data model and the register/login/logout/status/
+delete-account endpoints on top of it, preserving today's behavior for a single
+operator while making multiple named accounts possible.
+
+### Changes
+- `server/db.js`: new `users` and `audit_log` tables, `auth_sessions` grows
+  `user_id`/`user_agent`/`ip`/`last_seen_at`, calls the new migration on startup
+- `server/auth-migration.js` (new): pure, testable `migrateAuthAccountToUsers(db)`
+- `server/auth.js`: `createSession`/`getValidSession`/`requireAuth` now work in
+  terms of `users` and attach `req.user`; adds `ROLE_RANK`, `requireRole`,
+  `requireMinRole`, `blockViewerWrites` (not yet mounted anywhere)
+- `server/routes/auth.js`: register/login/status/delete-account read and write
+  `users` instead of `auth_account`; delete-account now removes only the
+  caller's own account and is blocked (409) if they are the last active admin
+- `server/tests/auth.test.js`, `server/tests/auth-migration.test.js`: updated
+  and new coverage for the users-table behavior and the migration
+- `docs/database.md`, `docs/api.md`: document the `users`/`audit_log` tables
+  and the updated auth endpoint responses
+
+---
+
 ## 2026-09-18: Orders Hub gallery shots and docs aligned
 
 After Orders Hub shipped (eBay + Shopify + planned Amazon / Mercado Libre), the

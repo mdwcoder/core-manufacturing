@@ -449,26 +449,54 @@ Backup export includes `shopify_listing`, `shopify_order`, `shopify_order_line`,
 
 ### Authentication tables
 
-Created by `server/db.js`, read and written by `server/auth.js` / `server/routes/auth.js`. See [docs/api.md](api.md#authentication).
+Created by `server/db.js`, read and written by `server/auth.js` / `server/routes/auth.js`. See [docs/api.md](api.md#authentication) and [docs/security.md](security.md).
 
 ```sql
-CREATE TABLE IF NOT EXISTS auth_account (
-  id                       INTEGER PRIMARY KEY CHECK (id = 1),  -- single row: one shared account
-  username                 TEXT NOT NULL,
-  password_hash            TEXT NOT NULL,                       -- crypto.scrypt, hex
-  password_salt            TEXT NOT NULL,                       -- hex, unique per account
-  onboarding_completed_at  INTEGER,                             -- null until the setup guide finishes
-  created_at               INTEGER NOT NULL
+CREATE TABLE IF NOT EXISTS users (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  username              TEXT NOT NULL UNIQUE,
+  password_hash         TEXT NOT NULL,                        -- crypto.scrypt, hex
+  password_salt         TEXT NOT NULL,                        -- hex, unique per user
+  role                  TEXT NOT NULL DEFAULT 'operator'
+                          CHECK (role IN ('admin','manager','operator','viewer')),
+  is_active             INTEGER NOT NULL DEFAULT 1,
+  must_change_password  INTEGER NOT NULL DEFAULT 0,           -- forces a password change before anything else works
+  created_at            INTEGER NOT NULL,
+  created_by            INTEGER REFERENCES users(id)          -- null for the first, self-registered admin
 );
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
-  token       TEXT PRIMARY KEY,   -- 32-byte random hex, read from the coma_session cookie
-  created_at  INTEGER NOT NULL,
-  expires_at  INTEGER NOT NULL    -- created_at + 30 days
+  token         TEXT PRIMARY KEY,   -- 32-byte random hex, read from the coma_session cookie
+  created_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,   -- created_at + 30 days
+  user_id       INTEGER,            -- which user this session belongs to
+  user_agent    TEXT,
+  ip            TEXT,
+  last_seen_at  INTEGER
 );
 ```
 
-**Not exported in backup JSON**, the same as `ebay_credential`: restoring a backup must never change who can log into the machine it lands on, or leak a password hash inside the backup file.
+`users` replaces the old single-row `auth_account` table in practice. On an existing install, `server/auth-migration.js` copies the one `auth_account` row into `users` as the first admin the first time the server starts after upgrading, moves `auth_account.onboarding_completed_at` into `settings` (a site-level key, not a per-account one), and reassigns open sessions so nobody is forced to log back in. `auth_account` is never dropped (additive migrations only); it is left in place, orphaned.
+
+**Not exported in backup JSON**, the same as `ebay_credential`: restoring a backup must never change who can log into the machine it lands on, or leak a password hash inside the backup file. `audit_log` (below) is excluded for the same reason a log from one machine should not be mixed into another machine's history.
+
+### audit_log
+
+Append-only, never pruned (same policy as `printer_events`), no foreign key so it survives the user being deleted. Written by `server/audit.js`.
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_log (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER,
+  username     TEXT,
+  action       TEXT NOT NULL,
+  entity_type  TEXT,
+  entity_id    INTEGER,
+  note         TEXT,
+  ip           TEXT,
+  created_at   INTEGER NOT NULL
+);
+```
 
 ## Conventions
 

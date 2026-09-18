@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useToast } from '../useToast';
 import { useConfirm } from '../useConfirm';
 import PageHeader from '../components/PageHeader';
+import { apiFetch } from '../apiFetch';
 
 const inputStyle = {
   background: '#12131c',
@@ -72,10 +73,10 @@ const NO_API_KEY_TYPES = new Set(['elegoo-centauri', 'klipper']);
 // Per-brand hints on where to find connection credentials
 const CREDENTIAL_HELP = {
   'prusa':            'API Key: on the printer under Settings → Network → PrusaLink, or in the PrusaLink web UI (open the printer\'s IP in a browser) under Settings → API Key.',
-  'elegoo-centauri':  'No API key needed — just the printer\'s IP address, shown on the printer\'s network settings screen.',
+  'elegoo-centauri':  'No API key needed , just the printer\'s IP address, shown on the printer\'s network settings screen.',
   'elegoo-centauri2': 'Enable LAN mode on the printer. The Access Code and Serial Number are shown on the printer\'s network settings screen.',
   'bambu':            'Enable LAN Mode on the printer first. The Access Code is on the printer screen under Settings → WLAN; the Serial Number is under Settings → Device.',
-  'klipper':          'No API key needed — just the IP of the machine running Moonraker. Port 7125 is used automatically.',
+  'klipper':          'No API key needed , just the IP of the machine running Moonraker. Port 7125 is used automatically.',
   'octoprint':        'API Key: in OctoPrint under Settings → API. If OctoPrint isn\'t on port 80 (commonly :5000), include the port in the IP field, e.g. 192.168.1.50:5000.',
 };
 
@@ -94,7 +95,7 @@ export default function Settings() {
   const [restoreFileName, setRestoreFileName] = useState('');
 
   // Add single printer
-  // Printer models — fetched from DB, used throughout this page
+  // Printer models , fetched from DB, used throughout this page
   const [allModels, setAllModels] = useState([]);
   const [filamentTypes, setFilamentTypes] = useState([]);   // [{id, name}]
   const [filamentColors, setFilamentColors] = useState([]); // [{id, name, hex_color}]
@@ -117,9 +118,53 @@ export default function Settings() {
     fetch('/api/auth/status').then(r => r.json()).then(d => setAuthUsername(d.username || '')).catch(() => {});
   }, []);
 
+  // Sessions: the caller's own open logins (server/routes/sessions.js). Fetched on
+  // mount rather than polled: this is a static page, refetched after every mutation.
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const fetchSessions = useCallback(() => {
+    setSessionsLoading(true);
+    fetch('/api/sessions')
+      .then(r => r.json())
+      .then(setSessions)
+      .catch(() => {})
+      .finally(() => setSessionsLoading(false));
+  }, []);
+  useEffect(() => { fetchSessions(); }, [fetchSessions]);
+
+  async function handleRevokeSession(displayId) {
+    try {
+      const res = await apiFetch(`/api/sessions/${displayId}`, { method: 'DELETE' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      fetchSessions();
+    } catch (err) {
+      showToast('Revoke session failed: ' + err.message, 'error');
+    }
+  }
+
+  async function handleRevokeOtherSessions() {
+    const ok = await confirm({
+      title: 'Sign out everywhere else',
+      message: 'This signs out every other device or tab currently logged in as you. It does not affect this session.',
+      confirmLabel: 'Sign out others',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await apiFetch('/api/sessions', { method: 'DELETE' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      showToast(`Signed out ${body.revoked} other session(s)`);
+      fetchSessions();
+    } catch (err) {
+      showToast('Sign out others failed: ' + err.message, 'error');
+    }
+  }
+
   async function handleLogout() {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch (_) {
       // Best-effort: even if the request fails, tell AuthGate to re-check status.
     }
@@ -141,7 +186,7 @@ export default function Settings() {
     if (!ok) return;
     setDeletingAccount(true);
     try {
-      const res = await fetch('/api/auth/delete-account', {
+      const res = await apiFetch('/api/auth/delete-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: deletePassword }),
@@ -167,7 +212,7 @@ export default function Settings() {
     e.preventDefault();
     setTypeFormError(null);
     try {
-      const res = await fetch('/api/filaments/types', {
+      const res = await apiFetch('/api/filaments/types', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: typeForm.name }),
@@ -185,7 +230,7 @@ export default function Settings() {
   async function handleDeleteType(id, name) {
     setTypeDeleteError(prev => ({ ...prev, [id]: null }));
     try {
-      const res = await fetch(`/api/filaments/types/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/filaments/types/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete');
       fetchModels();
@@ -203,7 +248,7 @@ export default function Settings() {
     e.preventDefault();
     setColorFormError(null);
     try {
-      const res = await fetch('/api/filaments/colors', {
+      const res = await apiFetch('/api/filaments/colors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -225,7 +270,7 @@ export default function Settings() {
   async function handleDeleteColor(id, name) {
     setColorDeleteError(prev => ({ ...prev, [id]: null }));
     try {
-      const res = await fetch(`/api/filaments/colors/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/filaments/colors/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete');
       fetchModels();
@@ -241,7 +286,7 @@ export default function Settings() {
   const [adding, setAdding] = useState(false);
 
   // Keep the Model select's value valid whenever the available models change for the
-  // selected brand — e.g. adding a printer model in the section above while this form is
+  // selected brand , e.g. adding a printer model in the section above while this form is
   // open. Without this, the <select> can visually show the newly-added option (the browser
   // defaults to it once it's the only one) while addForm.model silently stays '', so the
   // submitted request fails required-field validation despite the dropdown looking selected.
@@ -258,7 +303,7 @@ export default function Settings() {
     setAddResult(null);
     setAddError(null);
     try {
-      const res = await fetch('/api/printers', {
+      const res = await apiFetch('/api/printers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -293,7 +338,7 @@ export default function Settings() {
     e.preventDefault();
     setModelFormError(null);
     try {
-      const res = await fetch('/api/models', {
+      const res = await apiFetch('/api/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(modelForm),
@@ -311,7 +356,7 @@ export default function Settings() {
   async function handleDeleteModel(model_id) {
     setModelDeleteError(prev => ({ ...prev, [model_id]: null }));
     try {
-      const res = await fetch(`/api/models/${encodeURIComponent(model_id)}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/models/${encodeURIComponent(model_id)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete model');
       fetchModels();
@@ -331,7 +376,7 @@ export default function Settings() {
     e.preventDefault();
     setGroupFormError(null);
     try {
-      const res = await fetch('/api/groups', {
+      const res = await apiFetch('/api/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(groupForm),
@@ -349,7 +394,7 @@ export default function Settings() {
   async function handleDeleteGroup(name) {
     setGroupDeleteError(prev => ({ ...prev, [name]: null }));
     try {
-      const res = await fetch(`/api/groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete group');
       fetchModels();
@@ -362,7 +407,7 @@ export default function Settings() {
   const [batchSize, setBatchSize] = useState('');
   const [batchSizeError, setBatchSizeError] = useState(null);
 
-  // Site name — shown in the sidebar; picked up on next page load
+  // Site name , shown in the sidebar; picked up on next page load
   const [farmName, setFarmName] = useState('');
   const [farmNameError, setFarmNameError] = useState(null);
   const [cameraMode, setCameraMode] = useState('snapshot');
@@ -394,7 +439,7 @@ export default function Settings() {
   async function handleSaveBatchSize() {
     setBatchSizeError(null);
     try {
-      const res = await fetch('/api/settings/dispatch_batch_size', {
+      const res = await apiFetch('/api/settings/dispatch_batch_size', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: batchSize }),
@@ -410,7 +455,7 @@ export default function Settings() {
   async function handleSaveFarmName() {
     setFarmNameError(null);
     try {
-      const res = await fetch('/api/settings/farm_name', {
+      const res = await apiFetch('/api/settings/farm_name', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: farmName }),
@@ -427,7 +472,7 @@ export default function Settings() {
   async function handleSaveCameraMode() {
     setCameraModeError(null);
     try {
-      const res = await fetch('/api/settings/camera_mode', {
+      const res = await apiFetch('/api/settings/camera_mode', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: cameraMode }),
@@ -443,7 +488,7 @@ export default function Settings() {
   async function handleSaveSalesDocMode() {
     setSalesDocModeError(null);
     try {
-      const res = await fetch('/api/settings/sales_doc_mode', {
+      const res = await apiFetch('/api/settings/sales_doc_mode', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: salesDocMode }),
@@ -465,7 +510,7 @@ export default function Settings() {
         ['timelapse_fps', tlFps],
         ['timelapse_retention_days', tlRetention],
       ]) {
-        const res = await fetch(`/api/settings/${key}`, {
+        const res = await apiFetch(`/api/settings/${key}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value }),
@@ -494,7 +539,7 @@ export default function Settings() {
   }, []);
 
   async function dismissAlert(id) {
-    await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/notifications/${id}`, { method: 'DELETE' });
     setAlerts(prev => prev.filter(a => a.id !== id));
   }
 
@@ -519,9 +564,31 @@ export default function Settings() {
     e.preventDefault();
     const file = restoreFileRef.current?.files[0];
     if (!file) return;
+
+    // Validate first (read-only) so the confirmation shows what is actually in the
+    // file, not a generic warning, before the destructive restore runs.
+    let summary = 'This replaces all CoMa data present in the backup, including shopfloor and embedded ERP records. This cannot be undone.';
+    try {
+      const validateFormData = new FormData();
+      validateFormData.append('file', file);
+      const validateRes = await apiFetch('/api/backup/validate', { method: 'POST', body: validateFormData });
+      const validateData = await validateRes.json().catch(() => ({}));
+      if (validateRes.ok && validateData.valid) {
+        const c = validateData.counts || {};
+        summary = `File contains ${c.printers ?? 0} printers, ${c.projects ?? 0} projects, ${c.parts ?? 0} parts, ${c.gcodes ?? 0} gcodes, ${c.jobs ?? 0} jobs${validateData.erp ? ', plus ERP data' : ''}. This replaces all matching CoMa data. This cannot be undone.`;
+      } else if (validateRes.ok && !validateData.valid) {
+        showToast('Restore file failed validation: ' + (validateData.error || 'unrecognised format'), 'error');
+        return;
+      }
+      // A validate-request failure (network, 400 on a corrupt upload) falls through to
+      // the generic confirmation message rather than blocking the restore attempt.
+    } catch (_) {
+      // ignore: fall back to the generic message below
+    }
+
     const ok = await confirm({
       title: 'Restore CoMa Data',
-      message: 'This replaces all CoMa data present in the backup, including shopfloor and embedded ERP records. This cannot be undone.',
+      message: summary,
       confirmLabel: 'Restore',
       danger: true,
     });
@@ -535,7 +602,7 @@ export default function Settings() {
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/backup/restore', { method: 'POST', body: formData });
+      const res = await apiFetch('/api/backup/restore', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Restore failed');
       setRestoreResult(data);
@@ -583,7 +650,7 @@ export default function Settings() {
     formData.append('overwrite_item_cost', acresOverwriteItemCost ? 'true' : 'false');
 
     try {
-      const res = await fetch('/api/erp/import-acres', { method: 'POST', body: formData });
+      const res = await apiFetch('/api/erp/import-acres', { method: 'POST', body: formData });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Import failed');
       setAcresResult(data);
@@ -611,7 +678,7 @@ export default function Settings() {
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/printers/import', {
+      const res = await apiFetch('/api/printers/import', {
         method: 'POST',
         body: formData,
       });
@@ -638,7 +705,7 @@ export default function Settings() {
   async function handleSaveFlagged(flaggedItem, selectedModel) {
     const { row } = flaggedItem;
     try {
-      const res = await fetch('/api/printers', {
+      const res = await apiFetch('/api/printers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -958,14 +1025,14 @@ export default function Settings() {
                 style={inputStyle}
               >
                 {allModels.filter(m => m.connector === addForm.type).length === 0
-                ? <option value="">— no models configured —</option>
+                ? <option value="">, no models configured ,</option>
                 : allModels.filter(m => m.connector === addForm.type).map(m => (
                     <option key={m.model_id} value={m.model_id}>{m.label}</option>
                   ))}
               </select>
               {allModels.filter(m => m.connector === addForm.type).length === 0 && (
                 <div style={{ fontSize: 11.5, color: '#fbbf24', marginTop: 4 }}>
-                  No models for this brand yet — add one in Printer Models above first.
+                  No models for this brand yet , add one in Printer Models above first.
                 </div>
               )}
             </div>
@@ -1035,7 +1102,7 @@ export default function Settings() {
                 onChange={e => setAddForm(p => ({ ...p, loaded_material: e.target.value, loaded_color: '' }))}
                 style={inputStyle}
               >
-                <option value="">— none —</option>
+                <option value="">, none ,</option>
                 {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
               </select>
             </div>
@@ -1047,7 +1114,7 @@ export default function Settings() {
                 disabled={!addForm.loaded_material}
                 style={inputStyle}
               >
-                <option value="">— none —</option>
+                <option value="">, none ,</option>
                 {filamentColors
                   .filter(c => c.type_name === addForm.loaded_material)
                   .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
@@ -1151,7 +1218,7 @@ export default function Settings() {
             {result.flagged.length > 0 && (
               <div>
                 <p style={{ fontSize: 13, fontWeight: 600, color: '#f87171', marginBottom: 8 }}>
-                  Flagged rows — resolve manually:
+                  Flagged rows , resolve manually:
                 </p>
                 {result.flagged.map((f, i) => (
                   <div key={i} style={{
@@ -1472,7 +1539,7 @@ export default function Settings() {
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Polling</h2>
         <p style={{ color: '#71717a', fontSize: 13, margin: 0 }}>
           All printers are polled every <strong style={{ color: '#f4f4f5' }}>15 seconds</strong> via their connector API.
-          Polling runs concurrently — all printers are queried in parallel each tick.
+          Polling runs concurrently , all printers are queried in parallel each tick.
           Unreachable printers show as <span style={{ color: '#71717a' }}>OFFLINE</span> and do not affect other printers.
         </p>
       </section>
@@ -1754,12 +1821,60 @@ export default function Settings() {
           </button>
         </section>
 
+        <section style={{ ...sectionStyle, marginTop: 20 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Sessions</h2>
+          <p style={{ color: '#71717a', fontSize: 13, marginBottom: 16 }}>
+            Every device or tab currently logged in as you. Revoke one you no longer
+            recognize, or sign out everywhere else at once.
+          </p>
+          {sessionsLoading ? (
+            <div style={{ color: '#71717a', fontSize: 13 }}>Loading...</div>
+          ) : sessions.length === 0 ? (
+            <div style={{ color: '#71717a', fontSize: 13 }}>No sessions.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+              {sessions.map(s => (
+                <div
+                  key={s.display_id}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                    background: '#12131c', border: '1px solid #2d3146', borderRadius: 6, padding: '8px 12px',
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#f4f4f5', fontWeight: 600 }}>
+                      {s.current ? 'This session' : (s.user_agent || 'Unknown device')}
+                      {s.ip ? ` · ${s.ip}` : ''}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#71717a' }}>
+                      Last seen {s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : 'unknown'}
+                    </div>
+                  </div>
+                  {!s.current && (
+                    <button onClick={() => handleRevokeSession(s.display_id)} style={delBtnStyle}>
+                      Revoke
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {sessions.some(s => !s.current) && (
+            <button
+              onClick={handleRevokeOtherSessions}
+              style={{ background: '#1a2332', color: '#e2e8f0', border: '1px solid #2d3146', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Sign out everywhere else
+            </button>
+          )}
+        </section>
+
         <section style={{ ...sectionStyle, marginTop: 20, border: '1px solid #7f1d1d' }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, color: '#fca5a5' }}>Delete account</h2>
           <p style={{ color: '#71717a', fontSize: 13, marginBottom: 16 }}>
-            Removes the login for this CoMa install and signs everyone out. The next visit will
-            ask to create a new account and will show the setup guide again. This does not
-            touch printers, projects, parts, or any ERP data.
+            Removes your own login and every open session of yours. Blocked if you are the
+            last active admin. This does not touch printers, projects, parts, or any ERP
+            data, and does not affect other users.
           </p>
           <label style={{ display: 'block', fontSize: 12, color: '#a1a1aa', marginBottom: 6 }}>
             Confirm your password

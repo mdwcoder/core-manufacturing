@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useConfirm } from '../useConfirm';
 import { useToast } from '../useToast';
 import PageHeader from '../components/PageHeader';
+import { apiFetch } from '../apiFetch';
 
 function formatTimestamp(ms) {
   if (!ms) return 'Unknown';
@@ -56,12 +57,12 @@ export default function Decommissioned() {
     setSaving(true);
     try {
       await Promise.all([
-        fetch(`/api/printers/${id}`, {
+        apiFetch(`/api/printers/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ decommission_note: draftNote }),
         }),
-        trimmed && fetch(`/api/printers/${id}/events`, {
+        trimmed && apiFetch(`/api/printers/${id}/events`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ note: trimmed }),
@@ -89,7 +90,7 @@ export default function Decommissioned() {
     });
     if (!result) return;
     const { text: fixNote } = result;
-    await fetch(`/api/printers/${printer.id}/recommission`, {
+    await apiFetch(`/api/printers/${printer.id}/recommission`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ note: fixNote }),

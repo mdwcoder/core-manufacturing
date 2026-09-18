@@ -7,6 +7,7 @@ import {
   theme, PANEL_STYLE, INPUT_STYLE, BTN_PRIMARY, BTN_SECONDARY,
   CAPTION_STYLE, CHIP_STYLE, hexAlpha,
 } from '../theme';
+import { apiFetch } from '../apiFetch';
 
 const ACCENT_HEX = {
   lime: theme.lime,
@@ -106,7 +107,7 @@ export default function Notebook() {
     const t = draft.title.trim();
     if (!t) return;
     setSaveState('saving');
-    const res = await fetch(`/api/notebook/pages/${id}`, {
+    const res = await apiFetch(`/api/notebook/pages/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: t, body: draft.body, accent: draft.accent }),
@@ -152,7 +153,7 @@ export default function Notebook() {
   }
 
   async function createPage() {
-    const res = await fetch('/api/notebook/pages', {
+    const res = await apiFetch('/api/notebook/pages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'New note', body: '', accent: 'lime' }),
@@ -177,7 +178,7 @@ export default function Notebook() {
       danger: true,
     });
     if (!ok) return;
-    const res = await fetch(`/api/notebook/pages/${selectedId}/trash`, { method: 'POST' });
+    const res = await apiFetch(`/api/notebook/pages/${selectedId}/trash`, { method: 'POST' });
     if (!res.ok) {
       showToast('Trash failed: ' + await readError(res), 'error');
       return;
@@ -192,7 +193,7 @@ export default function Notebook() {
 
   async function restorePage() {
     if (!selectedId) return;
-    const res = await fetch(`/api/notebook/pages/${selectedId}/restore`, { method: 'POST' });
+    const res = await apiFetch(`/api/notebook/pages/${selectedId}/restore`, { method: 'POST' });
     if (!res.ok) {
       showToast('Restore failed: ' + await readError(res), 'error');
       return;
@@ -215,7 +216,7 @@ export default function Notebook() {
       danger: true,
     });
     if (!ok) return;
-    const res = await fetch(`/api/notebook/pages/${selectedId}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/notebook/pages/${selectedId}`, { method: 'DELETE' });
     if (!res.ok) {
       showToast('Delete failed: ' + await readError(res), 'error');
       return;

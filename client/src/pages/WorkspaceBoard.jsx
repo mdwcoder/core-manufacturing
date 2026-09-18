@@ -7,6 +7,7 @@ import {
   theme, CARD_STYLE, PANEL_STYLE, INPUT_STYLE, BTN_PRIMARY, BTN_SECONDARY,
   CAPTION_STYLE, CHIP_STYLE, hexAlpha,
 } from '../theme';
+import { apiFetch } from '../apiFetch';
 
 const ACCENT_HEX = {
   lime: theme.lime,
@@ -64,7 +65,7 @@ export default function WorkspaceBoard() {
   async function createCard(columnId) {
     const title = (newCardTitle[columnId] || '').trim();
     if (!title) return;
-    const res = await fetch('/api/workspace/cards', {
+    const res = await apiFetch('/api/workspace/cards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ column_id: columnId, title }),
@@ -81,7 +82,7 @@ export default function WorkspaceBoard() {
     e.preventDefault();
     const title = newColumnTitle.trim();
     if (!title) return;
-    const res = await fetch('/api/workspace/columns', {
+    const res = await apiFetch('/api/workspace/columns', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, accent: newColumnAccent }),
@@ -101,7 +102,7 @@ export default function WorkspaceBoard() {
       setRenamingId(null);
       return;
     }
-    const res = await fetch(`/api/workspace/columns/${id}`, {
+    const res = await apiFetch(`/api/workspace/columns/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
@@ -122,7 +123,7 @@ export default function WorkspaceBoard() {
       danger: true,
     });
     if (!ok) return;
-    const res = await fetch(`/api/workspace/columns/${col.id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/workspace/columns/${col.id}`, { method: 'DELETE' });
     if (!res.ok) {
       showToast('Delete column failed: ' + await readError(res), 'error');
       return;
@@ -146,7 +147,7 @@ export default function WorkspaceBoard() {
       return;
     }
     setSaving(true);
-    const res = await fetch(`/api/workspace/cards/${editCard.id}`, {
+    const res = await apiFetch(`/api/workspace/cards/${editCard.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, body: editBody }),
@@ -169,7 +170,7 @@ export default function WorkspaceBoard() {
       danger: true,
     });
     if (!ok) return;
-    const res = await fetch(`/api/workspace/cards/${editCard.id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/workspace/cards/${editCard.id}`, { method: 'DELETE' });
     if (!res.ok) {
       showToast('Delete card failed: ' + await readError(res), 'error');
       return;
@@ -187,7 +188,7 @@ export default function WorkspaceBoard() {
       });
     }
     if (cards.length === 0) return;
-    const res = await fetch('/api/workspace/cards/reorder', {
+    const res = await apiFetch('/api/workspace/cards/reorder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cards }),
@@ -202,7 +203,7 @@ export default function WorkspaceBoard() {
   }
 
   async function persistColumnOrder(orderIds) {
-    const res = await fetch('/api/workspace/columns/reorder', {
+    const res = await apiFetch('/api/workspace/columns/reorder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order: orderIds }),

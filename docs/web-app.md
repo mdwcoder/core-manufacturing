@@ -378,6 +378,16 @@ useEffect(() => {
 
 This matches the server's 15-second poll interval. In practice, the UI is never more than ~30 seconds behind reality (server poll + client poll worst case).
 
+## API calls and the CSRF header
+
+Reads use native `fetch()` directly. Every mutating call (`POST`/`PUT`/`DELETE`/`PATCH`)
+goes through `client/src/apiFetch.js` instead: a drop-in wrapper that adds the
+`X-CoMa-Request: 1` header the server requires (`server/auth.js`'s
+`requireCsrfHeader()`, see [docs/api.md](api.md#csrf-header)). ERP pages share one
+`apiJson()` helper (`client/src/pages/erp/shared.jsx`) that itself calls `apiFetch`, so
+adding a new mutating ERP call there needs no extra wiring. A new page anywhere else
+imports `apiFetch` and uses it exactly like `fetch`.
+
 ## Configuration
 
 | Setting | Value | Location |

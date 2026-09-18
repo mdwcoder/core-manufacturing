@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../useToast';
 import { useConfirm } from '../useConfirm';
+import { apiFetch } from '../apiFetch';
 
 const page = '#0d0e14';
 const card = '#141620';
@@ -46,7 +47,7 @@ export default function Timelapses() {
 
   const startManual = async (printerId) => {
     try {
-      const r = await fetch(`/api/printers/${printerId}/timelapse/start`, { method: 'POST' });
+      const r = await apiFetch(`/api/printers/${printerId}/timelapse/start`, { method: 'POST' });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.error || r.status);
       showToast(`Timelapse #${body.id} started`);
@@ -58,7 +59,7 @@ export default function Timelapses() {
 
   const stopOne = async (id) => {
     try {
-      const r = await fetch(`/api/timelapses/${id}/stop`, { method: 'POST' });
+      const r = await apiFetch(`/api/timelapses/${id}/stop`, { method: 'POST' });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.error || r.status);
       showToast(`Timelapse #${id} stopped (rendering)`);
@@ -71,7 +72,7 @@ export default function Timelapses() {
 
   const reRender = async (id) => {
     try {
-      const r = await fetch(`/api/timelapses/${id}/render`, { method: 'POST' });
+      const r = await apiFetch(`/api/timelapses/${id}/render`, { method: 'POST' });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.error || r.status);
       showToast(`Render ${body.status}`);
@@ -91,7 +92,7 @@ export default function Timelapses() {
     });
     if (!ok) return;
     try {
-      const r = await fetch(`/api/timelapses/${id}`, { method: 'DELETE' });
+      const r = await apiFetch(`/api/timelapses/${id}`, { method: 'DELETE' });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.error || r.status);
       showToast(`Deleted #${id}`);

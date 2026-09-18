@@ -18,10 +18,15 @@ const PrinterPoller  = require('./poller');
 const JobScheduler   = require('./scheduler');
 const notifications  = require('./notifications');
 const events         = require('./events');
+const audit          = require('./audit');
 const backup         = require('./backup');
 
-const { requireAuth }    = require('./auth');
+const { requireAuth, blockOnForcedPasswordChange, blockViewerWrites, requireCsrfHeader } = require('./auth');
+const { parseTrustProxy } = require('./trust-proxy');
 const authRouter         = require('./routes/auth')(db);
+const usersRouter        = require('./routes/users')(db);
+const sessionsRoutes     = require('./routes/sessions');
+const auditLogRouter     = require('./routes/audit-log')(db);
 const printersRouter     = require('./routes/printers')(db);
 const jobsRouter         = require('./routes/jobs')(db);
 const backupRouter       = require('./routes/backup')(db);
@@ -49,7 +54,30 @@ const shopifyRunner      = require('./shopify/runner');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// Reverse proxy support: opt-in, default behavior (no proxy, req.ip is the direct
+// connection) is unchanged when TRUST_PROXY is unset. Needed so req.ip (used by
+// server/rate-limit.js and the audit log) reflects the real client address, not the
+// proxy's, once CoMa is served behind nginx/Caddy (see docs/installation.md's
+// "HTTPS / reverse proxy" section).
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
+  console.log(`[server] trust proxy set to: ${process.env.TRUST_PROXY}`);
+}
+
 app.use(express.json());
+
+// CSRF header: every mutating /api/* request must carry X-CoMa-Request: 1, except the
+// two entry points that issue a session in the first place (there is no session yet to
+// protect). Cookies are already SameSite=Lax with no CORS configuration, so a plain
+// cross-site form post or fetch cannot set this header; client/src/apiFetch.js adds it
+// to every mutating call the client makes. Mounted first, before the login gate, so an
+// unauthenticated mutating request is rejected for the same reason an authenticated one
+// would be, not treated differently.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (req.path === '/api/auth/login' || req.path === '/api/auth/register') return next();
+  return requireCsrfHeader()(req, res, next);
+});
 
 // Login gate: every /api/* route requires a valid session cookie except the auth
 // routes themselves (they are what issues the cookie) and the health check. Mounted
@@ -66,8 +94,38 @@ app.use((req, res, next) => {
   return requireAuth(db)(req, res, next);
 });
 
+// Forced password change: once must_change_password is set (a fresh admin-created
+// account, or a password reset), every route is blocked except the ones that let the
+// operator actually change it and log out. Runs after the login gate above, so
+// req.user always exists here for anything not already exempted there.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (req.path.startsWith('/api/auth/')) return next();
+  if (req.path === '/api/health') return next();
+  return blockOnForcedPasswordChange(['/api/users/me/password'])(req, res, next);
+});
+
+// Coarse permission gate: a viewer can read everything the app shows them but cannot
+// change anything, without touching each of the ~20 existing route files individually.
+// This is what makes set-ready/recommission/set-ready-batch/scheduler-dispatch below
+// (and every other mutating route) reject a viewer: they are all POST/PUT/DELETE.
+// Routes that need a tighter role than "not a viewer" (users, backup restore, audit
+// log) layer requireRole/requireMinRole on top of this at their own mount point.
+// Does not change any completed_qty crediting logic below; it only decides whether the
+// request reaches it.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (req.path.startsWith('/api/auth/')) return next();
+  if (req.path === '/api/health') return next();
+  return blockViewerWrites()(req, res, next);
+});
+
 // API routes
 app.use('/api/auth',            authRouter);
+app.use('/api/users',           usersRouter);
+app.use('/api/audit-log',       auditLogRouter);
+app.use('/api/sessions',        sessionsRoutes.selfRouter(db));
+app.use('/api/users/:id/sessions', sessionsRoutes.adminRouter(db));
 app.use('/api/printers',        printersRouter);
 app.use('/api/printers/:id/jobs', printerJobsRouter);
 app.use('/api/jobs',            jobsRouter);
@@ -159,7 +217,9 @@ const server = app.listen(PORT, () => {
     scheduler.sweepIdlePrinters();
   });
 
-  // Dispatch trigger — called by the UI when a project is activated
+  // Dispatch trigger (called by the UI when a project is activated). POST, so the
+  // global blockViewerWrites() gate above already rejects a viewer; no change to
+  // dispatch logic itself.
   app.post('/api/scheduler/dispatch', (req, res) => {
     scheduler.sweepIdlePrinters();
     res.json({ ok: true });
@@ -169,7 +229,9 @@ const server = app.listen(PORT, () => {
   // batched sweep, which keeps pulling from the ready queue until dispatch_batch_size
   // printers actually have a job reserved (or the queue runs out), not a fixed chunk
   // of dispatch_batch_size printers evaluated at a time (see _sweepInBatches).
-  // Used by the "Set Ready (N)" action in the Fleet UI.
+  // Used by the "Set Ready (N)" action in the Fleet UI. POST, so the global
+  // blockViewerWrites() gate above already rejects a viewer before any of the
+  // completed_qty crediting below runs; that crediting logic is unchanged here.
   app.post('/api/printers/set-ready-batch', (req, res) => {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -196,6 +258,7 @@ const server = app.listen(PORT, () => {
     const batchSetting = db.prepare("SELECT value FROM settings WHERE key = 'dispatch_batch_size'").get();
     const batchSize = batchSetting ? parseInt(batchSetting.value, 10) : 10;
     console.log(`[server] Batch set-ready: ${printers.length} printer(s), target concurrency ${batchSize}`);
+    audit.log(db, req.user, 'printer.set_ready_batch', { note: `ids=${ids.join(',')}`, ip: req.ip });
     scheduler._sweepInBatches(printers).catch(err =>
       console.error('[scheduler] Batch set-ready sweep error:', err)
     );
@@ -204,6 +267,7 @@ const server = app.listen(PORT, () => {
 
   // Recommission a printer — returns it to the active fleet and immediately dispatches
   // a job if one is available. Operator has completed investigation; no hold needed.
+  // POST, so the global blockViewerWrites() gate above already rejects a viewer.
   app.post('/api/printers/:id/recommission', (req, res) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
@@ -213,6 +277,7 @@ const server = app.listen(PORT, () => {
       WHERE id = ?
     `).run(printer.id);
     events.insert(printer.id, 'recommission', req.body?.note ?? null);
+    audit.log(db, req.user, 'printer.recommission', { entityType: 'printer', entityId: printer.id, note: req.body?.note ?? null, ip: req.ip });
     const updated = db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id);
     console.log(`[server] ${printer.name} recommissioned — dispatching...`);
     scheduler.scheduleForPrinter(updated);
@@ -220,6 +285,10 @@ const server = app.listen(PORT, () => {
   });
 
   // Set a held printer ready — releases hold and dispatches next job to it.
+  //
+  // POST, so the global blockViewerWrites() gate above already rejects a viewer before
+  // any of the completed_qty crediting below runs. That crediting logic is unchanged
+  // here; see server/tests/role-gating.test.js for the regression proof.
   //
   // Two cases:
   //
@@ -429,6 +498,7 @@ const server = app.listen(PORT, () => {
     db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
     const updated = db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id);
     console.log(`[server] ${printer.name} set ready by operator — dispatching...`);
+    audit.log(db, req.user, 'printer.set_ready', { entityType: 'printer', entityId: printer.id, note: confirmed_qty != null ? `confirmed_qty=${confirmed_qty}` : null, ip: req.ip });
     scheduler.scheduleForPrinter(updated);
     res.json(updated);
   });

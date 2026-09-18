@@ -25,6 +25,7 @@ Prefer Docker? `docker compose up --build print-farm-manager-dev` - see the [REA
 | [docs/database.md](database.md) | SQLite schema - shopfloor + ERP tables, telemetry, timelapses |
 | [docs/poller.md](poller.md) | Printer polling loop, telemetry hooks, event emissions |
 | [docs/api.md](api.md) | All REST endpoints - request/response shapes, error codes |
+| [docs/security.md](security.md) | Accounts, roles, passwords, sessions, CSRF, rate limiting, audit log, HTTPS: the whole security surface in one place |
 | [docs/web-app.md](web-app.md) | React client - pages, routing, layout, live-update pattern |
 | [docs/CHANGELOG.md](CHANGELOG.md) | Dated log of all implemented features and changes |
 | [docs/multi-brand.md](multi-brand.md) | Phase 6 design - driver abstraction for non-Prusa brands |

@@ -2,6 +2,7 @@ import PageHeader from '../../components/PageHeader';
 import { theme, INPUT_STYLE, BTN_PRIMARY, BTN_SECONDARY, CAPTION_STYLE, CHIP_STYLE } from '../../theme';
 import { useToast } from '../../useToast';
 import { useConfirm } from '../../useConfirm';
+import { apiFetch } from '../../apiFetch';
 
 export { theme, INPUT_STYLE, BTN_PRIMARY, CAPTION_STYLE, CHIP_STYLE };
 
@@ -82,8 +83,11 @@ export function useErpFeedback() {
   };
 }
 
+// Every ERP page's mutating fetch goes through this one helper, so wiring the CSRF
+// header (server/auth.js's requireCsrfHeader()) in here covers all of them at once via
+// client/src/apiFetch.js, rather than touching each erp/*.jsx page individually.
 export async function apiJson(url, opts) {
-  const res = await fetch(url, opts);
+  const res = await apiFetch(url, opts);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(body.error || body.detail || res.statusText || String(res.status));

@@ -273,6 +273,57 @@ sudo ufw allow from 192.168.1.0/24 to any port 3000 proto tcp
 
 Adjust the subnet to match the real network. Do not create an unrestricted public firewall rule.
 
+### HTTPS / reverse proxy
+
+CoMa still speaks plain HTTP itself; putting a reverse proxy in front of it is how to
+serve it over HTTPS. Two env vars, both optional and both default to today's LAN/HTTP
+behavior:
+
+- `TRUST_PROXY`: set this when a reverse proxy sits in front of CoMa, so `req.ip` (used
+  by rate limiting and the audit log) reflects the real client address instead of the
+  proxy's. `true` trusts any proxy, `loopback` trusts only a proxy on the same machine
+  (the common case for nginx/Caddy on the same host), or a specific IP/subnet, or a
+  number of hops to trust.
+- `COOKIE_SECURE=true`: adds the `Secure` attribute to the session cookie, required by
+  browsers for a cookie to be sent back over HTTPS-only. **Do not set this unless CoMa
+  is actually reached over HTTPS.** Setting it while still serving plain HTTP breaks
+  login silently: the browser accepts the cookie but never sends it back, so every
+  request looks unauthenticated with no obvious error.
+
+Example nginx config terminating TLS and proxying to CoMa on `:3000`:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name coma.example.lan;
+
+    ssl_certificate     /etc/letsencrypt/live/coma.example.lan/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/coma.example.lan/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Equivalent Caddy config (automatic HTTPS via Let's Encrypt):
+
+```caddyfile
+coma.example.lan {
+    reverse_proxy 127.0.0.1:3000
+}
+```
+
+Run CoMa itself with both env vars set, for example in `start.sh` or the systemd unit:
+
+```bash
+TRUST_PROXY=loopback COOKIE_SECURE=true npm start
+```
+
 ## Printer Credentials
 
 Gather these values before adding printers:
@@ -301,6 +352,30 @@ Persistent bare-metal data is stored in:
 Use Settings → Backup → Shopfloor Backup to export a portable JSON backup. For a filesystem-level backup, stop the service before copying the selected database and `server/gcode/`.
 
 Never copy `node_modules` between machines or operating systems. Restore the data, then run `npm ci` on the destination so native packages match its Node.js ABI and Linux architecture.
+
+To restore from one of the hourly snapshots `server/backup.js` already takes (separate from the JSON export above, and covering the whole database including users): stop the service, copy the chosen snapshot file over `server/data/organic-data.db` (or `seed-data.db`), then restart.
+
+## Account Recovery
+
+CoMa has no email-based "forgot password" flow, on purpose: it is a LAN app with no
+SMTP configuration to assume. Two paths, depending on whether an admin can still log in.
+
+**An admin is available:** use Settings → Users → Reset password on the locked-out
+account. This generates a new temporary password (shown once) and signs that account
+out everywhere; the account must set its own password on next login.
+
+**No admin can log in:** run the recovery script directly on the machine hosting CoMa.
+This has no HTTP surface of its own; SSH or console access to the machine is the
+security boundary, which is the right one for a LAN app with no email recovery:
+
+```bash
+node server/scripts/reset-admin-password.js <username> <new-password> [--role admin]
+```
+
+If `<username>` exists, its password is replaced and its open sessions are revoked. If
+it does not exist, it is created with the given role (default `admin`). Unlike an
+admin-created account, the account is usable immediately with the password you typed,
+since you already have console access; it does not force a password change.
 
 ## Updating the Fork
 

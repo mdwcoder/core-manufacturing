@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader';
 import { useConfirm } from '../useConfirm';
 import { useToast } from '../useToast';
 import { theme } from '../theme';
+import { apiFetch } from '../apiFetch';
 
 const STATUS_COLORS = {
   PRINTING:   { bg: '#1e1f45', text: '#818cf8', label: 'Printing' },
@@ -415,7 +416,7 @@ export default function Fleet() {
   }
 
   async function setReady(printerId, confirmedQty) {
-    const res = await fetch(`/api/printers/${printerId}/set-ready`, {
+    const res = await apiFetch(`/api/printers/${printerId}/set-ready`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(confirmedQty != null ? { confirmed_qty: confirmedQty } : {}),
@@ -430,7 +431,7 @@ export default function Fleet() {
   }
 
   async function setReadyForSelected() {
-    const res = await fetch('/api/printers/set-ready-batch', {
+    const res = await apiFetch('/api/printers/set-ready-batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: [...selectedForReady] }),
@@ -468,7 +469,7 @@ export default function Fleet() {
     setLinkJobModal(null);
 
     if (selectedJobId) {
-      const res = await fetch(`/api/printers/${printerId}/link-job`, {
+      const res = await apiFetch(`/api/printers/${printerId}/link-job`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ job_id: selectedJobId }),
@@ -479,7 +480,7 @@ export default function Fleet() {
       }
     } else if (isHeld) {
       // No job selected — just release the hold
-      await fetch(`/api/printers/${printerId}/set-ready`, {
+      await apiFetch(`/api/printers/${printerId}/set-ready`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -513,7 +514,7 @@ export default function Fleet() {
       });
       if (!result) return;
       const { text: reason } = result;
-      const res = await fetch(`/api/printers/${printerId}/decommission`, {
+      const res = await apiFetch(`/api/printers/${printerId}/decommission`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ note: reason }),
@@ -542,7 +543,7 @@ export default function Fleet() {
     const { value: choice, text: reason } = result;
 
     if (choice === 'failure') {
-      const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, {
+      const res = await apiFetch(`/api/printers/${printerId}/mark-job-failure`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ note: reason }),
@@ -557,7 +558,7 @@ export default function Fleet() {
 
     // choice === 'success' — forward the operator's good-part count (if adjusted) so the
     // credit matches what Set Ready would have applied, then decommission instead of re-queue.
-    const res = await fetch(`/api/printers/${printerId}/complete-and-decommission`, {
+    const res = await apiFetch(`/api/printers/${printerId}/complete-and-decommission`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ note: reason, confirmed_qty: (confirmedQty != null && !isNaN(confirmedQty)) ? confirmedQty : null }),
@@ -581,7 +582,7 @@ export default function Fleet() {
     });
     if (!result) return;
     const { text: reason } = result;
-    const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, {
+    const res = await apiFetch(`/api/printers/${printerId}/mark-job-failure`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ note: reason }),
@@ -607,7 +608,7 @@ export default function Fleet() {
     });
     if (!result) return;
     const { text: reason } = result;
-    const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, {
+    const res = await apiFetch(`/api/printers/${printerId}/mark-job-failure`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ note: reason }),
@@ -654,7 +655,7 @@ export default function Fleet() {
     awaitingOfflineReview.length + awaitingUploadReview.length + awaitingConfirmation.length;
 
   async function sweep() {
-    await fetch('/api/scheduler/dispatch', { method: 'POST' });
+    await apiFetch('/api/scheduler/dispatch', { method: 'POST' });
     fetchPrinters();
   }
 
