@@ -2,6 +2,26 @@
 
 ---
 
+## 2026-09-18: Preserve job telemetry in the nullable G-code migration
+
+Normal startup could fail with `table jobs_migrated has 9 columns but 16 values were
+supplied`: startup added seven telemetry columns and then rebuilt `jobs` into its old
+nine-column shape to make `gcode_id` nullable. Because that rebuild was not atomic, a
+later startup could also fail with `table jobs_migrated already exists`. The automatic
+startup migration now preserves the complete schema and data, recovers residual rows,
+and recreates all indexes and triggers associated with `jobs`.
+
+### Changes
+- `server/jobs-gcode-migration.js`: rebuild `jobs` with an explicit 16-column copy in
+  one transaction, recover residual rows, preserve schema objects, and restore the
+  previous foreign-key setting
+- `server/db.js`: call the isolated, testable migration helper
+- `server/tests/jobs-gcode-migration.test.js`: cover new, legacy, telemetry, residual,
+  already migrated, schema-object, and rollback states using disposable databases
+- `docs/database.md`: document the automatic transactional startup repair
+
+---
+
 ## 2026-09-18: Fix security branch integration regressions
 
 Reviewing the multi-user security branch against the complete application found two

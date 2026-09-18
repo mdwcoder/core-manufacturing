@@ -177,6 +177,12 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 Telemetry columns are filled by `server/telemetry.js` while the poller sees PRINTING/PAUSED, and sealed when the scheduler closes the job. Gaps between samples are capped (`SAMPLE_GAP_CAP_MS`, 30 s) so a server restart mid-print cannot credit phantom hours. `telemetry_quality` is `measured` when sample coverage of the wall-clock print window is high enough for ERP actual costing.
 
+Existing databases where `jobs.gcode_id` is still `NOT NULL` are upgraded during normal
+server startup. The migration rebuilds `jobs` in one SQLite transaction, copies all 16
+columns explicitly, recovers unique rows from a residual `jobs_migrated` table, and
+recreates the table's indexes and triggers. A failed rebuild rolls back to the original
+`jobs` table and data. No external repair script is required.
+
 ### printer_status_history
 
 One row per real status transition (not per 15 s poll). Used for utilization and OEE.

@@ -73,7 +73,7 @@ db.exec(`
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     part_id          INTEGER NOT NULL REFERENCES parts(id),
     printer_id       INTEGER NOT NULL REFERENCES printers(id),
-    gcode_id         INTEGER NOT NULL REFERENCES gcodes(id),
+    gcode_id         INTEGER REFERENCES gcodes(id),
     parts_per_plate  INTEGER NOT NULL,
     status           TEXT DEFAULT 'queued',
     started_at       INTEGER,
@@ -100,7 +100,6 @@ try { db.exec('ALTER TABLE printers ADD COLUMN job_progress REAL'); } catch (_) 
 try { db.exec('ALTER TABLE printers ADD COLUMN job_time_remaining INTEGER'); } catch (_) {}
 try { db.exec("ALTER TABLE printers ADD COLUMN serial_number TEXT DEFAULT ''"); } catch (_) {}
 try { db.exec('ALTER TABLE gcodes ADD COLUMN ams_slot INTEGER'); } catch (_) {}
-try { db.exec('CREATE INDEX IF NOT EXISTS idx_jobs_printer_started ON jobs(printer_id, started_at DESC)'); } catch (_) {}
 try { db.exec('ALTER TABLE parts ADD COLUMN print_time_seconds INTEGER'); } catch (_) {}
 try { db.exec('ALTER TABLE parts ADD COLUMN material_grams REAL'); } catch (_) {}
 try { db.exec('ALTER TABLE gcodes ADD COLUMN material_grams REAL'); } catch (_) {}
@@ -459,27 +458,7 @@ try {
 }
 
 // Make jobs.gcode_id nullable so gcodes can be deleted after jobs have run
-const gcodeIdCol = db.prepare("PRAGMA table_info(jobs)").all().find(c => c.name === 'gcode_id');
-if (gcodeIdCol && gcodeIdCol.notnull === 1) {
-  db.exec(`
-    PRAGMA foreign_keys = OFF;
-    CREATE TABLE jobs_migrated (
-      id               INTEGER PRIMARY KEY AUTOINCREMENT,
-      part_id          INTEGER NOT NULL REFERENCES parts(id),
-      printer_id       INTEGER NOT NULL REFERENCES printers(id),
-      gcode_id         INTEGER REFERENCES gcodes(id),
-      parts_per_plate  INTEGER NOT NULL,
-      status           TEXT DEFAULT 'queued',
-      started_at       INTEGER,
-      finished_at      INTEGER,
-      created_at       INTEGER NOT NULL
-    );
-    INSERT INTO jobs_migrated SELECT * FROM jobs;
-    DROP TABLE jobs;
-    ALTER TABLE jobs_migrated RENAME TO jobs;
-    PRAGMA foreign_keys = ON;
-  `);
-}
+require('./jobs-gcode-migration').makeJobsGcodeNullable(db);
 
 // Backfill decommission events for printers that were decommissioned before the
 // printer_events table existed. Runs once per printer (checked via event absence).
