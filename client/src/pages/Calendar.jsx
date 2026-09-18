@@ -5,6 +5,7 @@ import EmptyState from '../components/EmptyState';
 import { useToast } from '../useToast';
 import { useConfirm } from '../useConfirm';
 import { theme, CARD_STYLE, INPUT_STYLE, BTN_PRIMARY, BTN_SECONDARY } from '../theme';
+import { apiFetch } from '../apiFetch';
 
 const EVENT_TYPE_COLORS = {
   stock_arrival:       { bg: 'rgba(45, 212, 191, 0.18)', text: theme.teal, border: theme.tealDeep },
@@ -245,7 +246,7 @@ export default function Calendar() {
       danger: true,
     });
     if (!ok) return;
-    const res = await fetch(`/api/calendar/events/${ev.id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/calendar/events/${ev.id}`, { method: 'DELETE' });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       showToast('Delete failed: ' + (body.error || res.status), 'error');
@@ -256,7 +257,7 @@ export default function Calendar() {
   }
 
   async function markDone(ev) {
-    const res = await fetch(`/api/calendar/events/${ev.id}`, {
+    const res = await apiFetch(`/api/calendar/events/${ev.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'done' }),

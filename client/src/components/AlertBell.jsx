@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { theme } from '../theme';
+import { apiFetch } from '../apiFetch';
 
 export default function AlertBell({ dropUp = false }) {
   const [alerts, setAlerts] = useState([]);
@@ -20,7 +21,7 @@ export default function AlertBell({ dropUp = false }) {
   }, []);
 
   async function dismiss(id) {
-    await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/notifications/${id}`, { method: 'DELETE' });
     setAlerts(prev => prev.filter(a => a.id !== id));
   }
 

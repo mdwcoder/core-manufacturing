@@ -11,7 +11,7 @@ const request  = require('supertest');
 const express  = require('express');
 const Database = require('better-sqlite3');
 
-const { requireAuth, requireRole, requireMinRole, blockViewerWrites, blockOnForcedPasswordChange } = require('../auth');
+const { requireAuth, requireRole, requireMinRole, blockViewerWrites, blockOnForcedPasswordChange, requireCsrfHeader } = require('../auth');
 
 let db;
 let app;
@@ -76,6 +76,8 @@ beforeEach(() => {
   app.post('/api/writeish', requireAuth(db), blockViewerWrites(), (req, res) => res.json({ ok: true }));
   app.get('/api/users/me/password', requireAuth(db), blockOnForcedPasswordChange(['/api/users/me/password']), (req, res) => res.json({ ok: true }));
   app.get('/api/anything-else', requireAuth(db), blockOnForcedPasswordChange(['/api/users/me/password']), (req, res) => res.json({ ok: true }));
+  app.post('/api/csrf-check', requireCsrfHeader(), (req, res) => res.json({ ok: true }));
+  app.get('/api/csrf-check', requireCsrfHeader(), (req, res) => res.json({ ok: true }));
 });
 
 describe('GET /api/auth/status', () => {
@@ -245,6 +247,28 @@ describe('requireRole / requireMinRole / blockViewerWrites', () => {
       const agent = await loginAs(role);
       expect((await agent.post('/api/writeish')).status).toBe(200);
     }
+  });
+});
+
+describe('requireCsrfHeader', () => {
+  test('403s a mutating request with no X-CoMa-Request header', async () => {
+    const res = await request(app).post('/api/csrf-check');
+    expect(res.status).toBe(403);
+  });
+
+  test('403s a mutating request with the wrong header value', async () => {
+    const res = await request(app).post('/api/csrf-check').set('X-CoMa-Request', 'yes');
+    expect(res.status).toBe(403);
+  });
+
+  test('allows a mutating request with the header set to 1', async () => {
+    const res = await request(app).post('/api/csrf-check').set('X-CoMa-Request', '1');
+    expect(res.status).toBe(200);
+  });
+
+  test('does not gate a GET request at all', async () => {
+    const res = await request(app).get('/api/csrf-check');
+    expect(res.status).toBe(200);
   });
 });
 

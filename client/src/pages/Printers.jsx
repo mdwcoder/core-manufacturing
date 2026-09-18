@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
+import { apiFetch } from '../apiFetch';
 
 const STATUS_COLORS = {
   IDLE:     { bg: '#1e1f45', text: '#a5b4fc' },
@@ -159,7 +160,7 @@ export default function Printers() {
     if (col) body.loaded_color = col;
     if (grp) body.group_name = grp;
     await Promise.all([...selectedIds].map(id =>
-      fetch(`/api/printers/${id}`, {
+      apiFetch(`/api/printers/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

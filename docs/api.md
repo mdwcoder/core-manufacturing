@@ -194,6 +194,22 @@ need `admin`.
 This does not change what `admin`/`manager`/`operator` can do anywhere in the app
 compared to before roles existed; it only adds a floor for `viewer`.
 
+### CSRF header
+
+Every mutating `/api/*` request (`POST`/`PUT`/`DELETE`/`PATCH`) must carry
+`X-CoMa-Request: 1`, except `POST /api/auth/login` and `POST /api/auth/register` (the
+two entry points that issue a session in the first place; there is no session yet to
+protect). A request missing or with a wrong value for that header gets
+`403 { "error": "Missing required request header" }`, before the login gate or any
+route handler runs. Cookies are already `SameSite=Lax` with no CORS configuration, so a
+plain cross-site form post or fetch cannot set a custom header; this closes the rest of
+the gap without a token to generate, store, or rotate.
+
+The client never has to think about this: `client/src/apiFetch.js` is a drop-in
+replacement for `fetch()` that adds the header to every mutating call, and every page's
+`fetch()`/`apiJson()` call goes through it (ERP pages share one `apiJson()` helper in
+`client/src/pages/erp/shared.jsx`, so wiring it there covered all of them at once).
+
 ### Rate limiting
 
 `server/rate-limit.js`: an in-memory sliding window, no new dependency (same spirit as

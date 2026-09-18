@@ -2,6 +2,45 @@
 
 ---
 
+## 2026-09-18: CSRF header, server-wide
+
+The last named gap in the README's security note: "no CSRF token". Since
+cookies are already `SameSite=Lax` and the server has no CORS configuration,
+requiring a custom header on every mutating request is enough to stop a
+plain cross-site form post or fetch, without a token to generate, store,
+rotate, or leak.
+
+Server side is one small middleware (`requireCsrfHeader()`), mounted before
+the login gate so it applies uniformly. Client side is the wide part: every
+mutating `fetch()` call across the app now goes through
+`client/src/apiFetch.js`. ERP pages already routed every mutation through
+one shared `apiJson()` helper, so that one edit covered all of them; every
+other page's `fetch(url, { method: 'POST' | 'PUT' | 'DELETE', ... })` calls
+were mechanically switched to `apiFetch(...)`, verified with
+`npm run build` and a full sweep confirming no mutating `fetch()` call was
+left unrouted anywhere in `client/src`.
+
+### Changes
+- `server/auth.js`: `requireCsrfHeader()`
+- `server/index.js`: mounts it first, exempting only
+  `POST /api/auth/login` and `POST /api/auth/register`
+- `server/tests/auth.test.js`: coverage for the header check
+- `client/src/apiFetch.js` (new): drop-in `fetch()` wrapper
+- `client/src/components/AuthGate.jsx`: its own `postJson`/`putJson` now
+  route through `apiFetch`
+- `client/src/pages/erp/shared.jsx`: `apiJson()` now routes through
+  `apiFetch`, covering every ERP page's mutations in one place
+- `client/src/components/AlertBell.jsx`, `client/src/pages/{Calendar,
+  Decommissioned,Fleet,Jobs,Notebook,PrinterDetail,Printers,Projects,
+  Settings,Timelapses,Users,WorkspaceBoard}.jsx`: every mutating `fetch()`
+  call switched to `apiFetch()`
+- `client/src/pages/Projects.jsx`: the one `XMLHttpRequest`-based upload
+  (gcode upload with progress) gets the header via `setRequestHeader`
+- `docs/api.md`, `docs/web-app.md`: document the header and the client
+  wrapper
+
+---
+
 ## 2026-09-18: Login rate limiting
 
 The README's own security note has long admitted "no rate limiting"; this

@@ -21,7 +21,7 @@ const events         = require('./events');
 const audit          = require('./audit');
 const backup         = require('./backup');
 
-const { requireAuth, blockOnForcedPasswordChange, blockViewerWrites } = require('./auth');
+const { requireAuth, blockOnForcedPasswordChange, blockViewerWrites, requireCsrfHeader } = require('./auth');
 const authRouter         = require('./routes/auth')(db);
 const usersRouter        = require('./routes/users')(db);
 const sessionsRoutes     = require('./routes/sessions');
@@ -54,6 +54,19 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// CSRF header: every mutating /api/* request must carry X-CoMa-Request: 1, except the
+// two entry points that issue a session in the first place (there is no session yet to
+// protect). Cookies are already SameSite=Lax with no CORS configuration, so a plain
+// cross-site form post or fetch cannot set this header; client/src/apiFetch.js adds it
+// to every mutating call the client makes. Mounted first, before the login gate, so an
+// unauthenticated mutating request is rejected for the same reason an authenticated one
+// would be, not treated differently.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (req.path === '/api/auth/login' || req.path === '/api/auth/register') return next();
+  return requireCsrfHeader()(req, res, next);
+});
 
 // Login gate: every /api/* route requires a valid session cookie except the auth
 // routes themselves (they are what issues the cookie) and the health check. Mounted

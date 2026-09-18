@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useConfirm } from '../useConfirm';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
+import { apiFetch } from '../apiFetch';
 
 // Colors match the Fleet page conventions: blue = printing, green = done.
 // Cancelled gets a line-through as a non-color cue against Queued.
@@ -113,7 +114,7 @@ export default function Jobs() {
       danger: true,
     });
     if (!ok) return;
-    await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+    await apiFetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
     fetchJobs();
   }
 

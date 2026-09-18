@@ -3,6 +3,7 @@ import { useToast } from '../useToast';
 import { useConfirm } from '../useConfirm';
 import PageHeader from '../components/PageHeader';
 import { theme, CARD_STYLE, INPUT_STYLE, BTN_PRIMARY, BTN_SECONDARY, tintStyle } from '../theme';
+import { apiFetch } from '../apiFetch';
 
 const ROLES = ['admin', 'manager', 'operator', 'viewer'];
 
@@ -95,7 +96,7 @@ export default function Users({ authRole }) {
     if (!newUsername.trim()) return;
     setCreating(true);
     try {
-      const res = await fetch('/api/users', {
+      const res = await apiFetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: newUsername.trim(), role: newRole }),
@@ -114,7 +115,7 @@ export default function Users({ authRole }) {
 
   async function handleRoleChange(user, role) {
     try {
-      const res = await fetch(`/api/users/${user.id}`, {
+      const res = await apiFetch(`/api/users/${user.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role }),
@@ -129,7 +130,7 @@ export default function Users({ authRole }) {
 
   async function handleToggleActive(user) {
     try {
-      const res = await fetch(`/api/users/${user.id}`, {
+      const res = await apiFetch(`/api/users/${user.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: user.is_active ? 0 : 1 }),
@@ -151,7 +152,7 @@ export default function Users({ authRole }) {
     });
     if (!ok) return;
     try {
-      const res = await fetch(`/api/users/${user.id}/reset-password`, { method: 'POST' });
+      const res = await apiFetch(`/api/users/${user.id}/reset-password`, { method: 'POST' });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
       setReveal({ username: user.username, password: body.temporaryPassword });
@@ -176,7 +177,7 @@ export default function Users({ authRole }) {
 
   async function handleRevokeUserSession(user, displayId) {
     try {
-      const res = await fetch(`/api/users/${user.id}/sessions/${displayId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/users/${user.id}/sessions/${displayId}`, { method: 'DELETE' });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
       setSessionRows(rows => rows.filter(r => r.display_id !== displayId));
@@ -194,7 +195,7 @@ export default function Users({ authRole }) {
     });
     if (!ok) return;
     try {
-      const res = await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/users/${user.id}`, { method: 'DELETE' });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
       fetchUsers();
@@ -229,7 +230,7 @@ export default function Users({ authRole }) {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-      const res = await fetch('/api/users/import', {
+      const res = await apiFetch('/api/users/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ users: parsed.users || [] }),

@@ -192,10 +192,27 @@ function blockOnForcedPasswordChange(allowedPaths) {
   };
 }
 
+// Express middleware: a custom header on every mutating request. Cookies are already
+// SameSite=Lax and there is no CORS configuration, so a plain browser form post or a
+// cross-site fetch cannot set a custom header; requiring one here closes the rest of
+// the CSRF gap without a token to generate, store, or rotate.
+const CSRF_HEADER = 'X-CoMa-Request';
+const CSRF_WRITE_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
+function requireCsrfHeader() {
+  return (req, res, next) => {
+    if (!CSRF_WRITE_METHODS.has(req.method)) return next();
+    if (req.get(CSRF_HEADER) !== '1') {
+      return res.status(403).json({ error: 'Missing required request header' });
+    }
+    next();
+  };
+}
+
 module.exports = {
   COOKIE_NAME,
   SESSION_TTL_MS,
   ROLE_RANK,
+  CSRF_HEADER,
   hashPassword,
   verifyPassword,
   generateToken,
@@ -214,4 +231,5 @@ module.exports = {
   requireMinRole,
   blockViewerWrites,
   blockOnForcedPasswordChange,
+  requireCsrfHeader,
 };

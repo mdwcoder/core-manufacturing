@@ -4,6 +4,7 @@ import { useToast } from '../useToast';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
 import { useConfirm } from '../useConfirm';
+import { apiFetch } from '../apiFetch';
 
 // ── Estimate helpers ──────────────────────────────────────────────────────────
 
@@ -190,7 +191,7 @@ function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, pro
     setParsedEstPrintSecs(null);
     setParsedMaterialGrams(null);
     try {
-      const res = await fetch('/api/gcodes/parse-filename', {
+      const res = await apiFetch('/api/gcodes/parse-filename', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: f.name }),
@@ -243,6 +244,7 @@ function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, pro
       const { ok, data } = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/gcodes/upload');
+        xhr.setRequestHeader('X-CoMa-Request', '1'); // CSRF header, see client/src/apiFetch.js
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) setUploadPct(Math.round((e.loaded / e.total) * 100));
         };
@@ -449,7 +451,7 @@ function GcodeEstimateRow({ gc, onDelete, onSaved, filamentTypes, filamentColors
     setParsing(true);
     setError(null);
     try {
-      const res = await fetch('/api/gcodes/parse-filename', {
+      const res = await apiFetch('/api/gcodes/parse-filename', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: gc.filename }),
@@ -469,7 +471,7 @@ function GcodeEstimateRow({ gc, onDelete, onSaved, filamentTypes, filamentColors
   async function save() {
     setSaving(true);
     setError(null);
-    const res = await fetch(`/api/gcodes/${gc.id}`, {
+    const res = await apiFetch(`/api/gcodes/${gc.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -657,7 +659,7 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm, filamen
     const trimmed = nameDraft.trim();
     setEditingName(false);
     if (!trimmed || trimmed === part.name) return;
-    await fetch(`/api/parts/${part.id}`, {
+    await apiFetch(`/api/parts/${part.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: trimmed }),
@@ -693,7 +695,7 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm, filamen
 
     setSaving(true);
     setQtyError(null);
-    const res = await fetch(`/api/parts/${part.id}`, {
+    const res = await apiFetch(`/api/parts/${part.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ completed_qty: newHave, target_qty: newNeed }),
@@ -716,7 +718,7 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm, filamen
       danger: true,
     });
     if (!ok) return;
-    await fetch(`/api/gcodes/${gcodeId}`, { method: 'DELETE' });
+    await apiFetch(`/api/gcodes/${gcodeId}`, { method: 'DELETE' });
     onRefresh();
   }
 
@@ -995,7 +997,7 @@ export default function Projects() {
     [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
     setProjects(reordered);
 
-    await fetch('/api/projects/reorder', {
+    await apiFetch('/api/projects/reorder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: reordered.map(p => p.id) }),
@@ -1012,7 +1014,7 @@ export default function Projects() {
     reordered.splice(toIdx, 0, moved);
     setProjects(reordered);
     setProjectDragSrc(null);
-    fetch('/api/projects/reorder', {
+    apiFetch('/api/projects/reorder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: reordered.map(p => p.id) }),
@@ -1022,7 +1024,7 @@ export default function Projects() {
   async function createProject() {
     if (!newName.trim()) return;
     try {
-      const res = await fetch('/api/projects', {
+      const res = await apiFetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1048,7 +1050,7 @@ export default function Projects() {
     if (!dupName.trim() || duplicating) return;
     setDuplicating(true);
     try {
-      const res = await fetch(`/api/projects/${dupModal.id}/duplicate`, {
+      const res = await apiFetch(`/api/projects/${dupModal.id}/duplicate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: dupName.trim() }),
@@ -1080,7 +1082,7 @@ export default function Projects() {
         danger: true,
       });
       if (!ok) return;
-      const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/projects/${id}`, { method: 'DELETE' });
       if (!res.ok) {
         const d = await res.json();
         showToast(d.error || 'Delete failed.', 'error');
@@ -1105,7 +1107,7 @@ export default function Projects() {
       });
       if (!ok) return;
 
-      await fetch(`/api/projects/${id}/complete`, { method: 'POST' });
+      await apiFetch(`/api/projects/${id}/complete`, { method: 'POST' });
       await Promise.all([fetchDetail(id), fetchProjects()]);
       return;
     }
@@ -1118,7 +1120,7 @@ export default function Projects() {
       });
       if (!ok) return;
 
-      const res  = await fetch(`/api/projects/${id}/reactivate`, { method: 'POST' });
+      const res  = await apiFetch(`/api/projects/${id}/reactivate`, { method: 'POST' });
       const data = await res.json();
 
       if (data.nothing_to_reopen) {
@@ -1131,13 +1133,13 @@ export default function Projects() {
     }
 
     // Standard transitions: 'active' (activate/resume) or 'paused'
-    await fetch(`/api/projects/${id}`, {
+    await apiFetch(`/api/projects/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: action }),
     });
     if (action === 'active') {
-      fetch('/api/scheduler/dispatch', { method: 'POST' }).catch(() => {});
+      apiFetch('/api/scheduler/dispatch', { method: 'POST' }).catch(() => {});
     }
     await Promise.all([fetchDetail(id), fetchProjects()]);
   }
@@ -1151,7 +1153,7 @@ export default function Projects() {
     [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
     setParts(reordered);
 
-    await fetch('/api/parts/reorder', {
+    await apiFetch('/api/parts/reorder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: reordered.map(p => p.id) }),
@@ -1168,7 +1170,7 @@ export default function Projects() {
     reordered.splice(toIdx, 0, moved);
     setParts(reordered);
     setPartDragSrc(null);
-    fetch('/api/parts/reorder', {
+    apiFetch('/api/parts/reorder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: reordered.map(p => p.id) }),
@@ -1183,7 +1185,7 @@ export default function Projects() {
       danger: true,
     });
     if (!ok) return;
-    const res = await fetch(`/api/parts/${partId}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/parts/${partId}`, { method: 'DELETE' });
     if (!res.ok) {
       const d = await res.json();
       showToast(d.error || 'Delete failed.', 'error');
@@ -1196,7 +1198,7 @@ export default function Projects() {
     if (!newPartName.trim() || !newPartQty) return;
     setAddingPart(true);
     try {
-      const res = await fetch('/api/parts', {
+      const res = await apiFetch('/api/parts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1238,7 +1240,7 @@ export default function Projects() {
   }
 
   async function saveProjectFilament(material, color) {
-    await fetch(`/api/projects/${detailProject.id}/filament`, {
+    await apiFetch(`/api/projects/${detailProject.id}/filament`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ required_material: material, required_color: color }),
@@ -1247,7 +1249,7 @@ export default function Projects() {
   }
 
   async function saveProjectGroups(groups) {
-    await fetch(`/api/projects/${detailProject.id}/groups`, {
+    await apiFetch(`/api/projects/${detailProject.id}/groups`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ allowed_groups: groups }),
@@ -1260,7 +1262,7 @@ export default function Projects() {
     const trimmed = projectNameDraft.trim();
     setEditingProjectName(false);
     if (!trimmed || trimmed === detailProject.name) return;
-    await fetch(`/api/projects/${detailProject.id}`, {
+    await apiFetch(`/api/projects/${detailProject.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: trimmed }),

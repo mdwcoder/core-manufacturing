@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useToast } from '../useToast';
 import { useConfirm } from '../useConfirm';
 import PageHeader from '../components/PageHeader';
+import { apiFetch } from '../apiFetch';
 
 const inputStyle = {
   background: '#12131c',
@@ -133,7 +134,7 @@ export default function Settings() {
 
   async function handleRevokeSession(displayId) {
     try {
-      const res = await fetch(`/api/sessions/${displayId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/sessions/${displayId}`, { method: 'DELETE' });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
       fetchSessions();
@@ -151,7 +152,7 @@ export default function Settings() {
     });
     if (!ok) return;
     try {
-      const res = await fetch('/api/sessions', { method: 'DELETE' });
+      const res = await apiFetch('/api/sessions', { method: 'DELETE' });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
       showToast(`Signed out ${body.revoked} other session(s)`);
@@ -163,7 +164,7 @@ export default function Settings() {
 
   async function handleLogout() {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch (_) {
       // Best-effort: even if the request fails, tell AuthGate to re-check status.
     }
@@ -185,7 +186,7 @@ export default function Settings() {
     if (!ok) return;
     setDeletingAccount(true);
     try {
-      const res = await fetch('/api/auth/delete-account', {
+      const res = await apiFetch('/api/auth/delete-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: deletePassword }),
@@ -211,7 +212,7 @@ export default function Settings() {
     e.preventDefault();
     setTypeFormError(null);
     try {
-      const res = await fetch('/api/filaments/types', {
+      const res = await apiFetch('/api/filaments/types', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: typeForm.name }),
@@ -229,7 +230,7 @@ export default function Settings() {
   async function handleDeleteType(id, name) {
     setTypeDeleteError(prev => ({ ...prev, [id]: null }));
     try {
-      const res = await fetch(`/api/filaments/types/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/filaments/types/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete');
       fetchModels();
@@ -247,7 +248,7 @@ export default function Settings() {
     e.preventDefault();
     setColorFormError(null);
     try {
-      const res = await fetch('/api/filaments/colors', {
+      const res = await apiFetch('/api/filaments/colors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -269,7 +270,7 @@ export default function Settings() {
   async function handleDeleteColor(id, name) {
     setColorDeleteError(prev => ({ ...prev, [id]: null }));
     try {
-      const res = await fetch(`/api/filaments/colors/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/filaments/colors/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete');
       fetchModels();
@@ -302,7 +303,7 @@ export default function Settings() {
     setAddResult(null);
     setAddError(null);
     try {
-      const res = await fetch('/api/printers', {
+      const res = await apiFetch('/api/printers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -337,7 +338,7 @@ export default function Settings() {
     e.preventDefault();
     setModelFormError(null);
     try {
-      const res = await fetch('/api/models', {
+      const res = await apiFetch('/api/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(modelForm),
@@ -355,7 +356,7 @@ export default function Settings() {
   async function handleDeleteModel(model_id) {
     setModelDeleteError(prev => ({ ...prev, [model_id]: null }));
     try {
-      const res = await fetch(`/api/models/${encodeURIComponent(model_id)}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/models/${encodeURIComponent(model_id)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete model');
       fetchModels();
@@ -375,7 +376,7 @@ export default function Settings() {
     e.preventDefault();
     setGroupFormError(null);
     try {
-      const res = await fetch('/api/groups', {
+      const res = await apiFetch('/api/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(groupForm),
@@ -393,7 +394,7 @@ export default function Settings() {
   async function handleDeleteGroup(name) {
     setGroupDeleteError(prev => ({ ...prev, [name]: null }));
     try {
-      const res = await fetch(`/api/groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete group');
       fetchModels();
@@ -438,7 +439,7 @@ export default function Settings() {
   async function handleSaveBatchSize() {
     setBatchSizeError(null);
     try {
-      const res = await fetch('/api/settings/dispatch_batch_size', {
+      const res = await apiFetch('/api/settings/dispatch_batch_size', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: batchSize }),
@@ -454,7 +455,7 @@ export default function Settings() {
   async function handleSaveFarmName() {
     setFarmNameError(null);
     try {
-      const res = await fetch('/api/settings/farm_name', {
+      const res = await apiFetch('/api/settings/farm_name', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: farmName }),
@@ -471,7 +472,7 @@ export default function Settings() {
   async function handleSaveCameraMode() {
     setCameraModeError(null);
     try {
-      const res = await fetch('/api/settings/camera_mode', {
+      const res = await apiFetch('/api/settings/camera_mode', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: cameraMode }),
@@ -487,7 +488,7 @@ export default function Settings() {
   async function handleSaveSalesDocMode() {
     setSalesDocModeError(null);
     try {
-      const res = await fetch('/api/settings/sales_doc_mode', {
+      const res = await apiFetch('/api/settings/sales_doc_mode', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: salesDocMode }),
@@ -509,7 +510,7 @@ export default function Settings() {
         ['timelapse_fps', tlFps],
         ['timelapse_retention_days', tlRetention],
       ]) {
-        const res = await fetch(`/api/settings/${key}`, {
+        const res = await apiFetch(`/api/settings/${key}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value }),
@@ -538,7 +539,7 @@ export default function Settings() {
   }, []);
 
   async function dismissAlert(id) {
-    await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/notifications/${id}`, { method: 'DELETE' });
     setAlerts(prev => prev.filter(a => a.id !== id));
   }
 
@@ -570,7 +571,7 @@ export default function Settings() {
     try {
       const validateFormData = new FormData();
       validateFormData.append('file', file);
-      const validateRes = await fetch('/api/backup/validate', { method: 'POST', body: validateFormData });
+      const validateRes = await apiFetch('/api/backup/validate', { method: 'POST', body: validateFormData });
       const validateData = await validateRes.json().catch(() => ({}));
       if (validateRes.ok && validateData.valid) {
         const c = validateData.counts || {};
@@ -601,7 +602,7 @@ export default function Settings() {
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/backup/restore', { method: 'POST', body: formData });
+      const res = await apiFetch('/api/backup/restore', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Restore failed');
       setRestoreResult(data);
@@ -649,7 +650,7 @@ export default function Settings() {
     formData.append('overwrite_item_cost', acresOverwriteItemCost ? 'true' : 'false');
 
     try {
-      const res = await fetch('/api/erp/import-acres', { method: 'POST', body: formData });
+      const res = await apiFetch('/api/erp/import-acres', { method: 'POST', body: formData });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Import failed');
       setAcresResult(data);
@@ -677,7 +678,7 @@ export default function Settings() {
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/printers/import', {
+      const res = await apiFetch('/api/printers/import', {
         method: 'POST',
         body: formData,
       });
@@ -704,7 +705,7 @@ export default function Settings() {
   async function handleSaveFlagged(flaggedItem, selectedModel) {
     const { row } = flaggedItem;
     try {
-      const res = await fetch('/api/printers', {
+      const res = await apiFetch('/api/printers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

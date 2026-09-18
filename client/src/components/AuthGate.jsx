@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, cloneElement, isValidElement } from 'react';
 import { theme, INPUT_STYLE, BTN_PRIMARY } from '../theme';
+import { apiFetch } from '../apiFetch';
 
 // Gates the whole app behind a single local operator account.
 //
@@ -63,7 +64,7 @@ function BrandMark() {
 }
 
 async function postJson(url, body) {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -76,7 +77,7 @@ async function postJson(url, body) {
 // Settings routes are PUT, not POST (server/routes/settings.js follows the project's
 // "updates are PUT, not PATCH" convention). Used by the onboarding wizard below.
 async function putJson(url, body) {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

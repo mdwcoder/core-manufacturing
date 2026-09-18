@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import CameraFeed from '../components/CameraFeed';
 import { useToast } from '../useToast';
 import { useConfirm } from '../useConfirm';
+import { apiFetch } from '../apiFetch';
 
 function formatTimestamp(ms) {
   if (!ms) return '—';
@@ -154,7 +155,7 @@ export default function PrinterDetail() {
     e.preventDefault();
     if (!note.trim()) return;
     setSaving(true);
-    await fetch(`/api/printers/${id}/events`, {
+    await apiFetch(`/api/printers/${id}/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ note: note.trim() }),
@@ -189,7 +190,7 @@ export default function PrinterDetail() {
     setRenaming(true);
     setNameError(null);
     try {
-      const res = await fetch(`/api/printers/${id}`, {
+      const res = await apiFetch(`/api/printers/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
@@ -234,7 +235,7 @@ export default function PrinterDetail() {
     setSavingDetails(true);
     setDetailsError(null);
     try {
-      const res = await fetch(`/api/printers/${id}`, {
+      const res = await apiFetch(`/api/printers/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -588,7 +589,7 @@ export default function PrinterDetail() {
               onClick={async () => {
                 setTlBusy(true);
                 try {
-                  const r = await fetch(`/api/printers/${id}/timelapse/start`, { method: 'POST' });
+                  const r = await apiFetch(`/api/printers/${id}/timelapse/start`, { method: 'POST' });
                   const body = await r.json().catch(() => ({}));
                   if (!r.ok) throw new Error(body.error || r.status);
                   showToast(`Timelapse #${body.id} started`);
@@ -615,7 +616,7 @@ export default function PrinterDetail() {
               onClick={async () => {
                 setTlBusy(true);
                 try {
-                  const r = await fetch(`/api/printers/${id}/timelapse/stop`, { method: 'POST' });
+                  const r = await apiFetch(`/api/printers/${id}/timelapse/stop`, { method: 'POST' });
                   const body = await r.json().catch(() => ({}));
                   if (!r.ok) throw new Error(body.error || r.status);
                   showToast('Capture stopped (rendering)');
