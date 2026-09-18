@@ -90,6 +90,71 @@ does not exist, `403` for a non-admin caller.
 Admin only. Revokes all, or one, of another user's sessions. Used to sign out a
 departed or compromised account without knowing its password.
 
+### Users
+
+`GET /api/users` is visible to `manager` and `admin`; every mutation below requires
+`admin`. Responses never include `password_hash`/`password_salt`.
+
+#### `GET /api/users`
+
+```json
+[{ "id": 2, "username": "shift-lead", "role": "operator", "is_active": 1, "must_change_password": 0, "created_at": 1774900000000, "created_by": 1 }]
+```
+
+#### `POST /api/users`
+
+Body: `{ "username": "...", "role": "admin"|"manager"|"operator"|"viewer" }`. There is
+no password field: a random temporary password is generated and returned once,
+alongside the new user, with `must_change_password` already set. Returns `201`, `409`
+for a taken username, `400` for a missing username or invalid role.
+
+```json
+{ "user": { "id": 5, "username": "shift-lead", "role": "operator", "is_active": 1, "must_change_password": 1, "created_at": 1774900000000, "created_by": 1 }, "temporaryPassword": "aBc123XyZ..." }
+```
+
+#### `PUT /api/users/:id`
+
+Partial update, `COALESCE`d: `{ "role": "...", "is_active": 0|1 }`. Deactivating a user
+revokes every open session of theirs. Returns `404` for an unknown user, `409` if the
+change would leave CoMa with no active admin.
+
+#### `DELETE /api/users/:id`
+
+Deletes the user and revokes their sessions. `404` for an unknown user, `409` if they
+are the last active admin.
+
+#### `POST /api/users/:id/reset-password`
+
+Generates a new random temporary password, sets `must_change_password`, and revokes
+every open session of that user. Returns the password once:
+
+```json
+{ "ok": true, "temporaryPassword": "aBc123XyZ..." }
+```
+
+#### `POST /api/users/me/password`
+
+Any authenticated user changing their own password. Body:
+`{ "currentPassword": "...", "newPassword": "..." }` (new password minimum 8
+characters). This is the one route still reachable while `must_change_password` is set
+(see below), and does not require any particular role.
+
+### Forced password change
+
+While `req.user.must_change_password` is set, every `/api/*` route is rejected with
+`403 { "error": "Password change required", "code": "MUST_CHANGE_PASSWORD" }` except
+`/api/auth/*`, `/api/health`, and `POST /api/users/me/password`. The client
+(`AuthGate.jsx`) shows a dedicated screen for this instead of the normal app or
+onboarding.
+
+### Local password recovery
+
+`node server/scripts/reset-admin-password.js <username> <new-password> [--role admin]`,
+run directly on the machine (SSH/console access is the security boundary, documented
+in [docs/installation.md](installation.md)). Creates the user if it does not exist,
+otherwise resets its password and revokes its open sessions; the account is usable
+immediately, without a forced change, since the operator typed the password themselves.
+
 ---
 
 ## Printers

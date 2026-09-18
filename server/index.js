@@ -20,8 +20,9 @@ const notifications  = require('./notifications');
 const events         = require('./events');
 const backup         = require('./backup');
 
-const { requireAuth }    = require('./auth');
+const { requireAuth, blockOnForcedPasswordChange } = require('./auth');
 const authRouter         = require('./routes/auth')(db);
+const usersRouter        = require('./routes/users')(db);
 const sessionsRoutes     = require('./routes/sessions');
 const printersRouter     = require('./routes/printers')(db);
 const jobsRouter         = require('./routes/jobs')(db);
@@ -67,8 +68,20 @@ app.use((req, res, next) => {
   return requireAuth(db)(req, res, next);
 });
 
+// Forced password change: once must_change_password is set (a fresh admin-created
+// account, or a password reset), every route is blocked except the ones that let the
+// operator actually change it and log out. Runs after the login gate above, so
+// req.user always exists here for anything not already exempted there.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (req.path.startsWith('/api/auth/')) return next();
+  if (req.path === '/api/health') return next();
+  return blockOnForcedPasswordChange(['/api/users/me/password'])(req, res, next);
+});
+
 // API routes
 app.use('/api/auth',            authRouter);
+app.use('/api/users',           usersRouter);
 app.use('/api/sessions',        sessionsRoutes.selfRouter(db));
 app.use('/api/users/:id/sessions', sessionsRoutes.adminRouter(db));
 app.use('/api/printers',        printersRouter);

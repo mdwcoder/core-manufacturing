@@ -302,6 +302,30 @@ Use Settings → Backup → Shopfloor Backup to export a portable JSON backup. F
 
 Never copy `node_modules` between machines or operating systems. Restore the data, then run `npm ci` on the destination so native packages match its Node.js ABI and Linux architecture.
 
+To restore from one of the hourly snapshots `server/backup.js` already takes (separate from the JSON export above, and covering the whole database including users): stop the service, copy the chosen snapshot file over `server/data/organic-data.db` (or `seed-data.db`), then restart.
+
+## Account Recovery
+
+CoMa has no email-based "forgot password" flow, on purpose: it is a LAN app with no
+SMTP configuration to assume. Two paths, depending on whether an admin can still log in.
+
+**An admin is available:** use Settings → Users → Reset password on the locked-out
+account. This generates a new temporary password (shown once) and signs that account
+out everywhere; the account must set its own password on next login.
+
+**No admin can log in:** run the recovery script directly on the machine hosting CoMa.
+This has no HTTP surface of its own; SSH or console access to the machine is the
+security boundary, which is the right one for a LAN app with no email recovery:
+
+```bash
+node server/scripts/reset-admin-password.js <username> <new-password> [--role admin]
+```
+
+If `<username>` exists, its password is replaced and its open sessions are revoked. If
+it does not exist, it is created with the given role (default `admin`). Unlike an
+admin-created account, the account is usable immediately with the password you typed,
+since you already have console access; it does not force a password change.
+
 ## Updating the Fork
 
 For development:

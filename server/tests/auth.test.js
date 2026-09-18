@@ -11,7 +11,7 @@ const request  = require('supertest');
 const express  = require('express');
 const Database = require('better-sqlite3');
 
-const { requireAuth, requireRole, requireMinRole, blockViewerWrites } = require('../auth');
+const { requireAuth, requireRole, requireMinRole, blockViewerWrites, blockOnForcedPasswordChange } = require('../auth');
 
 let db;
 let app;
@@ -63,6 +63,8 @@ beforeEach(() => {
   app.post('/api/admin-only', requireAuth(db), requireRole('admin'), (req, res) => res.json({ ok: true }));
   app.get('/api/manager-up', requireAuth(db), requireMinRole('manager'), (req, res) => res.json({ ok: true }));
   app.post('/api/writeish', requireAuth(db), blockViewerWrites(), (req, res) => res.json({ ok: true }));
+  app.get('/api/users/me/password', requireAuth(db), blockOnForcedPasswordChange(['/api/users/me/password']), (req, res) => res.json({ ok: true }));
+  app.get('/api/anything-else', requireAuth(db), blockOnForcedPasswordChange(['/api/users/me/password']), (req, res) => res.json({ ok: true }));
 });
 
 describe('GET /api/auth/status', () => {
@@ -216,6 +218,39 @@ describe('requireRole / requireMinRole / blockViewerWrites', () => {
       const agent = await loginAs(role);
       expect((await agent.post('/api/writeish')).status).toBe(200);
     }
+  });
+});
+
+describe('blockOnForcedPasswordChange', () => {
+  async function loginWithForcedChange() {
+    const { hashPassword } = require('../auth');
+    const { hash, salt } = hashPassword('temp-password-1');
+    db.prepare(`
+      INSERT INTO users (username, password_hash, password_salt, role, is_active, must_change_password, created_at)
+      VALUES ('forced-user', ?, ?, 'operator', 1, 1, ?)
+    `).run(hash, salt, Date.now());
+    const agent = request.agent(app);
+    await agent.post('/api/auth/login').send({ username: 'forced-user', password: 'temp-password-1' });
+    return agent;
+  }
+
+  test('blocks any route except the allowed one while must_change_password is set', async () => {
+    const agent = await loginWithForcedChange();
+    expect((await agent.get('/api/anything-else')).status).toBe(403);
+    expect((await agent.get('/api/users/me/password')).status).toBe(200);
+  });
+
+  test('does not block a normal user (must_change_password = 0)', async () => {
+    const now = Date.now();
+    const { hashPassword } = require('../auth');
+    const { hash, salt } = hashPassword('supersecret1');
+    db.prepare(`
+      INSERT INTO users (username, password_hash, password_salt, role, is_active, must_change_password, created_at)
+      VALUES ('normal-user', ?, ?, 'operator', 1, 0, ?)
+    `).run(hash, salt, now);
+    const agent = request.agent(app);
+    await agent.post('/api/auth/login').send({ username: 'normal-user', password: 'supersecret1' });
+    expect((await agent.get('/api/anything-else')).status).toBe(200);
   });
 });
 

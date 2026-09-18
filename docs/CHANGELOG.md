@@ -2,6 +2,45 @@
 
 ---
 
+## 2026-09-18: User management, forced password change, local password recovery
+
+With named accounts and roles in place (two commits back), CoMa needs a way to
+actually add operators and recover a locked-out account without email. This
+adds a Users admin screen, a self password-change route, a forced-change
+gate that blocks the rest of the app until a temporary password is replaced,
+and a console-only recovery script for when no admin can log in at all.
+
+Admin-created passwords are always random and temporary, never chosen by the
+admin creating the account: the real password is only ever known to the
+person who typed it in on first login (or via `users/me/password`).
+
+### Changes
+- `server/auth.js`: adds `generateTemporaryPassword` and the
+  `blockOnForcedPasswordChange` middleware factory
+- `server/routes/users.js` (new): `GET /api/users` (manager+),
+  `POST /api/users`, `PUT /api/users/:id`, `DELETE /api/users/:id`,
+  `POST /api/users/:id/reset-password` (admin only, last-active-admin guard
+  on demote/deactivate/delete), `POST /api/users/me/password` (self)
+- `server/index.js`: mounts the users router and the forced-password-change
+  gate (exempts only `/api/auth/*`, `/api/health`, and
+  `POST /api/users/me/password`)
+- `server/scripts/reset-admin-password.js` (new): console-only recovery,
+  documented as needing SSH/console access rather than a network endpoint
+- `server/tests/users.test.js` (new), `server/tests/auth.test.js`: coverage
+  for user CRUD, the last-admin guard, self password change, and the forced-
+  change gate
+- `client/src/components/AuthGate.jsx`: new forced-password-change screen;
+  passes `authRole`/`authUsername` down to `<App>` as props
+  (no context provider, per project convention)
+- `client/src/App.jsx`, `client/src/pages/Users.jsx` (new): Users
+  administration page (list, create, edit role/active, reset password with
+  a one-time reveal, delete, per-user sessions), nav entry hidden below
+  manager
+- `README.md`, `docs/installation.md`, `docs/api.md`: document the users
+  endpoints, forced password change, and the local recovery script
+
+---
+
 ## 2026-09-18: Manageable sessions
 
 Named accounts (previous commit) need a way to see and end their own logins, and an

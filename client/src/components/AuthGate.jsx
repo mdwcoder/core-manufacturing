@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, cloneElement, isValidElement } from 'react';
 import { theme, INPUT_STYLE, BTN_PRIMARY } from '../theme';
 
 // Gates the whole app behind a single local operator account.
@@ -232,6 +232,84 @@ const ONBOARDING_STEPS = [
   },
 ];
 
+function ForcedPasswordChange({ username, onDone }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await postJson('/api/users/me/password', { currentPassword, newPassword });
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={shellStyle}>
+      <form onSubmit={handleSubmit} style={cardStyle}>
+        <BrandMark />
+        <div style={titleStyle}>Set a new password</div>
+        <div style={subtitleStyle}>
+          {username ? `${username}, this` : 'This'} account was given a temporary password. Choose
+          your own before continuing.
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={labelStyle}>Temporary password</label>
+          {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+          <input
+            autoFocus
+            type="password"
+            value={currentPassword}
+            onChange={e => setCurrentPassword(e.target.value)}
+            style={INPUT_STYLE}
+            required
+          />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={labelStyle}>New password</label>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={e => setNewPassword(e.target.value)}
+            style={INPUT_STYLE}
+            minLength={8}
+            required
+          />
+          <div style={helpStyle}>At least 8 characters.</div>
+        </div>
+        <div style={{ marginBottom: 22 }}>
+          <label style={labelStyle}>Confirm new password</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={e => setConfirmPassword(e.target.value)}
+            style={INPUT_STYLE}
+            minLength={8}
+            required
+          />
+        </div>
+        <button type="submit" disabled={submitting} style={{ ...BTN_PRIMARY, width: '100%' }}>
+          {submitting ? 'Saving...' : 'Set password and continue'}
+        </button>
+        {error && <div style={errorStyle}>{error}</div>}
+      </form>
+    </div>
+  );
+}
+
 function OnboardingWizard({ onDone }) {
   const [values, setValues] = useState(() => Object.fromEntries(
     ONBOARDING_STEPS.filter(s => s.default !== undefined).map(s => [s.key, s.default])
@@ -350,6 +428,13 @@ export default function AuthGate({ children }) {
   if (status === null) return <div style={shellStyle} />;
   if (!status.hasAccount) return <RegisterScreen onDone={refresh} />;
   if (!status.authenticated) return <LoginScreen onDone={refresh} />;
+  if (status.mustChangePassword) return <ForcedPasswordChange username={status.username} onDone={refresh} />;
   if (!status.onboardingCompleted) return <OnboardingWizard onDone={refresh} />;
-  return children;
+
+  // role/username are handed to the wrapped app as props (not a context provider, to
+  // stay consistent with the rest of the project) so nav items and page-level guards
+  // can hide what a role cannot use.
+  return isValidElement(children)
+    ? cloneElement(children, { authRole: status.role, authUsername: status.username })
+    : children;
 }

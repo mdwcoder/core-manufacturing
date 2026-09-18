@@ -34,6 +34,15 @@ function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
+// A random password for admin-created accounts and password resets. Admin-created
+// passwords are always temporary and random (never chosen by the admin creating them),
+// paired with must_change_password=1 so the real password is only ever known to the
+// person who typed it in on first login. base64url keeps it URL/copy-paste safe while
+// staying well above MIN_PASSWORD_LENGTH.
+function generateTemporaryPassword() {
+  return crypto.randomBytes(15).toString('base64url');
+}
+
 function parseCookies(req) {
   const header = req.headers.cookie;
   const out = {};
@@ -170,6 +179,19 @@ function blockViewerWrites() {
   };
 }
 
+// Express middleware factory: once req.user.must_change_password is set (a fresh
+// admin-created account, or a password reset), every route is blocked except the ones
+// in `allowedPaths` (the self password-change route, plus whatever the login gate
+// already exempts before this even runs). Must run after requireAuth(db).
+function blockOnForcedPasswordChange(allowedPaths) {
+  const allowed = new Set(allowedPaths);
+  return (req, res, next) => {
+    if (!req.user || !req.user.must_change_password) return next();
+    if (allowed.has(req.path)) return next();
+    return res.status(403).json({ error: 'Password change required', code: 'MUST_CHANGE_PASSWORD' });
+  };
+}
+
 module.exports = {
   COOKIE_NAME,
   SESSION_TTL_MS,
@@ -177,6 +199,7 @@ module.exports = {
   hashPassword,
   verifyPassword,
   generateToken,
+  generateTemporaryPassword,
   parseCookies,
   setSessionCookie,
   clearSessionCookie,
@@ -190,4 +213,5 @@ module.exports = {
   requireRole,
   requireMinRole,
   blockViewerWrites,
+  blockOnForcedPasswordChange,
 };

@@ -8,7 +8,7 @@ Fork of [joeltelling/print-farm-manager](https://github.com/joeltelling/print-fa
 
 No cloud. No subscriptions. No vendor lock-in.
 
-> **Security:** First run creates a single operator account (login + one-time setup guide). That gate is deliberately basic: one shared login, no CSRF token, no rate limiting, no TLS. Run only on a trusted LAN or VPN. Do not expose ports 3000 / 5173 to the internet. Anyone signed in can reach printer API keys and farm controls.
+> **Security:** First run creates the first admin account (login + one-time setup guide). Additional named accounts with roles (admin/manager/operator/viewer) can be added from Users. This is still a basic local login: no CSRF token yet, no rate limiting yet, no TLS. Run only on a trusted LAN or VPN. Do not expose ports 3000 / 5173 to the internet. Anyone signed in with a non-viewer role can reach printer API keys and farm controls. See [docs/installation.md](docs/installation.md#account-recovery) for local password recovery if no admin can log in.
 
 ---
 
