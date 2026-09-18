@@ -40,7 +40,7 @@ Creates the very first account (always `admin`) on a fresh install. Body: `{ "us
 
 ### `POST /api/auth/login`
 
-Body: `{ "username": "...", "password": "..." }`. Sets the session cookie and returns `{ "ok": true, "onboardingCompleted": <bool>, "role": "...", "mustChangePassword": <bool> }`. Returns `401` for a wrong username/password or a deactivated user.
+Body: `{ "username": "...", "password": "..." }`. Sets the session cookie and returns `{ "ok": true, "onboardingCompleted": <bool>, "role": "...", "mustChangePassword": <bool> }`. Returns `401` for a wrong username/password or a deactivated user, `429` after `DEFAULT_MAX_ATTEMPTS` (10) attempts for the same IP+username within `DEFAULT_WINDOW_MS` (10 minutes): see [Rate limiting](#rate-limiting) below.
 
 ### `POST /api/auth/logout`
 
@@ -126,7 +126,9 @@ are the last active admin.
 #### `POST /api/users/:id/reset-password`
 
 Generates a new random temporary password, sets `must_change_password`, and revokes
-every open session of that user. Returns the password once:
+every open session of that user. Returns the password once. `429` after
+`DEFAULT_MAX_ATTEMPTS` calls for the same admin IP + target user within
+`DEFAULT_WINDOW_MS` (see [Rate limiting](#rate-limiting) below):
 
 ```json
 { "ok": true, "temporaryPassword": "aBc123XyZ..." }
@@ -191,6 +193,18 @@ need `admin`.
 
 This does not change what `admin`/`manager`/`operator` can do anywhere in the app
 compared to before roles existed; it only adds a floor for `viewer`.
+
+### Rate limiting
+
+`server/rate-limit.js`: an in-memory sliding window, no new dependency (same spirit as
+`server/auth.js`'s own "no new dependency" note). Mounted on `POST /api/auth/login`,
+`POST /api/auth/register`, and `POST /api/users/:id/reset-password`. Login and register
+share the same key (IP + the username in the request body, lowercased and trimmed) so
+they bound each other; reset-password keys on IP + the target user id. Default:
+`DEFAULT_MAX_ATTEMPTS` = 10 attempts per `DEFAULT_WINDOW_MS` = 10 minutes. A blocked
+request gets `429 { "error": "Too many attempts, try again later" }` with a
+`Retry-After` header (seconds). State resets on server restart, the same tradeoff
+session expiry already makes; it is not shared across multiple server processes.
 
 ### Audit log
 

@@ -15,6 +15,7 @@ const {
   requireAuth,
 } = require('../auth');
 const audit = require('../audit');
+const { rateLimit, loginKey } = require('../rate-limit');
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -54,7 +55,7 @@ module.exports = (db) => {
   // POST /api/auth/register: creates the very first account (always an admin) on a
   // fresh install. Once any user exists, new users are created by an admin through
   // POST /api/users instead (see server/routes/users.js).
-  router.post('/register', (req, res) => {
+  router.post('/register', rateLimit({ keyFn: loginKey }), (req, res) => {
     if (userCount() > 0) {
       return res.status(409).json({ error: 'An account already exists' });
     }
@@ -83,7 +84,7 @@ module.exports = (db) => {
   });
 
   // POST /api/auth/login
-  router.post('/login', (req, res) => {
+  router.post('/login', rateLimit({ keyFn: loginKey }), (req, res) => {
     const { username, password } = req.body || {};
     if (!username || !password) {
       audit.log(db, { username: username ? String(username).trim() : null }, 'auth.login_failed', { ip: req.ip });

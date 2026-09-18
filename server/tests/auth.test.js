@@ -167,6 +167,22 @@ describe('POST /api/auth/login', () => {
     expect(protectedRes.status).toBe(200);
     expect(protectedRes.body.role).toBe('admin');
   });
+
+  test('rate limits repeated failed login attempts for the same IP+username', async () => {
+    const { DEFAULT_MAX_ATTEMPTS } = require('../rate-limit');
+    // The beforeEach register() call already used one of the shared login/register
+    // attempts for this username, since both routes key on the same IP+username.
+    for (let i = 1; i < DEFAULT_MAX_ATTEMPTS; i++) {
+      const res = await request(app).post('/api/auth/login').send({ username: 'operator', password: 'wrongpassword' });
+      expect(res.status).toBe(401);
+    }
+    const blocked = await request(app).post('/api/auth/login').send({ username: 'operator', password: 'wrongpassword' });
+    expect(blocked.status).toBe(429);
+
+    // A different username is not affected by operator's attempts.
+    const otherUser = await request(app).post('/api/auth/login').send({ username: 'someone-else', password: 'x' });
+    expect(otherUser.status).toBe(401);
+  });
 });
 
 describe('requireAuth middleware', () => {

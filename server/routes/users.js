@@ -12,6 +12,7 @@ const {
   ROLE_RANK,
 } = require('../auth');
 const audit = require('../audit');
+const { rateLimit, resetPasswordKey } = require('../rate-limit');
 
 const VALID_ROLES = Object.keys(ROLE_RANK);
 const MIN_PASSWORD_LENGTH = 8;
@@ -194,7 +195,7 @@ module.exports = (db) => {
   // locked out. Generates a new random password, forces a change on next login, and
   // revokes every existing session of that user (a stale session should not survive a
   // password reset). Returned once, never stored or logged in plaintext.
-  router.post('/:id/reset-password', requireAuth(db), requireRole('admin'), (req, res) => {
+  router.post('/:id/reset-password', requireAuth(db), requireRole('admin'), rateLimit({ keyFn: resetPasswordKey }), (req, res) => {
     const user = getUser(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 

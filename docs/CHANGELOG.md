@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-09-18: Login rate limiting
+
+The README's own security note has long admitted "no rate limiting"; this
+closes that specific gap. `server/rate-limit.js` is a small in-memory
+sliding window, no new dependency, mounted on the three endpoints an
+automated retry loop would actually target: login, register, and an
+admin's password reset for another user. Login and register share a key
+(IP + username) so they bound each other; reset-password keys on IP +
+target user id.
+
+State lives in a plain Map for the process lifetime rather than a
+background sweep timer, so it adds no interval/handle for the process or
+for tests to manage; it resets on restart, the same tradeoff session expiry
+already makes in `server/auth.js`.
+
+### Changes
+- `server/rate-limit.js` (new): `rateLimit({ windowMs, max, keyFn })`,
+  `loginKey`, `resetPasswordKey`
+- `server/routes/auth.js`: rate limits `POST /login` and `POST /register`
+- `server/routes/users.js`: rate limits `POST /:id/reset-password`
+- `server/tests/rate-limit.test.js` (new); `auth.test.js` gets an
+  end-to-end 429 test against the real login route
+- `docs/api.md`: documents the rate limiter and the endpoints it covers
+
+---
+
 ## 2026-09-18: Users-only export/import, restore validation
 
 Two small gaps left in the backup surface: restoring a large backup file was
