@@ -13,6 +13,8 @@ Unified entry point for marketplace sales channels inside CoMa ERP. Operators op
 
 Each available channel keeps its own tables, credentials, runner, and hybrid posting path. Orders Hub only aggregates status; it never posts stock itself.
 
+README gallery shots: `docs/images/erp-orders-hub.png`, `erp-ebay.png`, `erp-shopify.png` (regenerate with `scripts/capture-readme-screenshots.js`).
+
 ## In-app key guides
 
 Every channel page embeds a collapsible **How to get your API keys** guide (`client/src/pages/erp/ordersHub/guides.js` + `ChannelGuide.jsx`) with numbered steps and links to the official portal. Guides are English, same as the rest of the operator UI.

@@ -33,7 +33,9 @@ const PAGES = [
   ['/erp/quotes', 'erp-quotes.png'],
   ['/erp/delivery-notes', 'erp-delivery-notes.png'],
   ['/erp/invoices', 'erp-invoices.png'],
-  ['/erp/ebay', 'erp-ebay.png'],
+  ['/erp/orders-hub', 'erp-orders-hub.png'],
+  ['/erp/orders-hub/ebay', 'erp-ebay.png'],
+  ['/erp/orders-hub/shopify', 'erp-shopify.png'],
   ['/erp/postings', 'erp-postings.png'],
   ['/settings', 'settings.png'],
 ];
@@ -190,6 +192,80 @@ function seedSalesDocsDemo(db) {
   ], 'Factura borrador lista para confirmar');
 }
 
+/**
+ * Seed marketplace demo rows so Orders Hub / eBay / Shopify gallery shots are not empty.
+ * Credentials stay unset (configured=false) so secrets never appear in screenshots.
+ */
+function seedOrdersHubDemo(db) {
+  const hasEbay = db.prepare(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ebay_listing'"
+  ).get();
+  const hasShopify = db.prepare(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'shopify_listing'"
+  ).get();
+  if (!hasEbay && !hasShopify) return;
+
+  const item = db.prepare(
+    "SELECT id, sku, name FROM item WHERE sku = 'FG-BRACKET' OR item_role = 'product' ORDER BY id LIMIT 1"
+  ).get();
+  if (!item) return;
+
+  const now = Date.now();
+
+  if (hasEbay) {
+    const ebayMap = db.prepare("SELECT id FROM ebay_listing WHERE ebay_sku = 'EBAY-FG-BRACKET'").get();
+    if (!ebayMap) {
+      db.prepare(`
+        INSERT INTO ebay_listing (item_id, ebay_sku, offer_id, listing_id, last_pushed_qty, last_pushed_price, is_active)
+        VALUES (?, 'EBAY-FG-BRACKET', 'offer-demo-1', 'listing-demo-1', 12, 15.5, 1)
+      `).run(item.id);
+    }
+    const ebayOrder = db.prepare("SELECT id FROM ebay_order WHERE order_id = 'DEMO-EBAY-ORD-1'").get();
+    if (!ebayOrder) {
+      db.prepare(`
+        INSERT INTO ebay_order
+          (order_id, legacy_order_id, creation_date, last_modified_date, order_payment_status,
+           order_fulfillment_status, buyer_username, total_amount, currency, marketplace_id,
+           raw_json, imported_at)
+        VALUES ('DEMO-EBAY-ORD-1', 'LEG-DEMO-1', '2026-09-17T12:00:00.000Z', '2026-09-17T12:05:00.000Z',
+                'PAID', 'NOT_STARTED', 'demo_buyer', 15.5, 'USD', 'EBAY_US', '{}', ?)
+      `).run(now);
+      db.prepare(`
+        INSERT INTO ebay_order_line
+          (line_item_id, ebay_order_id, ebay_sku, title, qty, unit_price, total_price, item_id, status)
+        VALUES ('DEMO-EBAY-LINE-1', 'DEMO-EBAY-ORD-1', 'EBAY-FG-BRACKET', ?, 1, 15.5, 15.5, ?, 'pending')
+      `).run(item.name || 'Bracket', item.id);
+    }
+  }
+
+  if (hasShopify) {
+    const shopMap = db.prepare("SELECT id FROM shopify_listing WHERE shopify_sku = 'SHOP-FG-BRACKET'").get();
+    if (!shopMap) {
+      db.prepare(`
+        INSERT INTO shopify_listing
+          (item_id, shopify_sku, variant_id, inventory_item_id, location_id,
+           last_pushed_qty, last_pushed_price, is_active)
+        VALUES (?, 'SHOP-FG-BRACKET', '555001', '777001', '888001', 12, 15.5, 1)
+      `).run(item.id);
+    }
+    const shopOrder = db.prepare("SELECT id FROM shopify_order WHERE order_id = '1001'").get();
+    if (!shopOrder) {
+      db.prepare(`
+        INSERT INTO shopify_order
+          (order_id, name, created_at, updated_at, financial_status, fulfillment_status,
+           buyer_email, total_amount, currency, raw_json, imported_at)
+        VALUES ('1001', '#1001', '2026-09-17T12:00:00.000Z', '2026-09-17T12:05:00.000Z',
+                'paid', null, 'buyer@example.com', 15.5, 'USD', '{}', ?)
+      `).run(now);
+      db.prepare(`
+        INSERT INTO shopify_order_line
+          (line_item_id, shopify_order_id, shopify_sku, title, qty, unit_price, total_price, item_id, status)
+        VALUES ('2001', '1001', 'SHOP-FG-BRACKET', ?, 1, 15.5, 15.5, ?, 'pending')
+      `).run(item.name || 'Bracket', item.id);
+    }
+  }
+}
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function getJson(url, retries = 50) {
@@ -324,6 +400,9 @@ async function main() {
     seedWorkspaceDemo(db);
     try { seedSalesDocsDemo(db); } catch (err) {
       console.warn('[capture] sales-docs seed skipped:', err.message);
+    }
+    try { seedOrdersHubDemo(db); } catch (err) {
+      console.warn('[capture] orders-hub seed skipped:', err.message);
     }
   } catch (err) {
     console.warn('[capture] workspace seed skipped:', err.message);

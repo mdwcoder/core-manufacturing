@@ -2,6 +2,25 @@
 
 ---
 
+## 2026-09-18: Orders Hub gallery shots and docs aligned
+
+After Orders Hub shipped (eBay + Shopify + planned Amazon / Mercado Libre), the
+public README still showed a lone eBay Sales entry and a single `erp-ebay.png`
+shot. Regenerated the gallery against seed data (including new
+`erp-orders-hub.png` and `erp-shopify.png`), seeded demo marketplace mappings /
+pending lines so the shots are not empty, and updated the operator-facing docs
+so strangers see Orders Hub where eBay used to stand alone.
+
+### Changes
+- `scripts/capture-readme-screenshots.js`: capture `/erp/orders-hub`, ebay, shopify;
+  `seedOrdersHubDemo` for non-empty gallery rows (no secrets in screenshots)
+- `docs/images/erp-orders-hub.png`, `erp-ebay.png`, `erp-shopify.png`: fresh captures
+- `README.md`: gallery sections, capability table, operator map, structure, docs index
+- `docs/web-app.md`, `docs/server.md`, `docs/README.md`, `docs/user-guide.md`,
+  `docs/erp/orders-hub.md`: Orders Hub / Shopify references and routes
+
+---
+
 ## 2026-09-18: Orders Hub with Shopify connector and channel registry
 
 Marketplace sales connections now live under one ERP screen, **Orders Hub**

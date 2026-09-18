@@ -185,6 +185,13 @@ Hay dos flujos (ambos siempre visibles en la barra; Settings > General elige el 
 
 Detalle: [docs/erp/README.md](erp/README.md#sales-documents-quote--delivery-note--invoice).
 
+**Orders Hub (marketplaces)**
+- **Orders Hub** (`/erp/orders-hub`): overview de canales (eBay y Shopify activos; Amazon y Mercado Libre proximamente)
+- Cada canal tiene guia in-app para obtener las API keys
+- Importa pedidos pagados al ERP (hybrid auto-post o cola pendiente) y empuja precio/qty a listings existentes
+- Nunca toca `parts.completed_qty`
+- Detalle: [docs/erp/orders-hub.md](erp/orders-hub.md), [docs/erp/ebay.md](erp/ebay.md), [docs/erp/shopify.md](erp/shopify.md)
+
 ---
 
 ## 5. Postings: de la impresora al inventario ERP
@@ -298,6 +305,8 @@ Flujo E2E recomendado con seed (detalle tambien en [erp/README.md](erp/README.md
 | `/erp/manufacturing`, `/erp/machines`, `/erp/components`, `/erp/bom`, `/erp/wo` | Fabricacion |
 | `/erp/sales`, `/erp/sales/*` | Sales (legacy Sales Order / pricing) |
 | `/erp/customers`, `/erp/quotes`, `/erp/delivery-notes`, `/erp/invoices` | Customers and Quote / Delivery note / Invoice documents |
+| `/erp/orders-hub` | Orders Hub (eBay, Shopify, planned channels) |
+| `/erp/orders-hub/ebay`, `/erp/orders-hub/shopify` | Channel detail pages |
 
 ---
 
@@ -322,6 +331,7 @@ Logs de desarrollo: `.run/dev.log`.
 |---|---|
 | [installation.md](installation.md) | Instalar, systemd, Docker, simulador |
 | [erp/README.md](erp/README.md) | Paridad Acres, postings, sync |
+| [erp/orders-hub.md](erp/orders-hub.md) | Orders Hub (eBay / Shopify) |
 | [web-app.md](web-app.md) | Paginas React y convenciones UI |
 | [api.md](api.md) | Contratos REST |
 | [database.md](database.md) | Tablas y columnas |

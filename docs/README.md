@@ -53,6 +53,9 @@ core-manufacturing/
 │ ├── events.js # Printer event log helper
 │ ├── notifications.js # In-memory operator alerts
 │ ├── erp/ # Embedded ERP (schema, costing, postings, reports, PDF)
+│ ├── ebay/ # eBay Sell APIs
+│ ├── shopify/ # Shopify Admin APIs
+│ ├── channels/ # Orders Hub registry + aggregator
 │ ├── drivers/ # Per-brand connectors
 │ └── routes/ # printers, projects, jobs, timelapses, backup, settings, ...
 ├── client/

@@ -2,7 +2,7 @@
 
 **Self-hosted shopfloor + manufacturing ERP for a multi-brand 3D print farm.**
 
-One Node process. One SQLite file. Live fleet dispatch for Prusa, Bambu, Elegoo, Klipper, and OctoPrint, plus inventory, costing, work orders, sales documents (quote / delivery note / invoice), eBay Sell sync, timelapses, a planning calendar with production closures that actually stop new job dispatch, and a Workspace board + technical notebook for operator tasks.
+One Node process. One SQLite file. Live fleet dispatch for Prusa, Bambu, Elegoo, Klipper, and OctoPrint, plus inventory, costing, work orders, sales documents (quote / delivery note / invoice), Orders Hub marketplace sync (eBay + Shopify), timelapses, a planning calendar with production closures that actually stop new job dispatch, and a Workspace board + technical notebook for operator tasks.
 
 Fork of [joeltelling/print-farm-manager](https://github.com/joeltelling/print-farm-manager), tuned for Linux ops. Product name: **CoMa** (short) / **CoreManufacturing** (long).
 
@@ -124,12 +124,25 @@ Operator queue after Set Ready: confirm ERP stock moves without inventing part c
 
 ![ERP postings queue](docs/images/erp-postings.png)
 
+### Orders Hub
+
+One place for marketplace channels: eBay and Shopify live today; Amazon and Mercado Libre listed as coming soon. Each channel page includes an in-app guide for obtaining API keys.
+
+![Orders Hub overview](docs/images/erp-orders-hub.png)
+
 ### eBay Sell
 
 Sandbox credentials, SKU to offer mapping, pending order lines, inventory push.
 (Not yet validated on a real eBay production account.)
 
-![eBay integration page under ERP Sales](docs/images/erp-ebay.png)
+![eBay page under Orders Hub](docs/images/erp-ebay.png)
+
+### Shopify Admin
+
+Custom-app Admin API token, SKU to variant mapping, pending order lines, inventory push.
+(Implemented from Shopify Admin REST docs; not yet validated on a real Shopify store.)
+
+![Shopify page under Orders Hub](docs/images/erp-shopify.png)
 
 ### Settings
 
@@ -190,15 +203,17 @@ Neither surface touches printers or `completed_qty`. See [docs/workspace.md](doc
 | Sales documents | Customers + Quote → Delivery note → Invoice chain, tax lines, PDF export |
 | Postings | Queue after Set Ready; never invents `completed_qty`; can attach to a delivery note |
 | Analytics | Profitability, machine OEE, std vs actual variance |
+| Orders Hub | Marketplace registry: eBay + Shopify live; Amazon / Mercado Libre planned |
 | eBay Sell | Import paid orders, push price+qty to existing offers, seller analytics |
+| Shopify Admin | Import orders, push price+qty to existing variants (custom-app token) |
 
-Guide: [docs/erp/README.md](docs/erp/README.md) (sales documents) and [docs/erp/ebay.md](docs/erp/ebay.md).
+Guide: [docs/erp/orders-hub.md](docs/erp/orders-hub.md), [docs/erp/ebay.md](docs/erp/ebay.md), [docs/erp/shopify.md](docs/erp/shopify.md).
 
 Settings → General picks the default sales landing (`legacy` Sales Order vs `quotes_flow` documents). Both flows stay available.
 
 ### Ops
 
-- JSON backup for shopfloor + ERP + G-code files (`auth_*` and eBay secrets excluded on purpose)
+- JSON backup for shopfloor + ERP + G-code files (`auth_*`, eBay, and Shopify secrets excluded on purpose)
 - Organic vs seed databases so demos never overwrite real farm data
 - Linux `./start.sh` / `./stop.sh` / `./restart.sh`, Docker Compose, optional PM2
 
@@ -275,7 +290,7 @@ Same ports as above. Tests: `docker compose exec print-farm-manager-dev npm test
 
 ### Option A: Docker
 
-Upstream publishes multi-arch images to GHCR ([docs/docker-publish.md](docs/docker-publish.md)). To run **this fork** (ERP, telemetry, timelapse, calendar, eBay), build from source until a fork image is published:
+Upstream publishes multi-arch images to GHCR ([docs/docker-publish.md](docs/docker-publish.md)). To run **this fork** (ERP, telemetry, timelapse, calendar, Orders Hub), build from source until a fork image is published:
 
 ```bash
 git clone https://github.com/mdwcoder/core-manufacturing.git
@@ -317,7 +332,7 @@ npm start
 | Confirm stock after Set Ready | ERP → Postings |
 | Customers / quotes / delivery / invoices | ERP → Sales → Customers / Quotes / Delivery notes / Invoices |
 | OEE / margin / cost variance | ERP → Analytics |
-| eBay orders and inventory push | ERP → Sales → eBay |
+| Marketplace orders (eBay / Shopify) | ERP → Sales → Orders Hub |
 | Backup / account / sales flow default | Settings |
 
 ---
@@ -357,7 +372,7 @@ Node is pinned to `>=22 <24` because native `better-sqlite3` builds break on Nod
 ```
 core-manufacturing/
 ├── server/
-│   ├── index.js            # Express: shopfloor + /api/erp + /api/erp/ebay + SPA
+│   ├── index.js            # Express: shopfloor + /api/erp + ebay/shopify/channels + SPA
 │   ├── db.js               # SQLite + additive migrations
 │   ├── poller.js           # 15 s poll + telemetry + timelapse hooks
 │   ├── scheduler.js        # Dispatch + job close + calendar gate
@@ -365,6 +380,8 @@ core-manufacturing/
 │   ├── auth.js             # Local login (scrypt + session cookie)
 │   ├── erp/                # Embedded ERP
 │   ├── ebay/               # eBay Sell client, orders, inventory push, runner
+│   ├── shopify/            # Shopify Admin client, orders, inventory push, runner
+│   ├── channels/           # Orders Hub channel registry + aggregator
 │   ├── drivers/            # prusa, elegoo-*, bambu, klipper, octoprint
 │   └── routes/             # printers, projects, calendar, workspace, notebook, backup, ...
 ├── client/                 # React + Vite SPA
@@ -388,7 +405,9 @@ core-manufacturing/
 | [docs/calendar.md](docs/calendar.md) | Planned events and production-closure gate |
 | [docs/workspace.md](docs/workspace.md) | Workspace board and technical notebook |
 | [docs/erp/README.md](docs/erp/README.md) | Embedded ERP |
+| [docs/erp/orders-hub.md](docs/erp/orders-hub.md) | Orders Hub (marketplace channels) |
 | [docs/erp/ebay.md](docs/erp/ebay.md) | eBay Sell integration |
+| [docs/erp/shopify.md](docs/erp/shopify.md) | Shopify Admin integration |
 | [docs/api.md](docs/api.md) | REST contracts |
 | [docs/web-app.md](docs/web-app.md) | React pages and UI |
 | [docs/database.md](docs/database.md) | Schema |
