@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-09-18: Manageable sessions
+
+Named accounts (previous commit) need a way to see and end their own logins, and an
+admin needs a way to sign out a departed or compromised account without knowing its
+password. Sessions were already tracked in `auth_sessions`; this adds routes and a
+Settings UI on top, without ever exposing the real session token to the client (every
+session is addressed by a `display_id`, a truncated hash of the token, computed on the
+server).
+
+### Changes
+- `server/routes/sessions.js` (new): `selfRouter` (`GET/DELETE /api/sessions`,
+  `DELETE /api/sessions/:displayId`) and `adminRouter`
+  (`GET/DELETE /api/users/:id/sessions[/:displayId]`, admin only)
+- `server/index.js`: mounts both routers
+- `server/tests/sessions.test.js` (new): list/revoke for self and for another user,
+  role gating, display-id lookup never leaking the raw token
+- `client/src/pages/Settings.jsx`: new "Sessions" section in the Account tab (list,
+  revoke one, sign out everywhere else); corrected the now-stale "Delete account"
+  copy left over from the single-shared-account era
+- `docs/api.md`: documents the new session endpoints
+
+---
+
 ## 2026-09-18: Named accounts and roles, replacing the single shared login
 
 The README has long admitted the login gate was "deliberately basic: one shared

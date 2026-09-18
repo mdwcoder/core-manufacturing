@@ -22,6 +22,7 @@ const backup         = require('./backup');
 
 const { requireAuth }    = require('./auth');
 const authRouter         = require('./routes/auth')(db);
+const sessionsRoutes     = require('./routes/sessions');
 const printersRouter     = require('./routes/printers')(db);
 const jobsRouter         = require('./routes/jobs')(db);
 const backupRouter       = require('./routes/backup')(db);
@@ -68,6 +69,8 @@ app.use((req, res, next) => {
 
 // API routes
 app.use('/api/auth',            authRouter);
+app.use('/api/sessions',        sessionsRoutes.selfRouter(db));
+app.use('/api/users/:id/sessions', sessionsRoutes.adminRouter(db));
 app.use('/api/printers',        printersRouter);
 app.use('/api/printers/:id/jobs', printerJobsRouter);
 app.use('/api/jobs',            jobsRouter);

@@ -72,10 +72,10 @@ const NO_API_KEY_TYPES = new Set(['elegoo-centauri', 'klipper']);
 // Per-brand hints on where to find connection credentials
 const CREDENTIAL_HELP = {
   'prusa':            'API Key: on the printer under Settings → Network → PrusaLink, or in the PrusaLink web UI (open the printer\'s IP in a browser) under Settings → API Key.',
-  'elegoo-centauri':  'No API key needed — just the printer\'s IP address, shown on the printer\'s network settings screen.',
+  'elegoo-centauri':  'No API key needed , just the printer\'s IP address, shown on the printer\'s network settings screen.',
   'elegoo-centauri2': 'Enable LAN mode on the printer. The Access Code and Serial Number are shown on the printer\'s network settings screen.',
   'bambu':            'Enable LAN Mode on the printer first. The Access Code is on the printer screen under Settings → WLAN; the Serial Number is under Settings → Device.',
-  'klipper':          'No API key needed — just the IP of the machine running Moonraker. Port 7125 is used automatically.',
+  'klipper':          'No API key needed , just the IP of the machine running Moonraker. Port 7125 is used automatically.',
   'octoprint':        'API Key: in OctoPrint under Settings → API. If OctoPrint isn\'t on port 80 (commonly :5000), include the port in the IP field, e.g. 192.168.1.50:5000.',
 };
 
@@ -94,7 +94,7 @@ export default function Settings() {
   const [restoreFileName, setRestoreFileName] = useState('');
 
   // Add single printer
-  // Printer models — fetched from DB, used throughout this page
+  // Printer models , fetched from DB, used throughout this page
   const [allModels, setAllModels] = useState([]);
   const [filamentTypes, setFilamentTypes] = useState([]);   // [{id, name}]
   const [filamentColors, setFilamentColors] = useState([]); // [{id, name, hex_color}]
@@ -116,6 +116,50 @@ export default function Settings() {
   useEffect(() => {
     fetch('/api/auth/status').then(r => r.json()).then(d => setAuthUsername(d.username || '')).catch(() => {});
   }, []);
+
+  // Sessions: the caller's own open logins (server/routes/sessions.js). Fetched on
+  // mount rather than polled: this is a static page, refetched after every mutation.
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const fetchSessions = useCallback(() => {
+    setSessionsLoading(true);
+    fetch('/api/sessions')
+      .then(r => r.json())
+      .then(setSessions)
+      .catch(() => {})
+      .finally(() => setSessionsLoading(false));
+  }, []);
+  useEffect(() => { fetchSessions(); }, [fetchSessions]);
+
+  async function handleRevokeSession(displayId) {
+    try {
+      const res = await fetch(`/api/sessions/${displayId}`, { method: 'DELETE' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      fetchSessions();
+    } catch (err) {
+      showToast('Revoke session failed: ' + err.message, 'error');
+    }
+  }
+
+  async function handleRevokeOtherSessions() {
+    const ok = await confirm({
+      title: 'Sign out everywhere else',
+      message: 'This signs out every other device or tab currently logged in as you. It does not affect this session.',
+      confirmLabel: 'Sign out others',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch('/api/sessions', { method: 'DELETE' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      showToast(`Signed out ${body.revoked} other session(s)`);
+      fetchSessions();
+    } catch (err) {
+      showToast('Sign out others failed: ' + err.message, 'error');
+    }
+  }
 
   async function handleLogout() {
     try {
@@ -241,7 +285,7 @@ export default function Settings() {
   const [adding, setAdding] = useState(false);
 
   // Keep the Model select's value valid whenever the available models change for the
-  // selected brand — e.g. adding a printer model in the section above while this form is
+  // selected brand , e.g. adding a printer model in the section above while this form is
   // open. Without this, the <select> can visually show the newly-added option (the browser
   // defaults to it once it's the only one) while addForm.model silently stays '', so the
   // submitted request fails required-field validation despite the dropdown looking selected.
@@ -362,7 +406,7 @@ export default function Settings() {
   const [batchSize, setBatchSize] = useState('');
   const [batchSizeError, setBatchSizeError] = useState(null);
 
-  // Site name — shown in the sidebar; picked up on next page load
+  // Site name , shown in the sidebar; picked up on next page load
   const [farmName, setFarmName] = useState('');
   const [farmNameError, setFarmNameError] = useState(null);
   const [cameraMode, setCameraMode] = useState('snapshot');
@@ -958,14 +1002,14 @@ export default function Settings() {
                 style={inputStyle}
               >
                 {allModels.filter(m => m.connector === addForm.type).length === 0
-                ? <option value="">— no models configured —</option>
+                ? <option value="">, no models configured ,</option>
                 : allModels.filter(m => m.connector === addForm.type).map(m => (
                     <option key={m.model_id} value={m.model_id}>{m.label}</option>
                   ))}
               </select>
               {allModels.filter(m => m.connector === addForm.type).length === 0 && (
                 <div style={{ fontSize: 11.5, color: '#fbbf24', marginTop: 4 }}>
-                  No models for this brand yet — add one in Printer Models above first.
+                  No models for this brand yet , add one in Printer Models above first.
                 </div>
               )}
             </div>
@@ -1035,7 +1079,7 @@ export default function Settings() {
                 onChange={e => setAddForm(p => ({ ...p, loaded_material: e.target.value, loaded_color: '' }))}
                 style={inputStyle}
               >
-                <option value="">— none —</option>
+                <option value="">, none ,</option>
                 {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
               </select>
             </div>
@@ -1047,7 +1091,7 @@ export default function Settings() {
                 disabled={!addForm.loaded_material}
                 style={inputStyle}
               >
-                <option value="">— none —</option>
+                <option value="">, none ,</option>
                 {filamentColors
                   .filter(c => c.type_name === addForm.loaded_material)
                   .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
@@ -1151,7 +1195,7 @@ export default function Settings() {
             {result.flagged.length > 0 && (
               <div>
                 <p style={{ fontSize: 13, fontWeight: 600, color: '#f87171', marginBottom: 8 }}>
-                  Flagged rows — resolve manually:
+                  Flagged rows , resolve manually:
                 </p>
                 {result.flagged.map((f, i) => (
                   <div key={i} style={{
@@ -1472,7 +1516,7 @@ export default function Settings() {
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Polling</h2>
         <p style={{ color: '#71717a', fontSize: 13, margin: 0 }}>
           All printers are polled every <strong style={{ color: '#f4f4f5' }}>15 seconds</strong> via their connector API.
-          Polling runs concurrently — all printers are queried in parallel each tick.
+          Polling runs concurrently , all printers are queried in parallel each tick.
           Unreachable printers show as <span style={{ color: '#71717a' }}>OFFLINE</span> and do not affect other printers.
         </p>
       </section>
@@ -1754,12 +1798,60 @@ export default function Settings() {
           </button>
         </section>
 
+        <section style={{ ...sectionStyle, marginTop: 20 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Sessions</h2>
+          <p style={{ color: '#71717a', fontSize: 13, marginBottom: 16 }}>
+            Every device or tab currently logged in as you. Revoke one you no longer
+            recognize, or sign out everywhere else at once.
+          </p>
+          {sessionsLoading ? (
+            <div style={{ color: '#71717a', fontSize: 13 }}>Loading...</div>
+          ) : sessions.length === 0 ? (
+            <div style={{ color: '#71717a', fontSize: 13 }}>No sessions.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+              {sessions.map(s => (
+                <div
+                  key={s.display_id}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                    background: '#12131c', border: '1px solid #2d3146', borderRadius: 6, padding: '8px 12px',
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#f4f4f5', fontWeight: 600 }}>
+                      {s.current ? 'This session' : (s.user_agent || 'Unknown device')}
+                      {s.ip ? ` · ${s.ip}` : ''}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#71717a' }}>
+                      Last seen {s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : 'unknown'}
+                    </div>
+                  </div>
+                  {!s.current && (
+                    <button onClick={() => handleRevokeSession(s.display_id)} style={delBtnStyle}>
+                      Revoke
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {sessions.some(s => !s.current) && (
+            <button
+              onClick={handleRevokeOtherSessions}
+              style={{ background: '#1a2332', color: '#e2e8f0', border: '1px solid #2d3146', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Sign out everywhere else
+            </button>
+          )}
+        </section>
+
         <section style={{ ...sectionStyle, marginTop: 20, border: '1px solid #7f1d1d' }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, color: '#fca5a5' }}>Delete account</h2>
           <p style={{ color: '#71717a', fontSize: 13, marginBottom: 16 }}>
-            Removes the login for this CoMa install and signs everyone out. The next visit will
-            ask to create a new account and will show the setup guide again. This does not
-            touch printers, projects, parts, or any ERP data.
+            Removes your own login and every open session of yours. Blocked if you are the
+            last active admin. This does not touch printers, projects, parts, or any ERP
+            data, and does not affect other users.
           </p>
           <label style={{ display: 'block', fontSize: 12, color: '#a1a1aa', marginBottom: 6 }}>
             Confirm your password

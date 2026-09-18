@@ -56,6 +56,40 @@ Deletes the caller's own account. Body: `{ "password": "..." }`; the current pas
 
 `users`, `auth_sessions`, and `audit_log` are intentionally excluded from `GET /api/backup` and restore: a restored backup must never change who can log into the machine it lands on, or leak a password hash inside the backup JSON (see `server/routes/backup.js`).
 
+### Sessions
+
+`auth_sessions.token` is never sent to the client. Every session is identified by a
+`display_id` (`sha256(token).slice(0, 16)`, computed server-side on read). All routes
+require a valid session; the admin routes additionally require the `admin` role.
+
+#### `GET /api/sessions`
+
+The caller's own open sessions, most recently seen first:
+
+```json
+[{ "display_id": "a1b2c3d4e5f60718", "created_at": 1774900000000, "expires_at": 1777492000000, "last_seen_at": 1774903200000, "user_agent": "Mozilla/5.0...", "ip": "192.168.1.20", "current": true }]
+```
+
+#### `DELETE /api/sessions`
+
+Revokes every other session belonging to the caller (never the one making this
+request). Returns `{ "ok": true, "revoked": <count> }`.
+
+#### `DELETE /api/sessions/:displayId`
+
+Revokes one of the caller's own sessions. `404` if `displayId` does not belong to the
+caller.
+
+#### `GET /api/users/:id/sessions`
+
+Admin only. Same shape as `GET /api/sessions`, for the given user. `404` if the user
+does not exist, `403` for a non-admin caller.
+
+#### `DELETE /api/users/:id/sessions` / `DELETE /api/users/:id/sessions/:displayId`
+
+Admin only. Revokes all, or one, of another user's sessions. Used to sign out a
+departed or compromised account without knowing its password.
+
 ---
 
 ## Printers
