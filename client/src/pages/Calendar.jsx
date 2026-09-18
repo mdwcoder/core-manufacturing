@@ -219,7 +219,7 @@ export default function Calendar() {
       };
       const url = editingId ? `/api/calendar/events/${editingId}` : '/api/calendar/events';
       const method = editingId ? 'PUT' : 'POST';
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

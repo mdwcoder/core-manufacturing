@@ -97,8 +97,8 @@ attempts against `POST /api/auth/login`, `POST /api/auth/register`, and
 
 A persistent, never-pruned log (`audit_log` table, `server/audit.js`) of who did what:
 logins and failed login attempts, logouts, user management, session revocation, backup
-export/restore, and the `completed_qty`-crediting operator actions (set-ready,
-set-ready-batch, recommission). Read-only, `manager` and above, from the Audit Log page
+export/restore, and the safety-sensitive fleet actions set-ready, set-ready-batch, and
+recommission. Read-only, `manager` and above, from the Audit Log page
 or `GET /api/audit-log`. See [docs/api.md#audit-log](api.md#audit-log) and
 [docs/database.md](database.md#audit_log).
 

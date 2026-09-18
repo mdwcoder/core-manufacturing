@@ -2,6 +2,30 @@
 
 ---
 
+## 2026-09-18: Fix security branch integration regressions
+
+Reviewing the multi-user security branch against the complete application found two
+integration failures that its focused server tests did not exercise. Calendar create
+and update requests still used native `fetch`, so the new server-wide CSRF header gate
+rejected every save with 403. User deletion also left incoming `users.created_by`
+references intact, so deleting an account that had created another account failed with
+`SQLITE_CONSTRAINT_FOREIGNKEY`.
+
+### Changes
+- `client/src/pages/Calendar.jsx`: send calendar create and update requests through
+  `apiFetch` so they carry the required CSRF header
+- `server/routes/auth.js`, `server/routes/users.js`: clear historical `created_by`
+  attribution and delete sessions and users in one transaction
+- `server/tests/auth.test.js`, `server/tests/users.test.js`: cover deletion of an
+  account referenced as another account's creator
+- `server/tests/client-csrf.test.js`: guard the Calendar mutation path against falling
+  back to native `fetch`
+- `docs/security.md`, `docs/api.md`, `client/src/pages/AuditLog.jsx`: describe the
+  current audit scope as safety-sensitive fleet actions without implying that every
+  listed action changes part quantities
+
+---
+
 ## 2026-09-18: Security documentation consolidated
 
 The nine commits before this one landed named accounts and roles, manageable
@@ -160,14 +184,13 @@ Named accounts, roles, and role-based gating (previous commits) answer "who
 is allowed to do X". This answers "who actually did X": a persistent,
 never-pruned audit log covering login/logout (success and failure), user
 management, session revocation, backup export/restore, and the
-completed_qty-crediting operator actions (set-ready, set-ready-batch,
-recommission).
+safety-sensitive fleet actions set-ready, set-ready-batch, and recommission.
 
-The crediting actions were the one place this needed care: `audit.log()` is
-added next to the existing state changes as a pure side effect, after
-`completed_qty` has already been written, never as part of computing it. A
-regression test already exists for this from the role-gating commit; nothing
-about it changed here.
+Set Ready was the one place this needed extra care: `audit.log()` is added next
+to the existing state change as a pure side effect, after any `completed_qty`
+reconciliation has already been written, never as part of computing it. A regression
+test already exists for this from the role-gating commit; nothing about it changed
+here.
 
 `server/audit.js` takes `db` as a parameter rather than requiring the real
 `server/db.js` singleton at module scope (unlike `server/events.js`, which

@@ -185,9 +185,14 @@ module.exports = (db) => {
     if (user.role === 'admin' && user.is_active === 1 && activeAdminCount() <= 1) {
       return res.status(409).json({ error: 'Cannot delete the last active admin' });
     }
-    db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
-    deleteAllSessions(db, user.id);
-    audit.log(db, req.user, 'user.delete', { entityType: 'user', entityId: user.id, note: user.username, ip: req.ip });
+    db.transaction(() => {
+      // created_by is historical attribution, not ownership. Preserve child accounts
+      // and clear their reference before removing the user who created them.
+      db.prepare('UPDATE users SET created_by = NULL WHERE created_by = ?').run(user.id);
+      deleteAllSessions(db, user.id);
+      db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+      audit.log(db, req.user, 'user.delete', { entityType: 'user', entityId: user.id, note: user.username, ip: req.ip });
+    })();
     res.json({ ok: true });
   });
 

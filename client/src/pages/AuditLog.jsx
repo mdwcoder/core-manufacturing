@@ -44,7 +44,7 @@ export default function AuditLog() {
 
   return (
     <div>
-      <PageHeader title="Audit Log" subtitle="Who did what: logins, user changes, backups, and part-count-crediting actions. Never pruned." />
+      <PageHeader title="Audit Log" subtitle="Who did what: logins, user changes, backups, and safety-sensitive fleet actions. Never pruned." />
 
       <form onSubmit={applyFilters} style={{ ...CARD_STYLE, padding: 16, marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ width: 140 }}>

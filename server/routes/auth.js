@@ -142,9 +142,14 @@ module.exports = (db) => {
       return res.status(409).json({ error: 'Cannot delete the last active admin' });
     }
 
-    audit.log(db, req.user, 'auth.delete_account', { entityType: 'user', entityId: req.user.id, ip: req.ip });
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id);
-    deleteAllSessions(db, req.user.id);
+    db.transaction(() => {
+      // Keep accounts created by this user, but remove the attribution before deleting
+      // the parent row so the users.created_by foreign key cannot block deletion.
+      db.prepare('UPDATE users SET created_by = NULL WHERE created_by = ?').run(req.user.id);
+      deleteAllSessions(db, req.user.id);
+      db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id);
+      audit.log(db, req.user, 'auth.delete_account', { entityType: 'user', entityId: req.user.id, ip: req.ip });
+    })();
     clearSessionCookie(res);
     res.json({ ok: true });
   });

@@ -239,10 +239,11 @@ Actions currently logged: `auth.register`, `auth.login`, `auth.login_failed`,
 `auth.logout`, `auth.delete_account`, `user.create`, `user.update`, `user.delete`,
 `user.reset_password`, `user.change_own_password`, `session.revoke`,
 `session.revoke_all`, `backup.export`, `backup.restore`, `printer.set_ready`,
-`printer.set_ready_batch`, `printer.recommission`. The last three are added next to the
-existing `completed_qty` crediting code as a pure side effect; see
-`server/tests/role-gating.test.js` for the proof that this did not change what gets
-credited.
+`printer.set_ready_batch`, `printer.recommission`. The last three record
+safety-sensitive fleet actions as a pure side effect. `printer.set_ready` is emitted
+after any existing quantity reconciliation has completed; see
+`server/tests/role-gating.test.js` for the proof that role gating did not change what
+gets credited.
 
 ---
 

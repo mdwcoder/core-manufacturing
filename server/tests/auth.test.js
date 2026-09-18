@@ -360,19 +360,22 @@ describe('POST /api/auth/delete-account', () => {
   test('with a second admin present, deletes the caller and logs them out without touching the other admin', async () => {
     const agent = request.agent(app);
     await agent.post('/api/auth/register').send({ username: 'operator', password: 'supersecret1' });
+    const firstAdmin = db.prepare("SELECT id FROM users WHERE username = 'operator'").get();
 
-    // A second admin, seeded directly (register only bootstraps the very first user;
-    // every subsequent user comes from POST /api/users, added in a later commit).
+    // A second admin attributed to the first account, matching the real POST /api/users
+    // path. Deleting the creator must preserve this account and clear created_by.
     const { hashPassword } = require('../auth');
     const { hash, salt } = hashPassword('otherpassword');
     db.prepare(`
-      INSERT INTO users (username, password_hash, password_salt, role, is_active, must_change_password, created_at)
-      VALUES ('other-admin', ?, ?, 'admin', 1, 0, ?)
-    `).run(hash, salt, Date.now());
+      INSERT INTO users
+        (username, password_hash, password_salt, role, is_active, must_change_password, created_at, created_by)
+      VALUES ('other-admin', ?, ?, 'admin', 1, 0, ?, ?)
+    `).run(hash, salt, Date.now(), firstAdmin.id);
 
     const del = await agent.post('/api/auth/delete-account').send({ password: 'supersecret1' });
     expect(del.status).toBe(200);
     expect(del.body.ok).toBe(true);
+    expect(db.prepare("SELECT created_by FROM users WHERE username = 'other-admin'").get().created_by).toBeNull();
 
     // The deleted caller's session no longer authenticates.
     expect((await agent.get('/api/protected')).status).toBe(401);

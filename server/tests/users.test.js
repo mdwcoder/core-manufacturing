@@ -192,6 +192,8 @@ describe('DELETE /api/users/:id', () => {
   test('deletes a user and revokes their sessions', async () => {
     const adminId = seedUser('admin');
     const targetId = seedUser('operator');
+    const childId = seedUser('viewer');
+    db.prepare('UPDATE users SET created_by = ? WHERE id = ?').run(targetId, childId);
     createSession(db, targetId);
     const agent = agentFor(adminId);
 
@@ -199,6 +201,7 @@ describe('DELETE /api/users/:id', () => {
     expect(res.status).toBe(200);
     expect(db.prepare('SELECT * FROM users WHERE id = ?').get(targetId)).toBeUndefined();
     expect(db.prepare('SELECT COUNT(*) AS c FROM auth_sessions WHERE user_id = ?').get(targetId).c).toBe(0);
+    expect(db.prepare('SELECT created_by FROM users WHERE id = ?').get(childId).created_by).toBeNull();
   });
 });
 
