@@ -419,3 +419,31 @@ describe('POST /api/auth/logout', () => {
     expect(status.body.hasAccount).toBe(true);
   });
 });
+
+describe('Session cookie: COOKIE_SECURE', () => {
+  const originalEnv = process.env.COOKIE_SECURE;
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.COOKIE_SECURE;
+    else process.env.COOKIE_SECURE = originalEnv;
+  });
+
+  test('omits Secure by default (LAN/plain-HTTP install)', async () => {
+    delete process.env.COOKIE_SECURE;
+    const res = await request(app).post('/api/auth/register').send({ username: 'operator', password: 'supersecret1' });
+    expect(res.headers['set-cookie'][0]).not.toMatch(/Secure/);
+  });
+
+  test('adds Secure when COOKIE_SECURE=true', async () => {
+    process.env.COOKIE_SECURE = 'true';
+    const res = await request(app).post('/api/auth/register').send({ username: 'operator', password: 'supersecret1' });
+    expect(res.headers['set-cookie'][0]).toMatch(/; Secure/);
+  });
+
+  test('logout also respects COOKIE_SECURE for the clearing cookie', async () => {
+    process.env.COOKIE_SECURE = 'true';
+    const agent = request.agent(app);
+    await agent.post('/api/auth/register').send({ username: 'operator', password: 'supersecret1' });
+    const res = await agent.post('/api/auth/logout');
+    expect(res.headers['set-cookie'][0]).toMatch(/; Secure/);
+  });
+});

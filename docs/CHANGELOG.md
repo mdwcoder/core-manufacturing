@@ -2,6 +2,31 @@
 
 ---
 
+## 2026-09-18: Trust proxy + conditional Secure cookie
+
+The last piece of the README's security note: "no TLS". CoMa still speaks
+plain HTTP itself; this adds the two opt-in env vars a reverse proxy setup
+needs, both defaulting to today's LAN/HTTP behavior so nothing changes for
+an install that does not set them. `COOKIE_SECURE=true` adds `Secure` to
+the session cookie for an install actually served over HTTPS; `TRUST_PROXY`
+makes `req.ip` (used by rate limiting and the audit log) reflect the real
+client address instead of the proxy's.
+
+### Changes
+- `server/auth.js`: `setSessionCookie`/`clearSessionCookie` add `; Secure`
+  when `COOKIE_SECURE=true`
+- `server/trust-proxy.js` (new): pure `parseTrustProxy(raw)`, kept separate
+  from `server/index.js` so it is testable without importing that file
+- `server/index.js`: calls `app.set('trust proxy', ...)` when `TRUST_PROXY`
+  is set
+- `server/tests/trust-proxy.test.js` (new); `server/tests/auth.test.js`
+  gets `COOKIE_SECURE` coverage on the real register/logout responses
+- `docs/installation.md`: new "HTTPS / reverse proxy" section with nginx
+  and Caddy examples, and an explicit warning that `COOKIE_SECURE=true`
+  without HTTPS breaks login silently
+
+---
+
 ## 2026-09-18: CSRF header, server-wide
 
 The last named gap in the README's security note: "no CSRF token". Since

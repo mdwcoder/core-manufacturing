@@ -57,15 +57,23 @@ function parseCookies(req) {
   return out;
 }
 
-// No `Secure` attribute: this app is documented as a LAN-only, typically-http install
-// (see docs/installation.md). Adding `Secure` would silently break the cookie there.
+// No `Secure` attribute by default: this app is documented as a LAN-only, typically-http
+// install (see docs/installation.md). Adding `Secure` unconditionally would silently
+// break the cookie there, since a plain-HTTP browser never sends a Secure cookie back.
+// Setting COOKIE_SECURE=true opts in for an install actually served over HTTPS (behind
+// nginx/Caddy, see docs/installation.md's "HTTPS / reverse proxy" section); this is read
+// fresh on every call rather than cached at module load, so tests can flip it per case.
+function cookieSecureFlag() {
+  return process.env.COOKIE_SECURE === 'true' ? '; Secure' : '';
+}
+
 function setSessionCookie(res, token) {
   const maxAgeSeconds = Math.floor(SESSION_TTL_MS / 1000);
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAgeSeconds}`);
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAgeSeconds}${cookieSecureFlag()}`);
 }
 
 function clearSessionCookie(res) {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${cookieSecureFlag()}`);
 }
 
 function getSessionToken(req) {

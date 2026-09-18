@@ -273,6 +273,57 @@ sudo ufw allow from 192.168.1.0/24 to any port 3000 proto tcp
 
 Adjust the subnet to match the real network. Do not create an unrestricted public firewall rule.
 
+### HTTPS / reverse proxy
+
+CoMa still speaks plain HTTP itself; putting a reverse proxy in front of it is how to
+serve it over HTTPS. Two env vars, both optional and both default to today's LAN/HTTP
+behavior:
+
+- `TRUST_PROXY`: set this when a reverse proxy sits in front of CoMa, so `req.ip` (used
+  by rate limiting and the audit log) reflects the real client address instead of the
+  proxy's. `true` trusts any proxy, `loopback` trusts only a proxy on the same machine
+  (the common case for nginx/Caddy on the same host), or a specific IP/subnet, or a
+  number of hops to trust.
+- `COOKIE_SECURE=true`: adds the `Secure` attribute to the session cookie, required by
+  browsers for a cookie to be sent back over HTTPS-only. **Do not set this unless CoMa
+  is actually reached over HTTPS.** Setting it while still serving plain HTTP breaks
+  login silently: the browser accepts the cookie but never sends it back, so every
+  request looks unauthenticated with no obvious error.
+
+Example nginx config terminating TLS and proxying to CoMa on `:3000`:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name coma.example.lan;
+
+    ssl_certificate     /etc/letsencrypt/live/coma.example.lan/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/coma.example.lan/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Equivalent Caddy config (automatic HTTPS via Let's Encrypt):
+
+```caddyfile
+coma.example.lan {
+    reverse_proxy 127.0.0.1:3000
+}
+```
+
+Run CoMa itself with both env vars set, for example in `start.sh` or the systemd unit:
+
+```bash
+TRUST_PROXY=loopback COOKIE_SECURE=true npm start
+```
+
 ## Printer Credentials
 
 Gather these values before adding printers:

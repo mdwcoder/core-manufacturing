@@ -22,6 +22,7 @@ const audit          = require('./audit');
 const backup         = require('./backup');
 
 const { requireAuth, blockOnForcedPasswordChange, blockViewerWrites, requireCsrfHeader } = require('./auth');
+const { parseTrustProxy } = require('./trust-proxy');
 const authRouter         = require('./routes/auth')(db);
 const usersRouter        = require('./routes/users')(db);
 const sessionsRoutes     = require('./routes/sessions');
@@ -52,6 +53,16 @@ const shopifyRunner      = require('./shopify/runner');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+
+// Reverse proxy support: opt-in, default behavior (no proxy, req.ip is the direct
+// connection) is unchanged when TRUST_PROXY is unset. Needed so req.ip (used by
+// server/rate-limit.js and the audit log) reflects the real client address, not the
+// proxy's, once CoMa is served behind nginx/Caddy (see docs/installation.md's
+// "HTTPS / reverse proxy" section).
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
+  console.log(`[server] trust proxy set to: ${process.env.TRUST_PROXY}`);
+}
 
 app.use(express.json());
 
