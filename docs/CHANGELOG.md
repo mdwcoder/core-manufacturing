@@ -2,6 +2,45 @@
 
 ---
 
+## 2026-09-18: Audit log
+
+Named accounts, roles, and role-based gating (previous commits) answer "who
+is allowed to do X". This answers "who actually did X": a persistent,
+never-pruned audit log covering login/logout (success and failure), user
+management, session revocation, backup export/restore, and the
+completed_qty-crediting operator actions (set-ready, set-ready-batch,
+recommission).
+
+The crediting actions were the one place this needed care: `audit.log()` is
+added next to the existing state changes as a pure side effect, after
+`completed_qty` has already been written, never as part of computing it. A
+regression test already exists for this from the role-gating commit; nothing
+about it changed here.
+
+`server/audit.js` takes `db` as a parameter rather than requiring the real
+`server/db.js` singleton at module scope (unlike `server/events.js`, which
+it is otherwise modeled on): it is wired into `auth.js`, `users.js`,
+`sessions.js`, and `backup.js`, all of which are exercised by tests that
+build their own in-memory database, and none of them may transitively pull
+in the real database file (CLAUDE.md's "heavyweight test" rule).
+
+### Changes
+- `server/audit.js` (new): `log(db, user, action, { entityType, entityId, note, ip })`
+- `server/routes/audit-log.js` (new): `GET /api/audit-log` (manager+), filters
+  on `user_id`/`action`/`entity_type`/`from`/`to`, paginated
+- `server/routes/auth.js`, `users.js`, `sessions.js`, `backup.js`: call
+  `audit.log()` next to the existing state change in each mutating route
+- `server/index.js`: mounts the audit-log router; calls `audit.log()` in
+  set-ready/set-ready-batch/recommission, after the existing crediting code
+- `server/tests/audit-log.test.js` (new); `auth.test.js`, `users.test.js`,
+  `sessions.test.js`, `backup-restore.test.js` updated with an `audit_log`
+  table in their in-memory schema
+- `client/src/pages/AuditLog.jsx` (new): filterable, paginated table;
+  `client/src/App.jsx`: nav entry and route, visible to manager and admin
+- `docs/api.md`: documents the audit-log endpoint and the actions it logs
+
+---
+
 ## 2026-09-18: Role-based route gating
 
 Roles existed on the `users` table since the first commit of this series but

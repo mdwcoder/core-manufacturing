@@ -14,6 +14,7 @@ const {
   getUserById,
   requireAuth,
 } = require('../auth');
+const audit = require('../audit');
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -77,6 +78,7 @@ module.exports = (db) => {
       ip: req.ip,
     });
     setSessionCookie(res, token);
+    audit.log(db, { id: insert.lastInsertRowid, username: String(username).trim() }, 'auth.register', { entityType: 'user', entityId: insert.lastInsertRowid, ip: req.ip });
     res.status(201).json({ ok: true, onboardingCompleted: false });
   });
 
@@ -84,11 +86,13 @@ module.exports = (db) => {
   router.post('/login', (req, res) => {
     const { username, password } = req.body || {};
     if (!username || !password) {
+      audit.log(db, { username: username ? String(username).trim() : null }, 'auth.login_failed', { ip: req.ip });
       return res.status(401).json({ error: 'Invalid username or password' });
     }
     const user = findByUsername(String(username).trim());
     const passwordMatches = user && verifyPassword(String(password), user.password_hash, user.password_salt);
     if (!user || !passwordMatches) {
+      audit.log(db, { username: String(username).trim() }, 'auth.login_failed', { ip: req.ip });
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
@@ -97,13 +101,18 @@ module.exports = (db) => {
       ip: req.ip,
     });
     setSessionCookie(res, token);
+    audit.log(db, user, 'auth.login', { entityType: 'user', entityId: user.id, ip: req.ip });
     res.json({ ok: true, onboardingCompleted: onboardingCompleted(), role: user.role, mustChangePassword: !!user.must_change_password });
   });
 
   // POST /api/auth/logout
   router.post('/logout', (req, res) => {
-    deleteSession(db, getSessionToken(req));
+    const token = getSessionToken(req);
+    const session = getValidSession(db, token);
+    const user = session ? getUserById(db, session.user_id) : null;
+    deleteSession(db, token);
     clearSessionCookie(res);
+    if (user) audit.log(db, user, 'auth.logout', { entityType: 'user', entityId: user.id, ip: req.ip });
     res.json({ ok: true });
   });
 
@@ -132,6 +141,7 @@ module.exports = (db) => {
       return res.status(409).json({ error: 'Cannot delete the last active admin' });
     }
 
+    audit.log(db, req.user, 'auth.delete_account', { entityType: 'user', entityId: req.user.id, ip: req.ip });
     db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id);
     deleteAllSessions(db, req.user.id);
     clearSessionCookie(res);

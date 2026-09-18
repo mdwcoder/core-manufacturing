@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const express = require('express');
 
 const { requireAuth, requireRole } = require('../auth');
+const audit = require('../audit');
 
 function displayId(token) {
   return crypto.createHash('sha256').update(token).digest('hex').slice(0, 16);
@@ -49,6 +50,7 @@ function selfRouter(db) {
   router.delete('/', requireAuth(db), (req, res) => {
     const result = db.prepare('DELETE FROM auth_sessions WHERE user_id = ? AND token != ?')
       .run(req.user.id, req.session.token);
+    audit.log(db, req.user, 'session.revoke_all', { entityType: 'user', entityId: req.user.id, note: `count=${result.changes}`, ip: req.ip });
     res.json({ ok: true, revoked: result.changes });
   });
 
@@ -56,6 +58,7 @@ function selfRouter(db) {
     const row = findByDisplayId(db, req.user.id, req.params.displayId);
     if (!row) return res.status(404).json({ error: 'Session not found' });
     db.prepare('DELETE FROM auth_sessions WHERE token = ?').run(row.token);
+    audit.log(db, req.user, 'session.revoke', { entityType: 'user', entityId: req.user.id, ip: req.ip });
     res.json({ ok: true });
   });
 
@@ -87,6 +90,7 @@ function adminRouter(db) {
     const user = targetUser(req, res);
     if (!user) return;
     const result = db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(user.id);
+    audit.log(db, req.user, 'session.revoke_all', { entityType: 'user', entityId: user.id, note: `count=${result.changes}`, ip: req.ip });
     res.json({ ok: true, revoked: result.changes });
   });
 
@@ -96,6 +100,7 @@ function adminRouter(db) {
     const row = findByDisplayId(db, user.id, req.params.displayId);
     if (!row) return res.status(404).json({ error: 'Session not found' });
     db.prepare('DELETE FROM auth_sessions WHERE token = ?').run(row.token);
+    audit.log(db, req.user, 'session.revoke', { entityType: 'user', entityId: user.id, ip: req.ip });
     res.json({ ok: true });
   });
 

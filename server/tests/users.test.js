@@ -36,6 +36,17 @@ function schema() {
       ip            TEXT,
       last_seen_at  INTEGER
     );
+    CREATE TABLE audit_log (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER,
+      username     TEXT,
+      action       TEXT NOT NULL,
+      entity_type  TEXT,
+      entity_id    INTEGER,
+      note         TEXT,
+      ip           TEXT,
+      created_at   INTEGER NOT NULL
+    );
   `);
 }
 

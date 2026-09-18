@@ -18,12 +18,14 @@ const PrinterPoller  = require('./poller');
 const JobScheduler   = require('./scheduler');
 const notifications  = require('./notifications');
 const events         = require('./events');
+const audit          = require('./audit');
 const backup         = require('./backup');
 
 const { requireAuth, blockOnForcedPasswordChange, blockViewerWrites } = require('./auth');
 const authRouter         = require('./routes/auth')(db);
 const usersRouter        = require('./routes/users')(db);
 const sessionsRoutes     = require('./routes/sessions');
+const auditLogRouter     = require('./routes/audit-log')(db);
 const printersRouter     = require('./routes/printers')(db);
 const jobsRouter         = require('./routes/jobs')(db);
 const backupRouter       = require('./routes/backup')(db);
@@ -97,6 +99,7 @@ app.use((req, res, next) => {
 // API routes
 app.use('/api/auth',            authRouter);
 app.use('/api/users',           usersRouter);
+app.use('/api/audit-log',       auditLogRouter);
 app.use('/api/sessions',        sessionsRoutes.selfRouter(db));
 app.use('/api/users/:id/sessions', sessionsRoutes.adminRouter(db));
 app.use('/api/printers',        printersRouter);
@@ -231,6 +234,7 @@ const server = app.listen(PORT, () => {
     const batchSetting = db.prepare("SELECT value FROM settings WHERE key = 'dispatch_batch_size'").get();
     const batchSize = batchSetting ? parseInt(batchSetting.value, 10) : 10;
     console.log(`[server] Batch set-ready: ${printers.length} printer(s), target concurrency ${batchSize}`);
+    audit.log(db, req.user, 'printer.set_ready_batch', { note: `ids=${ids.join(',')}`, ip: req.ip });
     scheduler._sweepInBatches(printers).catch(err =>
       console.error('[scheduler] Batch set-ready sweep error:', err)
     );
@@ -249,6 +253,7 @@ const server = app.listen(PORT, () => {
       WHERE id = ?
     `).run(printer.id);
     events.insert(printer.id, 'recommission', req.body?.note ?? null);
+    audit.log(db, req.user, 'printer.recommission', { entityType: 'printer', entityId: printer.id, note: req.body?.note ?? null, ip: req.ip });
     const updated = db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id);
     console.log(`[server] ${printer.name} recommissioned — dispatching...`);
     scheduler.scheduleForPrinter(updated);
@@ -469,6 +474,7 @@ const server = app.listen(PORT, () => {
     db.prepare('UPDATE printers SET is_held = 0 WHERE id = ?').run(printer.id);
     const updated = db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id);
     console.log(`[server] ${printer.name} set ready by operator — dispatching...`);
+    audit.log(db, req.user, 'printer.set_ready', { entityType: 'printer', entityId: printer.id, note: confirmed_qty != null ? `confirmed_qty=${confirmed_qty}` : null, ip: req.ip });
     scheduler.scheduleForPrinter(updated);
     res.json(updated);
   });

@@ -171,6 +171,28 @@ need `admin`.
 This does not change what `admin`/`manager`/`operator` can do anywhere in the app
 compared to before roles existed; it only adds a floor for `viewer`.
 
+### Audit log
+
+`GET /api/audit-log` requires `manager` or above. Read-only; the log itself has no
+pruning and no delete endpoint (see `docs/database.md#audit_log`).
+
+Query params, all optional and combined with AND: `user_id`, `action` (exact match, see
+the action names below), `entity_type`, `from`/`to` (epoch ms, inclusive), `limit`
+(default 50, capped at 200), `offset`.
+
+```json
+{ "rows": [{ "id": 41, "user_id": 2, "username": "shift-lead", "action": "printer.set_ready", "entity_type": "printer", "entity_id": 7, "note": null, "ip": "192.168.1.20", "created_at": 1774903200000 }], "total": 1, "limit": 50, "offset": 0 }
+```
+
+Actions currently logged: `auth.register`, `auth.login`, `auth.login_failed`,
+`auth.logout`, `auth.delete_account`, `user.create`, `user.update`, `user.delete`,
+`user.reset_password`, `user.change_own_password`, `session.revoke`,
+`session.revoke_all`, `backup.export`, `backup.restore`, `printer.set_ready`,
+`printer.set_ready_batch`, `printer.recommission`. The last three are added next to the
+existing `completed_qty` crediting code as a pure side effect; see
+`server/tests/role-gating.test.js` for the proof that this did not change what gets
+credited.
+
 ---
 
 ## Printers

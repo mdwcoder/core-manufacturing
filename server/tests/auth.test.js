@@ -40,6 +40,17 @@ function schema() {
       last_seen_at  INTEGER
     );
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE audit_log (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER,
+      username     TEXT,
+      action       TEXT NOT NULL,
+      entity_type  TEXT,
+      entity_id    INTEGER,
+      note         TEXT,
+      ip           TEXT,
+      created_at   INTEGER NOT NULL
+    );
   `);
 }
 

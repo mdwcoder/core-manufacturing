@@ -4,6 +4,7 @@ const path    = require('path');
 const fs      = require('fs');
 
 const { requireRole, requireMinRole } = require('../auth');
+const audit = require('../audit');
 
 const router   = express.Router();
 const GCODE_DIR = path.join(__dirname, '..', 'gcode');
@@ -270,6 +271,7 @@ module.exports = (db) => {
     const date = new Date().toISOString().slice(0, 10);
     res.setHeader('Content-Disposition', `attachment; filename="shopfloor-backup-${date}.json"`);
     res.setHeader('Content-Type', 'application/json');
+    audit.log(db, req.user, 'backup.export', { ip: req.ip });
     res.json(backup);
   });
 
@@ -440,6 +442,7 @@ module.exports = (db) => {
       restore();
 
       console.log(`[backup] CoMa restored: ${backup.printers.length} printers, ${backup.projects.length} projects, ${backup.gcodes.length} gcodes, ${backup.jobs.length} jobs, ERP ${hasErp ? 'included' : 'preserved from current database'}`);
+      audit.log(db, req.user, 'backup.restore', { note: `printers=${backup.printers.length} projects=${backup.projects.length} gcodes=${backup.gcodes.length} jobs=${backup.jobs.length}`, ip: req.ip });
 
       res.json({
         ok: true,

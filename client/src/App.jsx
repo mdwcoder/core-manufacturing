@@ -8,6 +8,7 @@ import Projects from './pages/Projects';
 import Jobs from './pages/Jobs';
 import Settings from './pages/Settings';
 import Users from './pages/Users';
+import AuditLog from './pages/AuditLog';
 import Decommissioned from './pages/Decommissioned';
 import Timelapses from './pages/Timelapses';
 import Calendar from './pages/Calendar';
@@ -139,6 +140,11 @@ export default function App({ authRole, authUsername }) {
                   Users
                 </NavLink>
               )}
+              {canSeeUsers && (
+                <NavLink to="/audit-log" className={navLinkClass} style={navLinkStyle}>
+                  Audit Log
+                </NavLink>
+              )}
               <NavLink to={SETTINGS_ITEM.to} className={navLinkClass} style={navLinkStyle}>
                 {SETTINGS_ITEM.label}
               </NavLink>
@@ -161,6 +167,11 @@ export default function App({ authRole, authUsername }) {
           {canSeeUsers && (
             <NavLink to="/users" style={compactLinkStyle}>
               Users
+            </NavLink>
+          )}
+          {canSeeUsers && (
+            <NavLink to="/audit-log" style={compactLinkStyle}>
+              Audit Log
             </NavLink>
           )}
           <NavLink to={SETTINGS_ITEM.to} style={compactLinkStyle}>
@@ -212,6 +223,7 @@ export default function App({ authRole, authUsername }) {
             <Route path="/workspace/bloc"  element={<Notebook />} />
             <Route path="/decommissioned"  element={<Decommissioned />} />
             <Route path="/users"           element={<Users authRole={authRole} />} />
+            <Route path="/audit-log"       element={<AuditLog />} />
             <Route path="/settings"        element={<Settings />} />
           </Routes>
           </div>

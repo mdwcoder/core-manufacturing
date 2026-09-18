@@ -11,6 +11,7 @@ const {
   deleteAllSessions,
   ROLE_RANK,
 } = require('../auth');
+const audit = require('../audit');
 
 const VALID_ROLES = Object.keys(ROLE_RANK);
 const MIN_PASSWORD_LENGTH = 8;
@@ -46,6 +47,7 @@ module.exports = (db) => {
     const { hash, salt } = hashPassword(String(newPassword));
     db.prepare('UPDATE users SET password_hash = ?, password_salt = ?, must_change_password = 0 WHERE id = ?')
       .run(hash, salt, req.user.id);
+    audit.log(db, req.user, 'user.change_own_password', { entityType: 'user', entityId: req.user.id, ip: req.ip });
     res.json({ ok: true });
   });
 
@@ -80,6 +82,7 @@ module.exports = (db) => {
       VALUES (?, ?, ?, ?, 1, 1, ?, ?)
     `).run(trimmed, hash, salt, role, now, req.user.id);
 
+    audit.log(db, req.user, 'user.create', { entityType: 'user', entityId: insert.lastInsertRowid, note: `role=${role}`, ip: req.ip });
     res.status(201).json({ user: publicShape(getUser(insert.lastInsertRowid)), temporaryPassword: password });
   });
 
@@ -112,6 +115,12 @@ module.exports = (db) => {
 
     if (nextActive === 0) deleteAllSessions(db, user.id);
 
+    audit.log(db, req.user, 'user.update', {
+      entityType: 'user',
+      entityId: user.id,
+      note: `role: ${user.role} -> ${nextRole}, is_active: ${user.is_active} -> ${nextActive}`,
+      ip: req.ip,
+    });
     res.json(publicShape(getUser(user.id)));
   });
 
@@ -124,6 +133,7 @@ module.exports = (db) => {
     }
     db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
     deleteAllSessions(db, user.id);
+    audit.log(db, req.user, 'user.delete', { entityType: 'user', entityId: user.id, note: user.username, ip: req.ip });
     res.json({ ok: true });
   });
 
@@ -141,6 +151,7 @@ module.exports = (db) => {
       .run(hash, salt, user.id);
     deleteAllSessions(db, user.id);
 
+    audit.log(db, req.user, 'user.reset_password', { entityType: 'user', entityId: user.id, ip: req.ip });
     res.json({ ok: true, temporaryPassword: password });
   });
 
