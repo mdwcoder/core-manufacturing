@@ -3,6 +3,8 @@ const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
 
+const { requireRole, requireMinRole } = require('../auth');
+
 const router   = express.Router();
 const GCODE_DIR = path.join(__dirname, '..', 'gcode');
 
@@ -205,11 +207,15 @@ function syncSequence(db, table) {
 module.exports = (db) => {
   // GET /api/backup: export the complete CoMa SQLite domain as a JSON bundle.
   //
-  // auth_account and auth_sessions (server/auth.js, server/routes/auth.js) are
-  // intentionally excluded here, the same way ebay_credential is excluded above:
-  // restoring a backup must never change who can log into the machine it lands on, or
-  // leak a password hash inside the backup JSON.
-  router.get('/', (req, res) => {
+  // auth_account, users, auth_sessions, and audit_log (server/auth.js,
+  // server/routes/auth.js) are intentionally excluded here, the same way
+  // ebay_credential is excluded above: restoring a backup must never change who can
+  // log into the machine it lands on, or leak a password hash inside the backup JSON,
+  // or mix one machine's audit trail into another's.
+  //
+  // requireMinRole('manager'): exporting the full farm/ERP dataset is a step above the
+  // coarse "not a viewer" bar every other read gets.
+  router.get('/', requireMinRole('manager'), (req, res) => {
     const printers        = db.prepare('SELECT * FROM printers').all();
     const projects        = db.prepare('SELECT * FROM projects').all();
     const parts           = db.prepare('SELECT * FROM parts').all();
@@ -268,7 +274,8 @@ module.exports = (db) => {
   });
 
   // POST /api/backup/restore: replace all data represented by a backup JSON file.
-  router.post('/restore', async (req, res) => {
+  // admin only: this is destructive to the whole farm/ERP dataset.
+  router.post('/restore', requireRole('admin'), async (req, res) => {
     let tmpPath = null;
     try {
       await runUpload(req, res);

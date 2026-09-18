@@ -155,6 +155,22 @@ in [docs/installation.md](installation.md)). Creates the user if it does not exi
 otherwise resets its password and revokes its open sessions; the account is usable
 immediately, without a forced change, since the operator typed the password themselves.
 
+### Role-based route gating
+
+Every route below `/api/*` (except `/api/auth/*` and `/api/health`) now runs behind
+three global checks, in order, after the login gate: the forced-password-change gate
+above, then `blockViewerWrites()`: any `POST`/`PUT`/`DELETE`/`PATCH` from a `viewer`
+role is rejected with `403 { "error": "Viewers cannot make changes" }`. This is
+intentionally coarse: a `viewer` can read everything the app shows them (Fleet,
+Projects, ERP, ...) but cannot change anything, without every one of the ~20 existing
+route files needing its own role check. Endpoints that need a tighter role than "not a
+viewer" say so explicitly in their own section: `GET /api/users` and
+`GET /api/backup` need `manager` or above; user mutations and `POST /api/backup/restore`
+need `admin`.
+
+This does not change what `admin`/`manager`/`operator` can do anywhere in the app
+compared to before roles existed; it only adds a floor for `viewer`.
+
 ---
 
 ## Printers

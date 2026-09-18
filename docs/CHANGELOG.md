@@ -2,6 +2,42 @@
 
 ---
 
+## 2026-09-18: Role-based route gating
+
+Roles existed on the `users` table since the first commit of this series but
+did nothing yet: every authenticated user, whatever their role, could still
+do everything. This wires the coarse permission model the plan settled on:
+a global `blockViewerWrites()` gate rejects any mutating request from a
+`viewer`, without touching the ~20 existing route files individually, plus
+a few explicitly tighter endpoints (`GET /api/backup` and `GET /api/users`
+need `manager`+; `POST /api/backup/restore` and user mutations need
+`admin`).
+
+The one place this had to be handled carefully is `completed_qty`
+(non-negotiable #1): set-ready, recommission, and set-ready-batch are all
+`POST` handlers inside `server/index.js`, so they are covered by the new
+global gate automatically. No line of their crediting logic changed. A
+dedicated regression test proves it: an operator gets exactly the same
+`completed_qty` delta as before this change, and a viewer gets `403` with
+`completed_qty` left completely untouched.
+
+### Changes
+- `server/index.js`: mounts `blockViewerWrites()` globally, right after the
+  forced-password-change gate; adds explanatory comments (no logic changes)
+  to the set-ready/recommission/set-ready-batch/scheduler-dispatch handlers
+  noting they are now covered by it
+- `server/routes/backup.js`: `GET /api/backup` requires `manager`+,
+  `POST /api/backup/restore` requires `admin`
+- `server/tests/role-gating.test.js` (new): the completed_qty regression
+  proof described above, plus recommission gating
+- `server/tests/backup-restore.test.js`: existing tests now run behind a
+  stand-in admin `req.user` (matching what the real login gate would set),
+  plus new coverage for the backup route role gates
+- `docs/api.md`: documents the gating order and which endpoints need more
+  than "not a viewer"
+
+---
+
 ## 2026-09-18: User management, forced password change, local password recovery
 
 With named accounts and roles in place (two commits back), CoMa needs a way to

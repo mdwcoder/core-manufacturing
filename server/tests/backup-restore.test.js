@@ -443,6 +443,13 @@ beforeEach(() => {
   jest.resetModules();
   app = express();
   app.use(express.json());
+  // In production, server/index.js's login gate runs first and attaches req.user
+  // before any request reaches this router (see requireAuth in server/auth.js). This
+  // test app is not exercising role gating itself (see server/tests/role-gating.test.js
+  // for that); it stands in for "an admin is already logged in" so the rest of this
+  // file's export/restore coverage is unaffected by requireRole('admin')/
+  // requireMinRole('manager') on these routes.
+  app.use((req, res, next) => { req.user = { id: 1, role: 'admin' }; next(); });
   app.use('/api/backup', require('../routes/backup')(db));
 });
 
@@ -1087,5 +1094,35 @@ describe('Backup export: auth tables intentionally excluded', () => {
     expect(res.body.auth_account).toBeUndefined();
     expect(res.body.auth_sessions).toBeUndefined();
     expect(JSON.stringify(res.body)).not.toMatch(/deadbeefsecrethash/);
+  });
+});
+
+// Regression guard for role-based route gating: GET /api/backup is manager+ and
+// POST /api/backup/restore is admin only, per server/index.js's role model. Each test
+// builds its router inside jest.isolateModules so the module-scoped `router` in
+// backup.js is not shared with (and re-registered onto) the outer `app` from this
+// file's beforeEach.
+function appAs(role) {
+  let built;
+  jest.isolateModules(() => {
+    const localApp = express();
+    localApp.use(express.json());
+    localApp.use((req, res, next) => { req.user = { id: 1, role }; next(); });
+    localApp.use('/api/backup', require('../routes/backup')(db));
+    built = localApp;
+  });
+  return built;
+}
+
+describe('Backup routes: role gating', () => {
+  test('GET /api/backup 403s an operator, allows manager and admin', async () => {
+    expect((await request(appAs('operator')).get('/api/backup')).status).toBe(403);
+    expect((await request(appAs('manager')).get('/api/backup')).status).toBe(200);
+    expect((await request(appAs('admin')).get('/api/backup')).status).toBe(200);
+  });
+
+  test('POST /api/backup/restore 403s a manager (admin only)', async () => {
+    const res = await request(appAs('manager')).post('/api/backup/restore');
+    expect(res.status).toBe(403);
   });
 });

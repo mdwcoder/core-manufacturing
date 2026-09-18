@@ -20,7 +20,7 @@ const notifications  = require('./notifications');
 const events         = require('./events');
 const backup         = require('./backup');
 
-const { requireAuth, blockOnForcedPasswordChange } = require('./auth');
+const { requireAuth, blockOnForcedPasswordChange, blockViewerWrites } = require('./auth');
 const authRouter         = require('./routes/auth')(db);
 const usersRouter        = require('./routes/users')(db);
 const sessionsRoutes     = require('./routes/sessions');
@@ -77,6 +77,21 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/auth/')) return next();
   if (req.path === '/api/health') return next();
   return blockOnForcedPasswordChange(['/api/users/me/password'])(req, res, next);
+});
+
+// Coarse permission gate: a viewer can read everything the app shows them but cannot
+// change anything, without touching each of the ~20 existing route files individually.
+// This is what makes set-ready/recommission/set-ready-batch/scheduler-dispatch below
+// (and every other mutating route) reject a viewer: they are all POST/PUT/DELETE.
+// Routes that need a tighter role than "not a viewer" (users, backup restore, audit
+// log) layer requireRole/requireMinRole on top of this at their own mount point.
+// Does not change any completed_qty crediting logic below; it only decides whether the
+// request reaches it.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (req.path.startsWith('/api/auth/')) return next();
+  if (req.path === '/api/health') return next();
+  return blockViewerWrites()(req, res, next);
 });
 
 // API routes
@@ -175,7 +190,9 @@ const server = app.listen(PORT, () => {
     scheduler.sweepIdlePrinters();
   });
 
-  // Dispatch trigger — called by the UI when a project is activated
+  // Dispatch trigger (called by the UI when a project is activated). POST, so the
+  // global blockViewerWrites() gate above already rejects a viewer; no change to
+  // dispatch logic itself.
   app.post('/api/scheduler/dispatch', (req, res) => {
     scheduler.sweepIdlePrinters();
     res.json({ ok: true });
@@ -185,7 +202,9 @@ const server = app.listen(PORT, () => {
   // batched sweep, which keeps pulling from the ready queue until dispatch_batch_size
   // printers actually have a job reserved (or the queue runs out), not a fixed chunk
   // of dispatch_batch_size printers evaluated at a time (see _sweepInBatches).
-  // Used by the "Set Ready (N)" action in the Fleet UI.
+  // Used by the "Set Ready (N)" action in the Fleet UI. POST, so the global
+  // blockViewerWrites() gate above already rejects a viewer before any of the
+  // completed_qty crediting below runs; that crediting logic is unchanged here.
   app.post('/api/printers/set-ready-batch', (req, res) => {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -220,6 +239,7 @@ const server = app.listen(PORT, () => {
 
   // Recommission a printer — returns it to the active fleet and immediately dispatches
   // a job if one is available. Operator has completed investigation; no hold needed.
+  // POST, so the global blockViewerWrites() gate above already rejects a viewer.
   app.post('/api/printers/:id/recommission', (req, res) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });
@@ -236,6 +256,10 @@ const server = app.listen(PORT, () => {
   });
 
   // Set a held printer ready — releases hold and dispatches next job to it.
+  //
+  // POST, so the global blockViewerWrites() gate above already rejects a viewer before
+  // any of the completed_qty crediting below runs. That crediting logic is unchanged
+  // here; see server/tests/role-gating.test.js for the regression proof.
   //
   // Two cases:
   //
