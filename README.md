@@ -22,6 +22,20 @@ Basic local login before the fleet UI mounts.
 
 ![CoMa sign-in screen](docs/images/login.png)
 
+### Users and roles
+
+Named admin, manager, operator, and viewer accounts with activation, password reset,
+session control, and one-time temporary credentials.
+
+![Named user accounts and role management](docs/images/users.png)
+
+### Audit log
+
+Persistent history for authentication, account administration, backups, sessions, and
+safety-sensitive fleet actions, filterable by user and action.
+
+![Security audit log with operator actions](docs/images/audit-log.png)
+
 ### Shopfloor dashboard
 
 Utilization, fleet mix, Needs Attention queue, live printer cards, and active project progress.

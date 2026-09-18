@@ -11,7 +11,7 @@ const path = require('path');
 const net = require('net');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
-const { createSession } = require('../server/auth');
+const { createSession, hashPassword } = require('../server/auth');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'docs', 'images');
@@ -24,6 +24,8 @@ const PAGES = [
   ['/calendar', 'calendar.png'],
   ['/timelapses', 'timelapses.png'],
   ['/printers', 'printers.png'],
+  ['/users', 'users.png'],
+  ['/audit-log', 'audit-log.png'],
   ['/workspace', 'workspace-board.png'],
   ['/workspace/bloc', 'workspace-notebook.png'],
   ['/erp', 'erp-dashboard.png'],
@@ -266,6 +268,65 @@ function seedOrdersHubDemo(db) {
   }
 }
 
+/** Seed named accounts and audit rows for the security gallery shots. */
+function seedSecurityDemo(db) {
+  const hasUsers = db.prepare(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+  ).get();
+  const hasAudit = db.prepare(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'audit_log'"
+  ).get();
+  if (!hasUsers || !hasAudit) throw new Error('security tables are not migrated yet');
+
+  let admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1").get();
+  if (!admin) {
+    const { hash, salt } = hashPassword(crypto.randomBytes(18).toString('base64url'));
+    const result = db.prepare(`
+      INSERT INTO users
+        (username, password_hash, password_salt, role, is_active, must_change_password, created_at)
+      VALUES ('readme-admin', ?, ?, 'admin', 1, 0, ?)
+    `).run(hash, salt, Date.now());
+    admin = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  const sampleUsers = [
+    ['shift-manager', 'manager'],
+    ['printer-operator', 'operator'],
+    ['production-viewer', 'viewer'],
+  ];
+  const insertUser = db.prepare(`
+    INSERT INTO users
+      (username, password_hash, password_salt, role, is_active, must_change_password, created_at, created_by)
+    VALUES (?, ?, ?, ?, 1, 0, ?, ?)
+  `);
+  for (const [username, role] of sampleUsers) {
+    if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) continue;
+    const { hash, salt } = hashPassword(crypto.randomBytes(18).toString('base64url'));
+    insertUser.run(username, hash, salt, role, Date.now(), admin.id);
+  }
+
+  const marker = db.prepare("SELECT 1 FROM audit_log WHERE note = 'README gallery demo' LIMIT 1").get();
+  if (!marker) {
+    const insertAudit = db.prepare(`
+      INSERT INTO audit_log
+        (user_id, username, action, entity_type, entity_id, note, ip, created_at)
+      VALUES (?, ?, ?, ?, ?, 'README gallery demo', '192.168.1.20', ?)
+    `);
+    const now = Date.now();
+    [
+      ['auth.login', 'user', admin.id],
+      ['user.create', 'user', admin.id + 1],
+      ['printer.set_ready', 'printer', 3],
+      ['backup.export', null, null],
+      ['session.revoke_all', 'user', admin.id],
+    ].forEach(([action, entityType, entityId], index) => {
+      insertAudit.run(admin.id, admin.username, action, entityType, entityId, now - index * 420000);
+    });
+  }
+
+  return admin;
+}
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function getJson(url, retries = 50) {
@@ -407,7 +468,11 @@ async function main() {
   } catch (err) {
     console.warn('[capture] workspace seed skipped:', err.message);
   }
-  const token = createSession(db);
+  const admin = seedSecurityDemo(db);
+  const token = createSession(db, admin.id, {
+    userAgent: 'CoMa README screenshot helper',
+    ip: '127.0.0.1',
+  });
 
   const chrome = spawn('chromium-browser', [
     '--headless=new', '--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage',
@@ -496,4 +561,6 @@ async function main() {
   process.exit(failed ? 1 : 0);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { seedSecurityDemo };

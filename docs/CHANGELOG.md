@@ -22,6 +22,20 @@ and recreates all indexes and triggers associated with `jobs`.
 
 ---
 
+## 2026-09-18: Add security screens to the README gallery
+
+The multi-user security work added Users and Audit Log pages, but the README gallery
+still jumped directly from sign-in to the shopfloor. The gallery now includes both
+security surfaces and keeps them reproducible from the dedicated seed database.
+
+### Changes
+- `README.md`: add Users and Audit Log descriptions and screenshots
+- `docs/images/users.png`, `docs/images/audit-log.png`: add seeded 1400x900 captures
+- `scripts/capture-readme-screenshots.js`: seed representative accounts and audit rows,
+  mint the temporary screenshot session for an admin user, and capture both pages
+
+---
+
 ## 2026-09-18: Fix security branch integration regressions
 
 Reviewing the multi-user security branch against the complete application found two
