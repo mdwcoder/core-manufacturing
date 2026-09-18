@@ -563,9 +563,31 @@ export default function Settings() {
     e.preventDefault();
     const file = restoreFileRef.current?.files[0];
     if (!file) return;
+
+    // Validate first (read-only) so the confirmation shows what is actually in the
+    // file, not a generic warning, before the destructive restore runs.
+    let summary = 'This replaces all CoMa data present in the backup, including shopfloor and embedded ERP records. This cannot be undone.';
+    try {
+      const validateFormData = new FormData();
+      validateFormData.append('file', file);
+      const validateRes = await fetch('/api/backup/validate', { method: 'POST', body: validateFormData });
+      const validateData = await validateRes.json().catch(() => ({}));
+      if (validateRes.ok && validateData.valid) {
+        const c = validateData.counts || {};
+        summary = `File contains ${c.printers ?? 0} printers, ${c.projects ?? 0} projects, ${c.parts ?? 0} parts, ${c.gcodes ?? 0} gcodes, ${c.jobs ?? 0} jobs${validateData.erp ? ', plus ERP data' : ''}. This replaces all matching CoMa data. This cannot be undone.`;
+      } else if (validateRes.ok && !validateData.valid) {
+        showToast('Restore file failed validation: ' + (validateData.error || 'unrecognised format'), 'error');
+        return;
+      }
+      // A validate-request failure (network, 400 on a corrupt upload) falls through to
+      // the generic confirmation message rather than blocking the restore attempt.
+    } catch (_) {
+      // ignore: fall back to the generic message below
+    }
+
     const ok = await confirm({
       title: 'Restore CoMa Data',
-      message: 'This replaces all CoMa data present in the backup, including shopfloor and embedded ERP records. This cannot be undone.',
+      message: summary,
       confirmLabel: 'Restore',
       danger: true,
     });

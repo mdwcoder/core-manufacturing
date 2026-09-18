@@ -139,6 +139,27 @@ Any authenticated user changing their own password. Body:
 characters). This is the one route still reachable while `must_change_password` is set
 (see below), and does not require any particular role.
 
+#### `GET /api/users/export`
+
+Admin only. Migrates the user roster between installations. `{username, role,
+is_active}` only, never a password hash:
+
+```json
+{ "version": 1, "exported_at": 1774900000000, "users": [{ "username": "shift-lead", "role": "operator", "is_active": 1 }] }
+```
+
+#### `POST /api/users/import`
+
+Admin only. Body: `{ "users": [{ "username": "...", "role": "...", "is_active": 0|1 }] }`
+(the shape `GET /api/users/export` produces). Each user is created with its own fresh
+random temporary password and `must_change_password` set, exactly like
+`POST /api/users`; an imported roster never carries a usable password across machines.
+An existing username is skipped, not overwritten. Returns `201`:
+
+```json
+{ "created": [{ "id": 6, "username": "shift-lead", "role": "operator", "temporaryPassword": "aBc123XyZ..." }], "skipped": [{ "username": "already-here", "reason": "username already exists" }] }
+```
+
 ### Forced password change
 
 While `req.user.must_change_password` is set, every `/api/*` route is rejected with
@@ -1463,6 +1484,22 @@ All error responses use this shape:
 Downloads a complete CoMa snapshot as `shopfloor-backup-YYYY-MM-DD.json`. The stable filename is retained for compatibility. It includes `printers`, `projects`, `parts`, `gcodes`, `jobs`, `printer_events`, `printer_models`, `printer_groups`, `filament_types`, `filament_colors`, `settings`, gcode file contents, and an `erp` object containing every embedded ERP table. Older `farm-backup-*.json` files still restore. No request body.
 
 **Response:** `Content-Disposition: attachment` JSON file.
+
+### `POST /api/backup/validate`
+
+Admin only. Parses and sanity-checks an uploaded backup file without writing anything,
+so the client can show a confirmation summary before the operator commits to the real,
+destructive restore below. Same request shape as restore (`multipart/form-data`, field
+`file`). Row counts, an `erp` per-table breakdown when the backup has one, `version`,
+and `exported_at` are reported so the summary can say what the file actually contains.
+
+```json
+{ "valid": true, "version": 1, "exported_at": 1774900000000, "counts": { "printers": 52, "projects": 3, "parts": 12, "gcodes": 18, "jobs": 340 }, "erp": { "item": 40 } }
+```
+
+An unrecognised format or a failed ERP-section check returns `200` with
+`{ "valid": false, "error": "..." }` (this is a validation *result*, not a request
+error). Invalid JSON or a missing file still return `400`.
 
 ### `POST /api/backup/restore`
 

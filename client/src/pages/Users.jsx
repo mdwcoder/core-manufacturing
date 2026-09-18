@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useToast } from '../useToast';
 import { useConfirm } from '../useConfirm';
 import PageHeader from '../components/PageHeader';
@@ -73,6 +73,9 @@ export default function Users({ authRole }) {
   const [sessionsFor, setSessionsFor] = useState(null); // user id currently expanded
   const [sessionRows, setSessionRows] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const importFileRef = useRef(null);
 
   const canMutate = authRole === 'admin';
 
@@ -200,6 +203,49 @@ export default function Users({ authRole }) {
     }
   }
 
+  async function handleExport() {
+    try {
+      const res = await fetch('/api/users/export');
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      const blob = new Blob([JSON.stringify(body, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `coma-users-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast('Export users failed: ' + err.message, 'error');
+    }
+  }
+
+  async function handleImport(e) {
+    e.preventDefault();
+    const file = importFileRef.current?.files[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const res = await fetch('/api/users/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: parsed.users || [] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      setImportResult(body);
+      fetchUsers();
+    } catch (err) {
+      showToast('Import users failed: ' + err.message, 'error');
+    } finally {
+      setImporting(false);
+      if (importFileRef.current) importFileRef.current.value = '';
+    }
+  }
+
   return (
     <div>
       <PageHeader title="Users" subtitle="Named accounts, roles, and password recovery for this CoMa install." />
@@ -223,6 +269,44 @@ export default function Users({ authRole }) {
             A random temporary password is generated and shown once. The new user must set their own password on first login.
           </div>
         </form>
+      )}
+
+      {canMutate && (
+        <div style={{ ...CARD_STYLE, padding: 18, marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: theme.textBright, marginBottom: 4 }}>
+            Migrate accounts between installations
+          </div>
+          <div style={{ fontSize: 11.5, color: theme.textDim, marginBottom: 12 }}>
+            Exports usernames, roles, and active state only, never password hashes. Every
+            imported user gets its own random temporary password and must set its own
+            password on first login, exactly like adding a user above.
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" onClick={handleExport} style={BTN_SECONDARY}>
+              Export users
+            </button>
+            <form onSubmit={handleImport} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <input ref={importFileRef} type="file" accept="application/json" style={{ fontSize: 12, color: theme.textMuted }} />
+              <button type="submit" disabled={importing} style={BTN_SECONDARY}>
+                {importing ? 'Importing...' : 'Import users'}
+              </button>
+            </form>
+          </div>
+          {importResult && (
+            <div style={{ marginTop: 12, fontSize: 12, color: theme.textMuted }}>
+              Created {importResult.created.length}, skipped {importResult.skipped.length}.
+              {importResult.created.length > 0 && (
+                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {importResult.created.map(c => (
+                    <div key={c.id} style={{ fontFamily: theme.mono, fontSize: 11 }}>
+                      {c.username}: <span style={{ color: theme.lime }}>{c.temporaryPassword}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       <div style={{ ...CARD_STYLE, overflow: 'hidden' }}>

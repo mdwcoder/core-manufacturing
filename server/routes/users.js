@@ -58,6 +58,59 @@ module.exports = (db) => {
     res.json(users.map(publicShape));
   });
 
+  // GET /api/users/export: admin, to migrate accounts between installations (e.g.
+  // moving a farm's admin roster onto a fresh install). Static route, declared before
+  // the parameterized /:id routes below. Never includes password_hash/password_salt:
+  // every imported user gets a brand new random temporary password, the same as any
+  // other admin-created account.
+  router.get('/export', requireAuth(db), requireRole('admin'), (req, res) => {
+    const users = db.prepare('SELECT username, role, is_active FROM users ORDER BY username').all();
+    audit.log(db, req.user, 'user.export', { note: `count=${users.length}`, ip: req.ip });
+    res.json({ version: 1, exported_at: Date.now(), users });
+  });
+
+  // POST /api/users/import: admin. Body: { users: [{ username, role, is_active }] }.
+  // Each user is created with a fresh random temporary password and
+  // must_change_password set, exactly like POST /api/users: an imported roster never
+  // carries a usable password across machines. Existing usernames are skipped, not
+  // overwritten, and reported back so the operator can see what happened.
+  router.post('/import', requireAuth(db), requireRole('admin'), (req, res) => {
+    const { users: incoming } = req.body || {};
+    if (!Array.isArray(incoming)) {
+      return res.status(400).json({ error: 'users array required' });
+    }
+
+    const created = [];
+    const skipped = [];
+    const now = Date.now();
+    const insert = db.transaction((rows) => {
+      for (const row of rows) {
+        const username = row && row.username ? String(row.username).trim() : '';
+        const role = row && row.role;
+        if (!username || !VALID_ROLES.includes(role)) {
+          skipped.push({ username: username || null, reason: 'invalid username or role' });
+          continue;
+        }
+        if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) {
+          skipped.push({ username, reason: 'username already exists' });
+          continue;
+        }
+        const password = generateTemporaryPassword();
+        const { hash, salt } = hashPassword(password);
+        const isActive = row.is_active === undefined ? 1 : (row.is_active ? 1 : 0);
+        const info = db.prepare(`
+          INSERT INTO users (username, password_hash, password_salt, role, is_active, must_change_password, created_at, created_by)
+          VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        `).run(username, hash, salt, role, isActive, now, req.user.id);
+        created.push({ id: info.lastInsertRowid, username, role, temporaryPassword: password });
+      }
+    });
+    insert(incoming);
+
+    audit.log(db, req.user, 'user.import', { note: `created=${created.length} skipped=${skipped.length}`, ip: req.ip });
+    res.status(201).json({ created, skipped });
+  });
+
   // POST /api/users: creates a user with a random temporary password, returned once in
   // the response body. Never accepts a caller-chosen password: this is what "admin-
   // created passwords are always temporary and random" means in practice.

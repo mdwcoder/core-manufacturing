@@ -1092,6 +1092,17 @@ describe('Backup export: auth tables intentionally excluded', () => {
         created_at  INTEGER NOT NULL,
         expires_at  INTEGER NOT NULL
       );
+      CREATE TABLE users (
+        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        username              TEXT NOT NULL UNIQUE,
+        password_hash         TEXT NOT NULL,
+        password_salt         TEXT NOT NULL,
+        role                  TEXT NOT NULL DEFAULT 'operator',
+        is_active             INTEGER NOT NULL DEFAULT 1,
+        must_change_password  INTEGER NOT NULL DEFAULT 0,
+        created_at            INTEGER NOT NULL,
+        created_by            INTEGER
+      );
     `);
     db.prepare(`
       INSERT INTO auth_account (id, username, password_hash, password_salt, created_at)
@@ -1099,9 +1110,19 @@ describe('Backup export: auth tables intentionally excluded', () => {
     `).run(Date.now());
     db.prepare('INSERT INTO auth_sessions (token, created_at, expires_at) VALUES (?, ?, ?)')
       .run('sometoken', Date.now(), Date.now() + 1000);
+    db.prepare(`
+      INSERT INTO users (username, password_hash, password_salt, role, is_active, must_change_password, created_at)
+      VALUES ('admin1', 'anothersecrethash', 'anothersalt', 'admin', 1, 0, ?)
+    `).run(Date.now());
+    db.prepare(`
+      INSERT INTO audit_log (user_id, username, action, created_at) VALUES (1, 'admin1', 'auth.login', ?)
+    `).run(Date.now());
 
     const res = await request(app).get('/api/backup');
     expect(res.status).toBe(200);
+    expect(res.body.users).toBeUndefined();
+    expect(res.body.audit_log).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toMatch(/anothersecrethash/);
     expect(res.body.auth_account).toBeUndefined();
     expect(res.body.auth_sessions).toBeUndefined();
     expect(JSON.stringify(res.body)).not.toMatch(/deadbeefsecrethash/);
@@ -1135,5 +1156,65 @@ describe('Backup routes: role gating', () => {
   test('POST /api/backup/restore 403s a manager (admin only)', async () => {
     const res = await request(appAs('manager')).post('/api/backup/restore');
     expect(res.status).toBe(403);
+  });
+
+  test('POST /api/backup/validate 403s a manager (admin only)', async () => {
+    const res = await request(appAs('manager')).post('/api/backup/validate');
+    expect(res.status).toBe(403);
+  });
+});
+
+// Regression coverage for POST /api/backup/validate: parses and sanity-checks a backup
+// file without writing anything, so the client can show a summary before the real,
+// destructive restore.
+describe('POST /api/backup/validate', () => {
+  test('rejects a request with no file', async () => {
+    const res = await request(app).post('/api/backup/validate');
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects invalid JSON without touching the database', async () => {
+    const p = path.join(os.tmpdir(), `backup-validate-bad-${Date.now()}.json`);
+    fs.writeFileSync(p, 'not json');
+    try {
+      const res = await request(app).post('/api/backup/validate').attach('file', p);
+      expect(res.status).toBe(400);
+      expect(res.body.valid).toBe(false);
+    } finally {
+      fs.unlinkSync(p);
+    }
+  });
+
+  test('reports valid: false for an unrecognised format, without a 4xx/5xx (the client shows this inline)', async () => {
+    const p = path.join(os.tmpdir(), `backup-validate-unrecognised-${Date.now()}.json`);
+    fs.writeFileSync(p, JSON.stringify({ not: 'a backup' }));
+    try {
+      const res = await request(app).post('/api/backup/validate').attach('file', p);
+      expect(res.status).toBe(200);
+      expect(res.body.valid).toBe(false);
+    } finally {
+      fs.unlinkSync(p);
+    }
+  });
+
+  test('reports valid: true with row counts for a real export, and leaves the database untouched', async () => {
+    const exportRes = await request(app).get('/api/backup');
+    expect(exportRes.status).toBe(200);
+    const before = db.prepare('SELECT COUNT(*) AS c FROM printers').get().c;
+    const backupFile = writeTempBackupFile(exportRes.body);
+
+    try {
+      const res = await request(app).post('/api/backup/validate').attach('file', backupFile);
+      expect(res.status).toBe(200);
+      expect(res.body.valid).toBe(true);
+      expect(res.body.counts.printers).toBe(exportRes.body.printers.length);
+      expect(res.body.counts.projects).toBe(exportRes.body.projects.length);
+      expect(res.body.erp).toBeTruthy();
+
+      // Nothing was written: validate is read-only.
+      expect(db.prepare('SELECT COUNT(*) AS c FROM printers').get().c).toBe(before);
+    } finally {
+      fs.unlinkSync(backupFile);
+    }
   });
 });

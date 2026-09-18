@@ -256,3 +256,102 @@ describe('POST /api/users/me/password', () => {
     expect(verifyPassword('supersecret1', row.password_hash, row.password_salt)).toBe(false);
   });
 });
+
+describe('GET /api/users/export', () => {
+  test('requires admin', async () => {
+    const managerId = seedUser('manager');
+    const agent = agentFor(managerId);
+    expect((await agent.get('/api/users/export')).status).toBe(403);
+  });
+
+  test('exports username/role/is_active, never a password hash or salt', async () => {
+    const adminId = seedUser('admin', { username: 'admin1' });
+    seedUser('operator', { username: 'shift-lead' });
+    const agent = agentFor(adminId);
+
+    const res = await agent.get('/api/users/export');
+    expect(res.status).toBe(200);
+    expect(res.body.users.length).toBe(2);
+    for (const u of res.body.users) {
+      expect(Object.keys(u).sort()).toEqual(['is_active', 'role', 'username']);
+    }
+    expect(JSON.stringify(res.body)).not.toMatch(/password/);
+  });
+});
+
+describe('POST /api/users/import', () => {
+  test('requires admin', async () => {
+    const managerId = seedUser('manager');
+    const agent = agentFor(managerId);
+    const res = await agent.post('/api/users/import').send({ users: [{ username: 'x', role: 'operator' }] });
+    expect(res.status).toBe(403);
+  });
+
+  test('creates each user with a fresh random temporary password and must_change_password set', async () => {
+    const adminId = seedUser('admin');
+    const agent = agentFor(adminId);
+
+    const res = await agent.post('/api/users/import').send({
+      users: [
+        { username: 'imported-op', role: 'operator', is_active: 1 },
+        { username: 'imported-viewer', role: 'viewer', is_active: 0 },
+      ],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.created.length).toBe(2);
+    expect(res.body.skipped.length).toBe(0);
+
+    for (const c of res.body.created) {
+      expect(typeof c.temporaryPassword).toBe('string');
+      expect(c.temporaryPassword.length).toBeGreaterThanOrEqual(8);
+    }
+    // Every created user's password is unique, not a shared/default one.
+    const passwords = res.body.created.map(c => c.temporaryPassword);
+    expect(new Set(passwords).size).toBe(passwords.length);
+
+    const op = db.prepare('SELECT * FROM users WHERE username = ?').get('imported-op');
+    expect(op.role).toBe('operator');
+    expect(op.is_active).toBe(1);
+    expect(op.must_change_password).toBe(1);
+
+    const viewer = db.prepare('SELECT * FROM users WHERE username = ?').get('imported-viewer');
+    expect(viewer.is_active).toBe(0);
+  });
+
+  test('skips an existing username without overwriting it, and reports why', async () => {
+    const adminId = seedUser('admin');
+    seedUser('operator', { username: 'already-here' });
+    const agent = agentFor(adminId);
+
+    const before = db.prepare('SELECT * FROM users WHERE username = ?').get('already-here');
+
+    const res = await agent.post('/api/users/import').send({
+      users: [{ username: 'already-here', role: 'admin' }],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.created.length).toBe(0);
+    expect(res.body.skipped).toEqual([{ username: 'already-here', reason: 'username already exists' }]);
+
+    const after = db.prepare('SELECT * FROM users WHERE username = ?').get('already-here');
+    expect(after.password_hash).toBe(before.password_hash);
+    expect(after.role).toBe('operator'); // unchanged, not promoted to admin
+  });
+
+  test('rejects a non-array body', async () => {
+    const adminId = seedUser('admin');
+    const agent = agentFor(adminId);
+    const res = await agent.post('/api/users/import').send({ users: 'not-an-array' });
+    expect(res.status).toBe(400);
+  });
+
+  test('skips an invalid role instead of throwing', async () => {
+    const adminId = seedUser('admin');
+    const agent = agentFor(adminId);
+    const res = await agent.post('/api/users/import').send({
+      users: [{ username: 'bad-role', role: 'superuser' }],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.created.length).toBe(0);
+    expect(res.body.skipped[0].username).toBe('bad-role');
+  });
+});

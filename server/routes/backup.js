@@ -275,6 +275,73 @@ module.exports = (db) => {
     res.json(backup);
   });
 
+  // POST /api/backup/validate: parses and sanity-checks an uploaded backup file without
+  // writing anything, so the client can show a confirmation summary ("this file has N
+  // printers, M projects, ...") before the operator commits to the real, destructive
+  // restore. Shares the same format checks POST /restore uses, kept in sync by hand
+  // since they are only a few lines each.
+  router.post('/validate', requireRole('admin'), async (req, res) => {
+    let tmpPath = null;
+    try {
+      await runUpload(req, res);
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      tmpPath = req.file.path;
+
+      let backup;
+      try {
+        backup = JSON.parse(fs.readFileSync(tmpPath, 'utf8'));
+      } catch {
+        return res.status(400).json({ valid: false, error: 'Invalid JSON in backup file' });
+      }
+
+      if (!backup.version || !Array.isArray(backup.printers)) {
+        return res.status(200).json({ valid: false, error: 'Unrecognised backup format' });
+      }
+
+      const erpValidationError = validateErpBackup(backup.erp);
+      if (erpValidationError) {
+        return res.status(200).json({ valid: false, error: erpValidationError });
+      }
+
+      const counts = {
+        printers:          (backup.printers          || []).length,
+        projects:          (backup.projects          || []).length,
+        parts:             (backup.parts             || []).length,
+        gcodes:            (backup.gcodes             || []).length,
+        jobs:              (backup.jobs               || []).length,
+        printer_events:    (backup.printer_events      || []).length,
+        printer_models:    (backup.printer_models      || []).length,
+        printer_groups:    (backup.printer_groups      || []).length,
+        filament_types:    (backup.filament_types      || []).length,
+        filament_colors:   (backup.filament_colors     || []).length,
+        calendar_events:   (backup.calendar_events     || []).length,
+        workspace_columns: (backup.workspace_columns   || []).length,
+        workspace_cards:   (backup.workspace_cards     || []).length,
+        notebook_pages:    (backup.notebook_pages      || []).length,
+        gcode_files:       Object.keys(backup.gcode_files || {}).length,
+      };
+      const hasErp = backup.erp !== undefined;
+
+      res.json({
+        valid: true,
+        version: backup.version,
+        exported_at: backup.exported_at ?? null,
+        counts,
+        erp: hasErp
+          ? Object.fromEntries(ERP_TABLES.map(table => [
+            table,
+            Array.isArray(backup.erp[table]) ? backup.erp[table].length : 0,
+          ]))
+          : null,
+      });
+    } catch (err) {
+      console.error('[backup] validate error:', err);
+      res.status(500).json({ error: err.message });
+    } finally {
+      if (tmpPath && fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    }
+  });
+
   // POST /api/backup/restore: replace all data represented by a backup JSON file.
   // admin only: this is destructive to the whole farm/ERP dataset.
   router.post('/restore', requireRole('admin'), async (req, res) => {

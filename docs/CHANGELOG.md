@@ -2,6 +2,40 @@
 
 ---
 
+## 2026-09-18: Users-only export/import, restore validation
+
+Two small gaps left in the backup surface: restoring a large backup file was
+"upload it and find out" with no preview, and there was no supported way to
+move an admin roster onto a fresh install (matching what the plan settled
+on: general export/import stays out of scope, users-only is the one piece
+added). Both are additive, read-mostly features on top of the existing
+backup/restore endpoint pair.
+
+`POST /api/backup/validate` parses and counts an uploaded file without
+writing anything; the Settings restore form now calls it first and shows the
+real row counts in the confirmation dialog instead of a generic warning.
+`GET /api/users/export` / `POST /api/users/import` round-trip
+`{username, role, is_active}` only, never a password hash: every imported
+user gets its own fresh random temporary password, exactly like creating one
+by hand.
+
+### Changes
+- `server/routes/backup.js`: `POST /api/backup/validate` (admin), sharing
+  the same format checks as `/restore`
+- `server/routes/users.js`: `GET /api/users/export`, `POST /api/users/import`
+  (admin), both static routes declared before `/:id`
+- `server/tests/backup-restore.test.js`: validate coverage, plus the
+  `users`/`audit_log` export-exclusion assertion extended alongside the
+  existing `auth_account`/`auth_sessions` one (sync pair with backup.js)
+- `server/tests/users.test.js`: export/import coverage, including the
+  skip-without-overwrite case for an existing username
+- `client/src/pages/Settings.jsx`: restore form validates first and shows
+  real row counts in the confirmation
+- `client/src/pages/Users.jsx`: export/import UI, admin only
+- `docs/api.md`: documents the three new endpoints
+
+---
+
 ## 2026-09-18: Audit log
 
 Named accounts, roles, and role-based gating (previous commits) answer "who
