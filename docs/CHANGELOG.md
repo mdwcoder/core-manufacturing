@@ -2,6 +2,41 @@
 
 ---
 
+## 2026-09-18: Named accounts and roles, replacing the single shared login
+
+The README has long admitted the login gate was "deliberately basic: one shared
+login, no CSRF token, no rate limiting, no TLS". This starts closing that gap.
+First step: replace the single `auth_account` row with a `users` table so every
+operator gets a named account with a role (`admin`, `manager`, `operator`,
+`viewer`). Existing installs are migrated in place on first startup after the
+upgrade: the one `auth_account` row becomes the first admin, its
+`onboarding_completed_at` moves to the `settings` table (the setup wizard is a
+per-installation event, not a per-account one), and open sessions are
+reassigned so nobody is forced to log back in. `auth_account` itself is never
+dropped, per the no-destructive-migrations rule.
+
+Role-based route gating and a proper user-management UI land in later commits;
+this commit only lays the data model and the register/login/logout/status/
+delete-account endpoints on top of it, preserving today's behavior for a single
+operator while making multiple named accounts possible.
+
+### Changes
+- `server/db.js`: new `users` and `audit_log` tables, `auth_sessions` grows
+  `user_id`/`user_agent`/`ip`/`last_seen_at`, calls the new migration on startup
+- `server/auth-migration.js` (new): pure, testable `migrateAuthAccountToUsers(db)`
+- `server/auth.js`: `createSession`/`getValidSession`/`requireAuth` now work in
+  terms of `users` and attach `req.user`; adds `ROLE_RANK`, `requireRole`,
+  `requireMinRole`, `blockViewerWrites` (not yet mounted anywhere)
+- `server/routes/auth.js`: register/login/status/delete-account read and write
+  `users` instead of `auth_account`; delete-account now removes only the
+  caller's own account and is blocked (409) if they are the last active admin
+- `server/tests/auth.test.js`, `server/tests/auth-migration.test.js`: updated
+  and new coverage for the users-table behavior and the migration
+- `docs/database.md`, `docs/api.md`: document the `users`/`audit_log` tables
+  and the updated auth endpoint responses
+
+---
+
 ## 2026-09-18: Orders Hub gallery shots and docs aligned
 
 After Orders Hub shipped (eBay + Shopify + planned Amazon / Mercado Libre), the

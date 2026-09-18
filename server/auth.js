@@ -1,16 +1,12 @@
-// Minimal local authentication for CoMa.
+// Local authentication for CoMa: multiple named accounts, each with a role
+// (admin/manager/operator/viewer), gating entry to the whole app. No new dependency:
+// password hashing uses Node's built-in crypto.scrypt, and sessions are random tokens
+// stored in the `auth_sessions` table and read back from an HttpOnly cookie.
 //
-// A single operator account gates entry to the whole app (single farm, single shared
-// login, no roles). No new dependency: password hashing uses Node's built-in
-// crypto.scrypt, and sessions are random tokens stored in the `auth_sessions` table and
-// read back from an HttpOnly cookie. There is no password reset flow: recovery is
-// "delete the account" via the documented operator action, which requires the current
-// password and starts the account/onboarding flow over.
-//
-// This is intentionally basic. It stops a stranger on the LAN from opening the app and
-// touching the fleet without logging in; it is not a hardened multi-user auth system
-// (no CSRF token, no rate limiting, no audit log). See docs/api.md and
-// docs/installation.md for the documented scope.
+// This module used to back a single shared account (see server/auth-migration.js for
+// how that account becomes the first admin on upgrade). See docs/security.md for the
+// full picture: roles, audit log, CSRF header, rate limiting, and local password
+// recovery.
 
 const crypto = require('crypto');
 
@@ -67,18 +63,23 @@ function getSessionToken(req) {
   return parseCookies(req)[COOKIE_NAME] || null;
 }
 
-// Creates a session row and returns the token. Callers set the cookie separately.
-function createSession(db) {
+// Creates a session row for a given user and returns the token. Callers set the cookie
+// separately. userAgent/ip are stored so the manageable-sessions screen can show what
+// each session is, and are best-effort (undefined is stored as NULL).
+function createSession(db, userId, { userAgent, ip } = {}) {
   const token = generateToken();
   const now = Date.now();
-  db.prepare('INSERT INTO auth_sessions (token, created_at, expires_at) VALUES (?, ?, ?)')
-    .run(token, now, now + SESSION_TTL_MS);
+  db.prepare(`
+    INSERT INTO auth_sessions (token, created_at, expires_at, user_id, user_agent, ip, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(token, now, now + SESSION_TTL_MS, userId, userAgent ?? null, ip ?? null, now);
   return token;
 }
 
 // Looks up a session by token; returns the row if valid, else null. Expired sessions
-// are deleted lazily on lookup (the row count is always tiny: one per login) rather
-// than through a background sweep, since this app has no cron-style job runner.
+// are deleted lazily on lookup (the row count is always tiny) rather than through a
+// background sweep, since this app has no cron-style job runner. Touches
+// last_seen_at so the sessions screen reflects recent activity.
 function getValidSession(db, token) {
   if (!token) return null;
   const row = db.prepare('SELECT * FROM auth_sessions WHERE token = ?').get(token);
@@ -87,6 +88,7 @@ function getValidSession(db, token) {
     db.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token);
     return null;
   }
+  db.prepare('UPDATE auth_sessions SET last_seen_at = ? WHERE token = ?').run(Date.now(), token);
   return row;
 }
 
@@ -95,15 +97,75 @@ function deleteSession(db, token) {
   db.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token);
 }
 
-function deleteAllSessions(db) {
-  db.prepare('DELETE FROM auth_sessions').run();
+// Deletes every session for one user (used by admin password reset and by a user
+// changing their own password). With no userId, deletes every session for every user
+// (used by delete-account style flows and tests).
+function deleteAllSessions(db, userId) {
+  if (userId != null) {
+    db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(userId);
+  } else {
+    db.prepare('DELETE FROM auth_sessions').run();
+  }
 }
 
-// Express middleware: 401s any request without a valid session cookie.
+function getUserById(db, userId) {
+  if (userId == null) return null;
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+}
+
+// Express middleware: 401s any request without a valid session belonging to an active
+// user, and attaches req.user / req.session for downstream role checks.
 function requireAuth(db) {
   return (req, res, next) => {
     const session = getValidSession(db, getSessionToken(req));
     if (!session) return res.status(401).json({ error: 'Not authenticated' });
+    const user = getUserById(db, session.user_id);
+    if (!user || !user.is_active) return res.status(401).json({ error: 'Not authenticated' });
+    req.session = session;
+    req.user = user;
+    next();
+  };
+}
+
+// Role rank, lowest to highest. Used by requireMinRole and by blockViewerWrites to know
+// which role is "viewer" without hardcoding the string in two places.
+const ROLE_RANK = { viewer: 0, operator: 1, manager: 2, admin: 3 };
+
+// Express middleware factory: 403s unless req.user.role is one of `roles`. Must run
+// after requireAuth(db) so req.user exists.
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Not permitted for your role' });
+    }
+    next();
+  };
+}
+
+// Express middleware factory: 403s unless req.user's role rank is at least minRole's.
+// Must run after requireAuth(db).
+function requireMinRole(minRole) {
+  const minRank = ROLE_RANK[minRole];
+  return (req, res, next) => {
+    if (!req.user || ROLE_RANK[req.user.role] === undefined || ROLE_RANK[req.user.role] < minRank) {
+      return res.status(403).json({ error: 'Not permitted for your role' });
+    }
+    next();
+  };
+}
+
+// Global, method-based gate: any mutating request (POST/PUT/DELETE/PATCH) from a
+// viewer is rejected. This is the "coarse" permission granularity for the ~20 existing
+// route files (printers, projects, parts, ...): viewers can read everything the app
+// shows them but cannot change anything, without touching each route file individually.
+// Endpoints that need a tighter role (users, backup restore, audit log) layer
+// requireRole/requireMinRole on top of this, inline at their mount point.
+const WRITE_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
+function blockViewerWrites() {
+  return (req, res, next) => {
+    if (req.user && req.user.role === 'viewer' && WRITE_METHODS.has(req.method)) {
+      return res.status(403).json({ error: 'Viewers cannot make changes' });
+    }
     next();
   };
 }
@@ -111,6 +173,7 @@ function requireAuth(db) {
 module.exports = {
   COOKIE_NAME,
   SESSION_TTL_MS,
+  ROLE_RANK,
   hashPassword,
   verifyPassword,
   generateToken,
@@ -122,5 +185,9 @@ module.exports = {
   getValidSession,
   deleteSession,
   deleteAllSessions,
+  getUserById,
   requireAuth,
+  requireRole,
+  requireMinRole,
+  blockViewerWrites,
 };

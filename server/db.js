@@ -404,6 +404,60 @@ try {
   )`);
 } catch (_) {}
 
+// Multi-user auth: users table with roles, replacing the single-row auth_account in
+// practice (auth_account is never dropped, see server/auth-migration.js). Excluded from
+// backup export/restore for the same reason auth_account/auth_sessions are: a restored
+// backup must never change who can log into the machine it lands on.
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS users (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    username              TEXT NOT NULL UNIQUE,
+    password_hash         TEXT NOT NULL,
+    password_salt         TEXT NOT NULL,
+    role                  TEXT NOT NULL DEFAULT 'operator'
+                            CHECK (role IN ('admin','manager','operator','viewer')),
+    is_active             INTEGER NOT NULL DEFAULT 1,
+    must_change_password  INTEGER NOT NULL DEFAULT 0,
+    created_at            INTEGER NOT NULL,
+    created_by            INTEGER REFERENCES users(id)
+  )`);
+} catch (_) {}
+
+// Audit log: who did what, never pruned, no FK (survives the user row being removed),
+// modeled on printer_events. Excluded from backup export/restore: a log from one
+// machine should not be mixed into another machine's history on restore.
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER,
+    username     TEXT,
+    action       TEXT NOT NULL,
+    entity_type  TEXT,
+    entity_id    INTEGER,
+    note         TEXT,
+    ip           TEXT,
+    created_at   INTEGER NOT NULL
+  )`);
+} catch (_) {}
+
+// auth_sessions grows a user_id (which account owns this session) plus metadata shown
+// on the manageable-sessions screen. All nullable so existing session rows (pre-dating
+// this column) stay valid until the migration below reassigns them.
+try { db.exec('ALTER TABLE auth_sessions ADD COLUMN user_id INTEGER'); } catch (_) {}
+try { db.exec('ALTER TABLE auth_sessions ADD COLUMN user_agent TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE auth_sessions ADD COLUMN ip TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE auth_sessions ADD COLUMN last_seen_at INTEGER'); } catch (_) {}
+
+// One-time, additive-by-copy migration: the single auth_account row (if any) becomes
+// the first admin in `users`, onboarding_completed_at moves to `settings`, and open
+// sessions are reassigned so an upgrade does not force everyone to log in again.
+// auth_account itself is never dropped. See server/auth-migration.js.
+try {
+  require('./auth-migration').migrateAuthAccountToUsers(db);
+} catch (err) {
+  console.error('[db] auth_account -> users migration failed:', err.message);
+}
+
 // Make jobs.gcode_id nullable so gcodes can be deleted after jobs have run
 const gcodeIdCol = db.prepare("PRAGMA table_info(jobs)").all().find(c => c.name === 'gcode_id');
 if (gcodeIdCol && gcodeIdCol.notnull === 1) {

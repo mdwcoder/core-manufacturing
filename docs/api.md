@@ -20,27 +20,27 @@ All request bodies are JSON (`Content-Type: application/json`) unless noted othe
 
 ## Authentication
 
-CoMa gates every `/api/*` route except `/api/auth/*` and `/api/health` behind a single local operator account (`server/auth.js`, `server/routes/auth.js`). This is intentionally basic: one shared account, no roles, no password reset flow, no CSRF token, no rate limiting. It stops a stranger on the LAN from opening the app without logging in; it is not a hardened multi-user auth system. Still run CoMa only on a trusted LAN or VPN (see the security note in [README.md](../README.md)).
+CoMa gates every `/api/*` route except `/api/auth/*` and `/api/health` behind a local login (`server/auth.js`, `server/routes/auth.js`). Named accounts each carry a role (`admin`, `manager`, `operator`, `viewer`); see [docs/security.md](security.md) for the full permission model, audit log, CSRF header, rate limiting, and password recovery.
 
-Sessions are an HttpOnly `coma_session` cookie (`SameSite=Lax`, 30 day expiry, no `Secure` attribute since installs are typically plain HTTP on a LAN). The client (`client/src/components/AuthGate.jsx`) reads `GET /api/auth/status` to decide which screen to show: create an account, log in, run the one-time setup guide, or render the app.
+Sessions are an HttpOnly `coma_session` cookie (`SameSite=Lax`, 30 day expiry; `Secure` only when `COOKIE_SECURE=true` is set, see [docs/installation.md](installation.md)). The client (`client/src/components/AuthGate.jsx`) reads `GET /api/auth/status` to decide which screen to show: create the first account, log in, force a password change, run the one-time setup guide, or render the app.
 
 ### `GET /api/auth/status`
 
 Not gated by auth (this is what decides whether to ask for one). Returns:
 
 ```json
-{ "hasAccount": true, "authenticated": true, "onboardingCompleted": false, "username": "operator" }
+{ "hasAccount": true, "authenticated": true, "onboardingCompleted": false, "username": "operator", "role": "admin", "mustChangePassword": false }
 ```
 
-`username` is only present when `authenticated` is `true`.
+`username`, `role`, and `mustChangePassword` are only present when `authenticated` is `true`.
 
 ### `POST /api/auth/register`
 
-Creates the single operator account. Body: `{ "username": "...", "password": "..." }` (password minimum 8 characters). Sets the session cookie and returns `201` with `{ "ok": true, "onboardingCompleted": false }`. Returns `409` if an account already exists (delete it first via `/api/auth/delete-account`), `400` for a missing username or a short password.
+Creates the very first account (always `admin`) on a fresh install. Body: `{ "username": "...", "password": "..." }` (password minimum 8 characters). Sets the session cookie and returns `201` with `{ "ok": true, "onboardingCompleted": false }`. Returns `409` once any account exists (every later user is created by an admin via `POST /api/users`, see [docs/security.md](security.md)), `400` for a missing username or a short password.
 
 ### `POST /api/auth/login`
 
-Body: `{ "username": "...", "password": "..." }`. Sets the session cookie and returns `{ "ok": true, "onboardingCompleted": <bool> }`. Returns `401` for a wrong username or password.
+Body: `{ "username": "...", "password": "..." }`. Sets the session cookie and returns `{ "ok": true, "onboardingCompleted": <bool>, "role": "...", "mustChangePassword": <bool> }`. Returns `401` for a wrong username/password or a deactivated user.
 
 ### `POST /api/auth/logout`
 
@@ -48,13 +48,13 @@ Clears the caller's session. Returns `{ "ok": true }`. The account itself is unt
 
 ### `POST /api/auth/complete-onboarding`
 
-Marks the one-time setup guide as done for the account, so `AuthGate` stops showing it. Requires a valid session (`401` otherwise). Returns `{ "ok": true }`.
+Marks the one-time setup guide as done for the whole install (a `settings` key, not a per-account flag), so `AuthGate` stops showing it. Requires a valid session (`401` otherwise). Returns `{ "ok": true }`.
 
 ### `POST /api/auth/delete-account`
 
-The only way the setup guide reappears. Body: `{ "password": "..." }`; the current password is required even though the caller already holds a session, because this is destructive. Deletes the account, invalidates every open session (not just the caller's), and clears the session cookie. Returns `{ "ok": true }`, `401` for a missing session or a wrong password, `404` if there is no account.
+Deletes the caller's own account. Body: `{ "password": "..." }`; the current password is required even though the caller already holds a session, because this is destructive. Blocked with `409` if the caller is the last active admin. Invalidates every session belonging to that account and clears the session cookie. Returns `{ "ok": true }`, `401` for a missing session or a wrong password.
 
-`auth_account` and `auth_sessions` are intentionally excluded from `GET /api/backup` and restore: a restored backup must never change who can log into the machine it lands on, or leak a password hash inside the backup JSON (see `server/routes/backup.js`).
+`users`, `auth_sessions`, and `audit_log` are intentionally excluded from `GET /api/backup` and restore: a restored backup must never change who can log into the machine it lands on, or leak a password hash inside the backup JSON (see `server/routes/backup.js`).
 
 ---
 
