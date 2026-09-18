@@ -407,6 +407,35 @@ beforeEach(() => {
     "INSERT INTO ebay_sync_state (key, value) VALUES ('orders_last_modified', '2026-09-17T12:05:00.000Z')"
   ).run();
 
+  // Shopify Admin tables (credentials seeded but must NOT appear in backup export)
+  db.prepare(`
+    UPDATE shopify_credential SET
+      shop_domain = 'test-shop.myshopify.com',
+      access_token = 'shpat_test_token_secret',
+      updated_at = ?
+    WHERE id = 1
+  `).run(Date.now());
+  db.prepare(`
+    INSERT INTO shopify_listing
+      (item_id, shopify_sku, variant_id, inventory_item_id, location_id, last_pushed_qty, last_pushed_price, is_active)
+    VALUES (?, 'SHOP-FG-BRACKET', 'var-1', 'inv-1', 'loc-1', 3, 15.5, 1)
+  `).run(finishedItem.lastInsertRowid);
+  db.prepare(`
+    INSERT INTO shopify_order
+      (order_id, name, created_at, updated_at, financial_status, fulfillment_status,
+       buyer_email, total_amount, currency, raw_json, imported_at)
+    VALUES ('1001', '#1001', '2026-09-17T12:00:00.000Z', '2026-09-17T12:05:00.000Z',
+            'paid', null, 'buyer@example.com', 15.5, 'USD', '{}', ?)
+  `).run(Date.now());
+  db.prepare(`
+    INSERT INTO shopify_order_line
+      (line_item_id, shopify_order_id, shopify_sku, title, qty, unit_price, total_price, item_id, status)
+    VALUES ('SLINE-1', '1001', 'SHOP-FG-BRACKET', 'Bracket', 1, 15.5, 15.5, ?, 'pending')
+  `).run(finishedItem.lastInsertRowid);
+  db.prepare(
+    "INSERT INTO shopify_sync_state (key, value) VALUES ('orders_updated_at_min', '2026-09-17T12:05:00.000Z')"
+  ).run();
+
   // server/routes/backup.js declares its Express router at module scope, like every
   // route file in this codebase. Node's require() cache means a second require() in the
   // same process would reuse that router with a stale db closure from a previous test's
@@ -551,6 +580,7 @@ describe('Backup export/restore: embedded ERP domain', () => {
     'wo_labor', 'pricing_config', 'sales_order', 'erp_posting',
     'customer', 'sales_doc', 'sales_doc_line', 'doc_counter',
     'ebay_listing', 'ebay_order', 'ebay_order_line', 'ebay_sync_state',
+    'shopify_listing', 'shopify_order', 'shopify_order_line', 'shopify_sync_state',
   ];
 
   test('export includes every ERP table and the shopfloor ERP link', async () => {
@@ -567,15 +597,19 @@ describe('Backup export/restore: embedded ERP domain', () => {
     expect(res.body.erp.sales_doc_line[0]).toMatchObject({ description: 'Bracket', qty: 5, line_total: 100 });
   });
 
-  test('export never includes ebay_credential secrets', async () => {
+  test('export never includes ebay_credential or shopify_credential secrets', async () => {
     const res = await request(app).get('/api/backup');
     expect(res.status).toBe(200);
     expect(res.body.erp.ebay_credential).toBeUndefined();
+    expect(res.body.erp.shopify_credential).toBeUndefined();
     expect(JSON.stringify(res.body)).not.toMatch(/test-client-secret/);
     expect(JSON.stringify(res.body)).not.toMatch(/test-refresh-token/);
-    // Row still exists in DB
+    expect(JSON.stringify(res.body)).not.toMatch(/shpat_test_token_secret/);
+    // Rows still exist in DB
     expect(db.prepare('SELECT client_secret FROM ebay_credential WHERE id = 1').get().client_secret)
       .toBe('test-client-secret');
+    expect(db.prepare('SELECT access_token FROM shopify_credential WHERE id = 1').get().access_token)
+      .toBe('shpat_test_token_secret');
   });
 
   test('restore round-trips inventory, costing, BOM, WO, machine, pricing, and sales data', async () => {
@@ -588,6 +622,10 @@ describe('Backup export/restore: embedded ERP domain', () => {
 
     try {
       db.exec(`
+        DELETE FROM shopify_order_line;
+        DELETE FROM shopify_order;
+        DELETE FROM shopify_listing;
+        DELETE FROM shopify_sync_state;
         DELETE FROM ebay_order_line;
         DELETE FROM ebay_order;
         DELETE FROM ebay_listing;
@@ -643,6 +681,9 @@ describe('Backup export/restore: embedded ERP domain', () => {
       expect(db.prepare("SELECT ebay_sku FROM ebay_listing WHERE ebay_sku = 'EBAY-FG-BRACKET'").get().ebay_sku)
         .toBe('EBAY-FG-BRACKET');
       expect(db.prepare("SELECT order_id FROM ebay_order WHERE order_id = 'ORD-1'").get().order_id).toBe('ORD-1');
+      expect(db.prepare("SELECT shopify_sku FROM shopify_listing WHERE shopify_sku = 'SHOP-FG-BRACKET'").get().shopify_sku)
+        .toBe('SHOP-FG-BRACKET');
+      expect(db.prepare("SELECT order_id FROM shopify_order WHERE order_id = '1001'").get().order_id).toBe('1001');
       expect(db.prepare("SELECT name, tax_id FROM customer WHERE name = 'Acme SL'").get())
         .toMatchObject({ name: 'Acme SL', tax_id: 'B12345678' });
       const restoredDoc = db.prepare("SELECT * FROM sales_doc WHERE doc_number = 'PRE-000001'").get();
@@ -690,13 +731,17 @@ describe('Backup export/restore: embedded ERP domain', () => {
     }
   });
 
-  test('older ERP backup without eBay tables still restores', async () => {
+  test('older ERP backup without eBay or Shopify tables still restores', async () => {
     const exportRes = await request(app).get('/api/backup');
     const backup = exportRes.body;
     delete backup.erp.ebay_listing;
     delete backup.erp.ebay_order;
     delete backup.erp.ebay_order_line;
     delete backup.erp.ebay_sync_state;
+    delete backup.erp.shopify_listing;
+    delete backup.erp.shopify_order;
+    delete backup.erp.shopify_order_line;
+    delete backup.erp.shopify_sync_state;
     const backupFile = writeTempBackupFile(backup);
 
     try {
@@ -704,6 +749,7 @@ describe('Backup export/restore: embedded ERP domain', () => {
       expect(restoreRes.status).toBe(200);
       expect(restoreRes.body.ok).toBe(true);
       expect(db.prepare('SELECT COUNT(*) AS n FROM ebay_listing').get().n).toBe(0);
+      expect(db.prepare('SELECT COUNT(*) AS n FROM shopify_listing').get().n).toBe(0);
       expect(db.prepare("SELECT total_price FROM sales_order WHERE sku = 'FG-BRACKET'").get().total_price).toBe(15);
     } finally {
       fs.unlinkSync(backupFile);

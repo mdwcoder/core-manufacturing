@@ -39,9 +39,12 @@ const workspaceRouter    = require('./routes/workspace')(db);
 const notebookRouter     = require('./routes/notebook')(db);
 const { mountErp }       = require('./erp');
 const { mountEbay }      = require('./ebay');
+const { mountShopify }   = require('./shopify');
+const { mountChannels }  = require('./channels');
 const { recordFromSetReady } = require('./erp/postings');
 const timelapse          = require('./timelapse');
 const ebayRunner         = require('./ebay/runner');
+const shopifyRunner      = require('./shopify/runner');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -81,8 +84,10 @@ app.use('/api/calendar',        calendarRouter);
 app.use('/api/workspace',       workspaceRouter);
 app.use('/api/notebook',        notebookRouter);
 
-// eBay Sell APIs (must mount before /api/erp so /api/erp/ebay is not shadowed)
+// Marketplace channels (must mount before /api/erp so paths are not shadowed)
 app.use('/api/erp/ebay', mountEbay(db));
+app.use('/api/erp/shopify', mountShopify(db));
+app.use('/api/erp/channels', mountChannels(db));
 // Acres ERP embedded in Express (same process, same SQLite DB)
 app.use('/api/erp', mountErp(db));
 
@@ -144,6 +149,7 @@ const server = app.listen(PORT, () => {
   backup.start(db);
   timelapse.start(db);
   ebayRunner.start(db);
+  shopifyRunner.start(db);
 
   // Wait for the first poll to complete before sweeping — ensures DB status reflects
   // live printer state rather than whatever was last persisted before shutdown.

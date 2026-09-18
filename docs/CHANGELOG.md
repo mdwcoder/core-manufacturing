@@ -2,6 +2,39 @@
 
 ---
 
+## 2026-09-18: Orders Hub with Shopify connector and channel registry
+
+Marketplace sales connections now live under one ERP screen, **Orders Hub**
+(`/erp/orders-hub`), instead of a lone eBay sidebar entry. The existing eBay
+Sell integration is unchanged in behavior and still available at
+`/erp/orders-hub/ebay` (legacy `/erp/ebay` kept for bookmarks). A new Shopify
+Admin connector mirrors eBay's hybrid order posting and inventory push, using a
+custom-app Admin API access token (shop domain + token pasted in UI or via env).
+Amazon and Mercado Libre appear as planned cards only.
+
+Each channel page includes a collapsible in-app guide with precise steps to
+obtain API keys from the official portal. Shopify posting uses
+`idem_key = shopify-line-{line_item_id}-sale` and never touches
+`parts.completed_qty`. Shopify code is implemented from Shopify Admin REST docs
+and is **not yet validated against a real Shopify store**.
+
+### Changes
+- `server/shopify/*`: schema, credentials, client, orders, inventory, runner, routes
+  under `/api/erp/shopify`.
+- `server/channels/*`: registry + `GET /api/erp/channels` aggregator.
+- `server/index.js`, `server/erp/schema.js`: mount Shopify + channels; ensure schema.
+- `server/routes/backup.js`, `server/tests/backup-restore.test.js`: optional
+  `shopify_*` tables (credentials excluded, same as eBay).
+- `server/tests/shopify-*.test.js`: client, routes, orders, inventory push coverage.
+- `client/src/pages/erp/ordersHub/*`: overview, Shopify page, ChannelGuide + guides.
+- `client/src/pages/erp/ebay.jsx`, `App.jsx`, `NavTree.jsx`, `Erp.jsx`: Orders Hub
+  nav and routes; eBay embeds the key guide.
+- `docs/erp/orders-hub.md`, `docs/erp/shopify.md`, `docs/erp/ebay.md`,
+  `docs/erp/README.md`, `docs/api.md`, `docs/database.md`, `docs/README.md`: docs
+  for the hub, Shopify, and registry recipe.
+
+---
+
 ## 2026-09-18: Workspace board and notebook translated to English
 
 A documentation and Spanish-text sweep after the Acres import work found that the

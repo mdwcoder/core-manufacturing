@@ -1,8 +1,10 @@
-# eBay Sell APIs (CoMa ERP)
+# eBay Sell APIs (CoMa ERP / Orders Hub)
 
-Integrates eBay seller APIs into the embedded ERP: import paid orders into `sales_order`, push finished-goods price and quantity to existing offers, and surface Analytics / Account diagnostics.
+Integrates eBay seller APIs into the embedded ERP via Orders Hub: import paid orders into `sales_order`, push finished-goods price and quantity to existing offers, and surface Analytics / Account diagnostics.
 
 **Hardware / account status:** implemented from eBay OpenAPI contracts (Fulfillment, Account, Analytics) and the Inventory API reference for `bulkUpdatePriceQuantity`. **Not yet validated against a real eBay sandbox or production seller account.**
+
+UI lives under Orders Hub: `/erp/orders-hub/ebay` (legacy `/erp/ebay` still works; overview at `/erp/orders-hub`).
 
 ## What it does
 
@@ -33,6 +35,15 @@ Stored in `ebay_credential` (single row, id=1). **Excluded from Settings JSON ba
 
 OAuth uses `grant_type=refresh_token` against the Identity token endpoint. Paste a user refresh token from the eBay developer portal (sandbox first). There is no RuName callback flow in this release.
 
+### How to get your keys (operator guide)
+
+Also available in the UI as **How to get your API keys** on the eBay page. Official portal: [eBay Developer Program (My Keys)](https://developer.ebay.com/my/keys).
+
+1. Sign in at developer.ebay.com with the seller account you want to connect.
+2. Create an application keyset (Sandbox first, then Production). Copy App ID (Client ID) and Cert ID (Client Secret).
+3. Open User Tokens (OAuth) for that keyset, select the Sell scopes below, complete consent, and copy the refresh token.
+4. Paste Client ID, Client Secret, and Refresh token into CoMa, match sandbox/production, save, then Test connection.
+
 Recommended scopes (space-separated):
 
 - `https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly`
@@ -53,7 +64,7 @@ Recommended scopes (space-separated):
 
 ## UI
 
-Route `/erp/ebay` (sidebar: Ventas / eBay). Connection status, masked credentials form, SKU mappings, pending queue, recent orders, analytics JSON panels.
+Route `/erp/orders-hub/ebay` (sidebar: Sales / Orders Hub). Connection status, key guide, masked credentials form, SKU mappings, pending queue, recent orders, analytics JSON panels.
 
 ## Module layout
 

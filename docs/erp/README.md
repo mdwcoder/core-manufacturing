@@ -33,11 +33,15 @@ Production: one process (`node server/index.js` serving `client/dist`).
 | Sales orders + history CSV/PDF | `/sales/order/items`, `/sales/orders`, `/sales/orders/report` | `/erp/sales/order`, `/erp/sales/reports` |
 | Customers | `/customers` | `/erp/customers` |
 | Sales documents: Quote / Delivery note / Invoice | `/sales-docs/*` | `/erp/quotes`, `/erp/delivery-notes`, `/erp/invoices`, `/erp/sales-docs/:id` |
-| eBay Sell (orders, inventory push, analytics) | `/api/erp/ebay/*` | `/erp/ebay` |
+| Orders Hub (marketplace channels) | `/api/erp/channels` | `/erp/orders-hub` |
+| eBay Sell (orders, inventory push, analytics) | `/api/erp/ebay/*` | `/erp/orders-hub/ebay` (legacy `/erp/ebay`) |
+| Shopify Admin (orders, inventory push) | `/api/erp/shopify/*` | `/erp/orders-hub/shopify` |
 
 Navigation lives in the CoMa sidebar only (Dashboard, Inventory, Manufacturing, Sales modules). ERP pages use `ErpShell` for the page title; there is no second in-page module nav.
 
+Orders Hub overview and how to add channels: [docs/erp/orders-hub.md](orders-hub.md).
 eBay details (credentials, hybrid posting, push limits): [docs/erp/ebay.md](ebay.md).
+Shopify details: [docs/erp/shopify.md](shopify.md).
 
 ## Acres parity audit
 

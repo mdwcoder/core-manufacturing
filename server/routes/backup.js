@@ -33,6 +33,12 @@ const ERP_TABLES = [
   'ebay_order_line',
   'ebay_sync_state',
   // ebay_credential intentionally excluded: secrets must not land in backup JSON
+  // Shopify Admin integration (optional in older backups)
+  'shopify_listing',
+  'shopify_order',
+  'shopify_order_line',
+  'shopify_sync_state',
+  // shopify_credential intentionally excluded: secrets must not land in backup JSON
 ];
 
 // Tables added after earlier releases. Older backups without these arrays still restore.
@@ -41,6 +47,10 @@ const ERP_OPTIONAL_TABLES = new Set([
   'ebay_order',
   'ebay_order_line',
   'ebay_sync_state',
+  'shopify_listing',
+  'shopify_order',
+  'shopify_order_line',
+  'shopify_sync_state',
   'customer',
   'sales_doc',
   'sales_doc_line',
@@ -48,6 +58,10 @@ const ERP_OPTIONAL_TABLES = new Set([
 ]);
 
 const ERP_DELETE_ORDER = [
+  'shopify_order_line',
+  'shopify_order',
+  'shopify_listing',
+  'shopify_sync_state',
   'ebay_order_line',
   'ebay_order',
   'ebay_listing',
@@ -99,9 +113,13 @@ const ERP_INSERT_ORDER = [
   'ebay_order',
   'ebay_order_line',
   'ebay_sync_state',
+  'shopify_listing',
+  'shopify_order',
+  'shopify_order_line',
+  'shopify_sync_state',
 ];
 
-const ERP_SEQUENCE_TABLES = ERP_TABLES.filter(table => !['uom', 'item_cost', 'ebay_sync_state', 'doc_counter'].includes(table));
+const ERP_SEQUENCE_TABLES = ERP_TABLES.filter(table => !['uom', 'item_cost', 'ebay_sync_state', 'shopify_sync_state', 'doc_counter'].includes(table));
 
 // Multer for restore uploads — write to data/ dir, clean up after processing
 const restoreUpload = multer({

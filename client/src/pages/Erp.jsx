@@ -23,6 +23,10 @@ export {
 } from './erp/sales';
 export { EbayPage } from './erp/ebay';
 export {
+  OrdersHubPage,
+  ShopifyPage,
+} from './erp/ordersHub';
+export {
   CustomersPage,
   QuotesPage,
   DeliveryNotesPage,

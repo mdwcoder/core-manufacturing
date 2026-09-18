@@ -1,16 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import Card from '../../components/Card';
+import Card from '../../../components/Card';
 import {
   ErpShell, Table, theme, INPUT_STYLE, BTN_PRIMARY, labelStyle, formRow, btnSecondary, apiJson,
   useErpFeedback,
-} from './shared';
-import { ChannelGuide } from './ordersHub/ChannelGuide';
+} from '../shared';
+import { ChannelGuide } from './ChannelGuide';
 
 const cardGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 14 };
 const sectionGap = { marginBottom: 14 };
 
-export function EbayPage() {
+export function ShopifyPage() {
   const { showToast, confirm, feedbackEl } = useErpFeedback();
   const [status, setStatus] = useState(null);
   const [creds, setCreds] = useState(null);
@@ -19,30 +19,28 @@ export function EbayPage() {
   const [pending, setPending] = useState([]);
   const [orders, setOrders] = useState([]);
   const [items, setItems] = useState([]);
-  const [newListing, setNewListing] = useState({ item_id: '', ebay_sku: '', offer_id: '' });
-  const [traffic, setTraffic] = useState(null);
-  const [standards, setStandards] = useState(null);
+  const [newListing, setNewListing] = useState({
+    item_id: '', shopify_sku: '', variant_id: '', inventory_item_id: '', location_id: '',
+  });
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadCore = useCallback(() => {
     Promise.all([
-      fetch('/api/erp/ebay/status').then(r => r.json()),
-      fetch('/api/erp/ebay/credentials').then(r => r.json()),
-      fetch('/api/erp/ebay/listings').then(r => r.json()),
-      fetch('/api/erp/ebay/pending').then(r => r.json()),
-      fetch('/api/erp/ebay/orders?limit=25').then(r => r.json()),
+      fetch('/api/erp/shopify/status').then(r => r.json()),
+      fetch('/api/erp/shopify/credentials').then(r => r.json()),
+      fetch('/api/erp/shopify/listings').then(r => r.json()),
+      fetch('/api/erp/shopify/pending').then(r => r.json()),
+      fetch('/api/erp/shopify/orders?limit=25').then(r => r.json()),
       fetch('/api/erp/items?limit=200').then(r => r.json()).catch(() => ({ items: [] })),
     ]).then(([st, cr, li, pe, or, it]) => {
       setStatus(st);
       setCreds(cr);
       setDraft({
-        environment: cr.environment || 'sandbox',
-        marketplace_id: cr.marketplace_id || 'EBAY_US',
+        shop_domain: cr.shop_domain || '',
+        api_version: cr.api_version || '2025-01',
         auto_post: cr.auto_post !== 0,
-        client_id: '',
-        client_secret: '',
-        refresh_token: '',
+        access_token: '',
       });
       setListings(li.listings || []);
       setPending(pe.lines || []);
@@ -54,32 +52,22 @@ export function EbayPage() {
 
   useEffect(() => { loadCore(); }, [loadCore]);
 
-  useEffect(() => {
-    if (!creds?.configured) return;
-    fetch('/api/erp/ebay/analytics/traffic')
-      .then(r => r.json()).then(d => { if (d.ok !== false) setTraffic(d); }).catch(() => {});
-    fetch('/api/erp/ebay/analytics/seller-standards')
-      .then(r => r.json()).then(d => { if (d.ok !== false) setStandards(d); }).catch(() => {});
-  }, [creds?.configured]);
-
   async function saveCredentials() {
     setBusy(true);
     try {
       const body = {
-        environment: draft.environment,
-        marketplace_id: draft.marketplace_id,
+        shop_domain: draft.shop_domain,
+        api_version: draft.api_version,
         auto_post: draft.auto_post ? 1 : 0,
       };
-      if (draft.client_id) body.client_id = draft.client_id;
-      if (draft.client_secret) body.client_secret = draft.client_secret;
-      if (draft.refresh_token) body.refresh_token = draft.refresh_token;
-      const updated = await apiJson('/api/erp/ebay/credentials', {
+      if (draft.access_token) body.access_token = draft.access_token;
+      const updated = await apiJson('/api/erp/shopify/credentials', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       setCreds(updated);
-      showToast('eBay credentials saved');
+      showToast('Shopify credentials saved');
       loadCore();
     } catch (err) {
       showToast('Save failed: ' + err.message, 'error');
@@ -91,8 +79,8 @@ export function EbayPage() {
   async function testConnection() {
     setBusy(true);
     try {
-      const result = await apiJson('/api/erp/ebay/test-connection', { method: 'POST' });
-      showToast(`Connected (${result.environment})`);
+      const result = await apiJson('/api/erp/shopify/test-connection', { method: 'POST' });
+      showToast(`Connected (${result.shop_name || result.shop_domain})`);
       loadCore();
     } catch (err) {
       showToast('Connection failed: ' + err.message, 'error');
@@ -104,7 +92,7 @@ export function EbayPage() {
   async function syncOrders() {
     setBusy(true);
     try {
-      const result = await apiJson('/api/erp/ebay/orders/sync', { method: 'POST' });
+      const result = await apiJson('/api/erp/shopify/orders/sync', { method: 'POST' });
       showToast(`Synced ${result.fetched} order(s), auto ${result.auto_posted}, queued ${result.queued}`);
       loadCore();
     } catch (err) {
@@ -117,7 +105,7 @@ export function EbayPage() {
   async function pushInventory() {
     setBusy(true);
     try {
-      const result = await apiJson('/api/erp/ebay/inventory/push', {
+      const result = await apiJson('/api/erp/shopify/inventory/push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -134,17 +122,21 @@ export function EbayPage() {
   async function addListing() {
     setBusy(true);
     try {
-      await apiJson('/api/erp/ebay/listings', {
+      await apiJson('/api/erp/shopify/listings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           item_id: Number(newListing.item_id),
-          ebay_sku: newListing.ebay_sku.trim(),
-          offer_id: newListing.offer_id.trim() || null,
+          shopify_sku: newListing.shopify_sku.trim(),
+          variant_id: newListing.variant_id.trim() || null,
+          inventory_item_id: newListing.inventory_item_id.trim() || null,
+          location_id: newListing.location_id.trim() || null,
         }),
       });
       showToast('Listing mapped');
-      setNewListing({ item_id: '', ebay_sku: '', offer_id: '' });
+      setNewListing({
+        item_id: '', shopify_sku: '', variant_id: '', inventory_item_id: '', location_id: '',
+      });
       loadCore();
     } catch (err) {
       showToast('Map failed: ' + err.message, 'error');
@@ -156,13 +148,13 @@ export function EbayPage() {
   async function removeListing(id) {
     const ok = await confirm({
       title: 'Remove mapping',
-      message: 'Remove this eBay SKU mapping? Offers on eBay are not deleted.',
+      message: 'Remove this Shopify SKU mapping? Products on Shopify are not deleted.',
       confirmLabel: 'Remove',
       danger: true,
     });
     if (!ok) return;
     try {
-      await apiJson(`/api/erp/ebay/listings/${id}`, { method: 'DELETE' });
+      await apiJson(`/api/erp/shopify/listings/${id}`, { method: 'DELETE' });
       showToast('Mapping removed');
       loadCore();
     } catch (err) {
@@ -182,7 +174,7 @@ export function EbayPage() {
     }
     setBusy(true);
     try {
-      await apiJson(`/api/erp/ebay/pending/${line.id}/confirm`, {
+      await apiJson(`/api/erp/shopify/pending/${line.id}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ acknowledge_shortage: !!acknowledgeShortage }),
@@ -204,13 +196,13 @@ export function EbayPage() {
   async function dismissPending(line) {
     const ok = await confirm({
       title: 'Dismiss line',
-      message: 'Dismiss this eBay order line without creating a sales order?',
+      message: 'Dismiss this Shopify order line without creating a sales order?',
       confirmLabel: 'Dismiss',
       danger: true,
     });
     if (!ok) return;
     try {
-      await apiJson(`/api/erp/ebay/pending/${line.id}/dismiss`, { method: 'POST' });
+      await apiJson(`/api/erp/shopify/pending/${line.id}/dismiss`, { method: 'POST' });
       showToast('Line dismissed');
       loadCore();
     } catch (err) {
@@ -220,7 +212,7 @@ export function EbayPage() {
 
   if (loading) {
     return (
-      <ErpShell title="eBay" subtitle="Sell APIs: orders, inventory push, analytics.">
+      <ErpShell title="Shopify" subtitle="Admin API: orders, inventory push.">
         <div style={{ color: theme.textDim }}>Loading...</div>
       </ErpShell>
     );
@@ -228,8 +220,8 @@ export function EbayPage() {
 
   return (
     <ErpShell
-      title="eBay"
-      subtitle="Import paid orders, push price/qty to existing offers, view seller analytics. Sandbox-first."
+      title="Shopify"
+      subtitle="Import paid orders, push price/qty to existing variants. Custom-app token (not yet validated on a live store)."
       actions={(
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Link to="/erp/orders-hub" style={{ textDecoration: 'none' }}>
@@ -243,7 +235,7 @@ export function EbayPage() {
     >
       <style>{`
         @media (max-width: 600px) {
-          .ebay-form-row { grid-template-columns: 1fr !important; }
+          .shopify-form-row { grid-template-columns: 1fr !important; }
         }
       `}</style>
 
@@ -253,7 +245,7 @@ export function EbayPage() {
           <div style={{ fontSize: 20, fontWeight: 800, color: status?.configured ? theme.lime : theme.orange, marginTop: 6 }}>
             {status?.configured ? 'Configured' : 'Not configured'}
           </div>
-          <div style={{ fontSize: 12, color: theme.textDim }}>{status?.environment || '-'} / {status?.marketplace_id || '-'}</div>
+          <div style={{ fontSize: 12, color: theme.textDim }}>{status?.shop_domain || '-'} / {status?.api_version || '-'}</div>
         </Card>
         <Card>
           <div style={{ fontSize: 11, color: theme.textFaint, textTransform: 'uppercase', fontWeight: 700 }}>Pending lines</div>
@@ -274,31 +266,30 @@ export function EbayPage() {
         </Card>
       </div>
 
-      <ChannelGuide channelId="ebay" />
+      <ChannelGuide channelId="shopify" />
 
       <Card title="Credentials" style={sectionGap}>
         <p style={{ fontSize: 12, color: theme.textDim, marginTop: 0 }}>
-          Paste sandbox App ID, Cert ID, and user refresh token. Env vars EBAY_CLIENT_ID / EBAY_CLIENT_SECRET / EBAY_REFRESH_TOKEN override DB.
-          Leave secret fields blank to keep the stored value. Credentials are not included in Settings backup export.
+          Paste shop domain (your-store.myshopify.com) and Admin API access token from a custom app.
+          Env vars SHOPIFY_SHOP_DOMAIN / SHOPIFY_ACCESS_TOKEN override DB. Leave the token blank to keep the stored value.
+          Credentials are not included in Settings backup export.
         </p>
-        <div className="ebay-form-row" style={formRow}>
+        <div className="shopify-form-row" style={formRow}>
           <div>
-            <label style={labelStyle}>Environment</label>
-            <select
-              style={INPUT_STYLE}
-              value={draft.environment || 'sandbox'}
-              onChange={e => setDraft(d => ({ ...d, environment: e.target.value }))}
-            >
-              <option value="sandbox">sandbox</option>
-              <option value="production">production</option>
-            </select>
-          </div>
-          <div>
-            <label style={labelStyle}>Marketplace</label>
+            <label style={labelStyle}>Shop domain</label>
             <input
               style={INPUT_STYLE}
-              value={draft.marketplace_id || ''}
-              onChange={e => setDraft(d => ({ ...d, marketplace_id: e.target.value }))}
+              placeholder="your-store.myshopify.com"
+              value={draft.shop_domain || ''}
+              onChange={e => setDraft(d => ({ ...d, shop_domain: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>API version</label>
+            <input
+              style={INPUT_STYLE}
+              value={draft.api_version || ''}
+              onChange={e => setDraft(d => ({ ...d, api_version: e.target.value }))}
             />
           </div>
           <div>
@@ -313,34 +304,15 @@ export function EbayPage() {
             </select>
           </div>
         </div>
-        <div className="ebay-form-row" style={{ ...formRow, marginTop: 10 }}>
+        <div className="shopify-form-row" style={{ ...formRow, marginTop: 10 }}>
           <div>
-            <label style={labelStyle}>Client ID {creds?.client_id ? `(${creds.client_id})` : ''}</label>
-            <input
-              style={INPUT_STYLE}
-              placeholder="paste new value to replace"
-              value={draft.client_id || ''}
-              onChange={e => setDraft(d => ({ ...d, client_id: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Client secret {creds?.client_secret ? `(${creds.client_secret})` : ''}</label>
+            <label style={labelStyle}>Access token {creds?.access_token ? `(${creds.access_token})` : ''}</label>
             <input
               style={INPUT_STYLE}
               type="password"
               placeholder="paste new value to replace"
-              value={draft.client_secret || ''}
-              onChange={e => setDraft(d => ({ ...d, client_secret: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Refresh token {creds?.refresh_token ? `(${creds.refresh_token})` : ''}</label>
-            <input
-              style={INPUT_STYLE}
-              type="password"
-              placeholder="paste new value to replace"
-              value={draft.refresh_token || ''}
-              onChange={e => setDraft(d => ({ ...d, refresh_token: e.target.value }))}
+              value={draft.access_token || ''}
+              onChange={e => setDraft(d => ({ ...d, access_token: e.target.value }))}
             />
           </div>
         </div>
@@ -350,7 +322,7 @@ export function EbayPage() {
       </Card>
 
       <Card title="SKU mappings" style={sectionGap}>
-        <div className="ebay-form-row" style={{ ...formRow, marginBottom: 12 }}>
+        <div className="shopify-form-row" style={{ ...formRow, marginBottom: 12 }}>
           <div>
             <label style={labelStyle}>ERP item</label>
             <select
@@ -365,19 +337,35 @@ export function EbayPage() {
             </select>
           </div>
           <div>
-            <label style={labelStyle}>eBay SKU</label>
+            <label style={labelStyle}>Shopify SKU</label>
             <input
               style={INPUT_STYLE}
-              value={newListing.ebay_sku}
-              onChange={e => setNewListing(n => ({ ...n, ebay_sku: e.target.value }))}
+              value={newListing.shopify_sku}
+              onChange={e => setNewListing(n => ({ ...n, shopify_sku: e.target.value }))}
             />
           </div>
           <div>
-            <label style={labelStyle}>Offer ID (required for push)</label>
+            <label style={labelStyle}>Variant ID (required for push)</label>
             <input
               style={INPUT_STYLE}
-              value={newListing.offer_id}
-              onChange={e => setNewListing(n => ({ ...n, offer_id: e.target.value }))}
+              value={newListing.variant_id}
+              onChange={e => setNewListing(n => ({ ...n, variant_id: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Inventory item ID</label>
+            <input
+              style={INPUT_STYLE}
+              value={newListing.inventory_item_id}
+              onChange={e => setNewListing(n => ({ ...n, inventory_item_id: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Location ID (optional)</label>
+            <input
+              style={INPUT_STYLE}
+              value={newListing.location_id}
+              onChange={e => setNewListing(n => ({ ...n, location_id: e.target.value }))}
             />
           </div>
           <div>
@@ -387,10 +375,10 @@ export function EbayPage() {
         </div>
         <Table
           columns={[
-            { key: 'ebay_sku', label: 'eBay SKU' },
+            { key: 'shopify_sku', label: 'Shopify SKU' },
             { key: 'item_sku', label: 'ERP SKU' },
             { key: 'item_name', label: 'Name' },
-            { key: 'offer_id', label: 'Offer ID' },
+            { key: 'variant_id', label: 'Variant ID' },
             { key: 'last_pushed_qty', label: 'Pushed qty' },
             { key: 'last_pushed_price', label: 'Pushed price' },
             { key: 'last_error', label: 'Error', render: r => (
@@ -408,12 +396,13 @@ export function EbayPage() {
       <Card title="Pending order lines" style={sectionGap}>
         <Table
           columns={[
-            { key: 'ebay_order_id', label: 'Order' },
-            { key: 'ebay_sku', label: 'SKU' },
+            { key: 'shopify_order_id', label: 'Order' },
+            { key: 'order_name', label: 'Name' },
+            { key: 'shopify_sku', label: 'SKU' },
             { key: 'title', label: 'Title' },
             { key: 'qty', label: 'Qty' },
             { key: 'unit_price', label: 'Unit $' },
-            { key: 'buyer_username', label: 'Buyer' },
+            { key: 'buyer_email', label: 'Buyer' },
             { key: 'item_id', label: 'Mapped', render: r => (r.item_id ? 'yes' : 'no') },
             { key: 'actions', label: '', render: r => (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -434,35 +423,17 @@ export function EbayPage() {
         <Table
           columns={[
             { key: 'order_id', label: 'Order ID' },
-            { key: 'creation_date', label: 'Created' },
-            { key: 'buyer_username', label: 'Buyer' },
+            { key: 'name', label: 'Name' },
+            { key: 'created_at', label: 'Created' },
+            { key: 'buyer_email', label: 'Buyer' },
             { key: 'total_amount', label: 'Total' },
-            { key: 'order_payment_status', label: 'Payment' },
-            { key: 'order_fulfillment_status', label: 'Fulfillment' },
+            { key: 'financial_status', label: 'Payment' },
+            { key: 'fulfillment_status', label: 'Fulfillment' },
           ]}
           rows={orders}
           rowKey={r => r.order_id}
         />
       </Card>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-        <Card title="Seller standards">
-          <pre style={{
-            fontSize: 11, color: theme.textDim, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            maxHeight: 240, overflow: 'auto', margin: 0,
-          }}>
-            {standards ? JSON.stringify(standards.data || standards, null, 2) : 'No data (configure credentials and connect).'}
-          </pre>
-        </Card>
-        <Card title="Traffic report (30d)">
-          <pre style={{
-            fontSize: 11, color: theme.textDim, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            maxHeight: 240, overflow: 'auto', margin: 0,
-          }}>
-            {traffic ? JSON.stringify(traffic.data || traffic, null, 2) : 'No data (configure credentials and connect).'}
-          </pre>
-        </Card>
-      </div>
 
       {feedbackEl}
     </ErpShell>

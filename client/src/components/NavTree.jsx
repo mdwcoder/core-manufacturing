@@ -51,7 +51,7 @@ export const NAV_SECTIONS = [
           { to: '/erp/sales/pricing', label: 'Pricing' },
           { to: '/erp/sales/config', label: 'Sales Config' },
           { to: '/erp/sales/reports', label: 'Sales Reports' },
-          { to: '/erp/ebay', label: 'eBay' },
+          { to: '/erp/orders-hub', label: 'Orders Hub' },
         ],
       },
     ],

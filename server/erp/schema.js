@@ -313,6 +313,14 @@ function ensureErpSchema(db) {
   } catch (e) {
     console.log('[erp] ebay schema skipped:', e.message);
   }
+
+  // Shopify Admin API tables (credentials excluded from backup by design)
+  try {
+    const { ensureShopifySchema } = require('../shopify/schema');
+    ensureShopifySchema(db);
+  } catch (e) {
+    console.log('[erp] shopify schema skipped:', e.message);
+  }
 }
 
 module.exports = { ensureErpSchema };

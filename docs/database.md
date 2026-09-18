@@ -433,6 +433,20 @@ Created by `server/ebay/schema.js` (invoked from `ensureErpSchema`). See [docs/e
 
 Backup export includes `ebay_listing`, `ebay_order`, `ebay_order_line`, and `ebay_sync_state` as optional ERP tables (older backups without them still restore).
 
+### Shopify Admin tables
+
+Created by `server/shopify/schema.js` (invoked from `ensureErpSchema`). See [docs/erp/shopify.md](erp/shopify.md) and [docs/erp/orders-hub.md](erp/orders-hub.md).
+
+| Table | Role |
+|---|---|
+| `shopify_credential` | Single-row secrets (id=1). **Not exported in backup JSON.** Env vars override. |
+| `shopify_listing` | Maps `item_id` to `shopify_sku` / `variant_id` / inventory ids for push |
+| `shopify_order` | Imported Admin orders (`order_id` unique) |
+| `shopify_order_line` | Line items (`line_item_id` unique); statuses `pending` / `auto_posted` / `posted` / `dismissed` |
+| `shopify_sync_state` | Watermark and last-error key/value store |
+
+Backup export includes `shopify_listing`, `shopify_order`, `shopify_order_line`, and `shopify_sync_state` as optional ERP tables (older backups without them still restore).
+
 ### Authentication tables
 
 Created by `server/db.js`, read and written by `server/auth.js` / `server/routes/auth.js`. See [docs/api.md](api.md#authentication).

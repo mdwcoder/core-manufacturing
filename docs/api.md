@@ -1007,6 +1007,64 @@ Success: `{ "ok": true, "status": "posted", "sales_order_id": 12, "stock_move_id
 
 Shortage without acknowledge: `409` with `{ "error": "Insufficient stock", "acknowledge_required": true, "missing": [...] }`.
 
+### Sales channels / Orders Hub (`/api/erp/channels`)
+
+Mounted **before** `/api/erp`. Returns the channel registry plus live counts for available connectors. Overview: [docs/erp/orders-hub.md](erp/orders-hub.md).
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/erp/channels` | `{ channels: [{ id, label, status, api?, path?, live? }] }` |
+
+`status` is `available` or `planned`. For available channels, `live` includes `configured`, `pending_count`, `listing_count`, `last_orders_sync_at`, `last_orders_error`. Planned channels (Amazon, Mercado Libre) have `live: null`.
+
+### Shopify Admin (`/api/erp/shopify`)
+
+Mounted **before** `/api/erp`. Full operator guide: [docs/erp/shopify.md](erp/shopify.md). Credentials are never returned in full (masked). `shopify_credential` is excluded from backup export. **Not yet validated against a real Shopify store.**
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/erp/shopify/status` | Configured flag, pending count, last sync errors |
+| `GET`/`PUT` | `/api/erp/shopify/credentials` | Masked GET; PUT accepts partial secrets (blank keeps stored) |
+| `POST` | `/api/erp/shopify/test-connection` | `GET /shop.json` probe |
+| `GET`/`POST` | `/api/erp/shopify/listings` | Map ERP item to Shopify SKU / variant_id |
+| `PUT`/`DELETE` | `/api/erp/shopify/listings/:id` | Update or remove mapping |
+| `POST` | `/api/erp/shopify/inventory/push` | Optional `{ "listing_id": N }`; else all active |
+| `POST` | `/api/erp/shopify/orders/sync` | Pull Admin orders; hybrid auto-post / queue |
+| `GET` | `/api/erp/shopify/orders` | Local order history; `limit`/`offset` |
+| `GET` | `/api/erp/shopify/orders/:orderId` | Order + lines |
+| `GET` | `/api/erp/shopify/pending` | Pending lines for operator confirm |
+| `POST` | `/api/erp/shopify/pending/:lineId/confirm` | Body `{ "acknowledge_shortage": true }` on 409 shortage |
+| `POST` | `/api/erp/shopify/pending/:lineId/dismiss` | Abandon pending line |
+
+#### `PUT /api/erp/shopify/credentials`
+
+```json
+{
+  "shop_domain": "your-store.myshopify.com",
+  "access_token": "shpat_...",
+  "api_version": "2025-01",
+  "auto_post": 1
+}
+```
+
+Response (token masked):
+
+```json
+{
+  "configured": true,
+  "shop_domain": "your-store.myshopify.com",
+  "api_version": "2025-01",
+  "auto_post": 1,
+  "access_token": "shpa********..."
+}
+```
+
+#### `POST /api/erp/shopify/pending/:lineId/confirm`
+
+Success: `{ "ok": true, "status": "posted", "sales_order_id": 12, "stock_move_id": 34 }`.
+
+Shortage without acknowledge: `409` with `{ "error": "Insufficient stock", "acknowledge_required": true, "missing": [...] }`.
+
 Parts may carry optional `erp_sku` (nullable) via `PUT /api/parts/:id`.
 Set Ready and set-ready-batch enqueue `erp_posting` rows; they never alter completed_qty beyond the existing shopfloor credit paths.
 
